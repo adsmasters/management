@@ -1,15 +1,14 @@
 (function () {
   'use strict';
 
-  var monthFrom   = document.getElementById('monthFrom');
-  var monthTo     = document.getElementById('monthTo');
-  var loadBtn     = document.getElementById('loadBtn');
-  var loadingEl   = document.getElementById('loading');
-  var contentEl   = document.getElementById('content');
-  var errorEl     = document.getElementById('error');
-  var profitBody  = document.getElementById('profitBody');
-  var setupHint   = document.getElementById('setupHint');
-  var noClockify  = document.getElementById('noClockify');
+  var monthFrom  = document.getElementById('monthFrom');
+  var monthTo    = document.getElementById('monthTo');
+  var loadBtn    = document.getElementById('loadBtn');
+  var loadingEl  = document.getElementById('loading');
+  var contentEl  = document.getElementById('content');
+  var errorEl    = document.getElementById('error');
+  var profitBody = document.getElementById('profitBody');
+  var setupHint  = document.getElementById('setupHint');
 
   // ── Default to current month ──────────────────────────────────────────
   var now = new Date();
@@ -17,7 +16,6 @@
   monthFrom.value = currentMonth;
   monthTo.value   = currentMonth;
 
-  // Keep "Bis" >= "Von"
   monthFrom.addEventListener('change', function () {
     if (monthTo.value && monthTo.value < monthFrom.value) monthTo.value = monthFrom.value;
   });
@@ -28,14 +26,11 @@
   function fmt(n) {
     return n.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
   }
-
   function norm(str) { return (str || '').trim().toLowerCase(); }
-
   function showError(msg) {
     errorEl.innerHTML = '<div class="alert alert-danger">⚠️ ' + msg + '</div>';
   }
 
-  // ── Generate list of {year, month} for a range ────────────────────────
   function monthsInRange(fromYear, fromMonth, toYear, toMonth) {
     var list = [];
     var y = fromYear, m = fromMonth;
@@ -45,30 +40,6 @@
       if (m > 12) { m = 1; y++; }
     }
     return list;
-  }
-
-  // ── Merge two clientHours maps ────────────────────────────────────────
-  function mergeClientHours(a, b) {
-    var result = {};
-    Object.keys(a).forEach(function (c) {
-      result[c] = Object.assign({}, a[c]);
-    });
-    Object.keys(b).forEach(function (c) {
-      if (!result[c]) result[c] = {};
-      Object.keys(b[c]).forEach(function (u) {
-        result[c][u] = (result[c][u] || 0) + b[c][u];
-      });
-    });
-    return result;
-  }
-
-  // ── Merge two userTotals maps ─────────────────────────────────────────
-  function mergeUserTotals(a, b) {
-    var result = Object.assign({}, a);
-    Object.keys(b).forEach(function (u) {
-      result[u] = (result[u] || 0) + b[u];
-    });
-    return result;
   }
 
   // ── Load ──────────────────────────────────────────────────────────────
@@ -89,47 +60,51 @@
       return;
     }
 
-    var months   = monthsInRange(fromYear, fromMonth, toYear, toMonth);
+    var months    = monthsInRange(fromYear, fromMonth, toYear, toMonth);
     var numMonths = months.length;
 
     errorEl.innerHTML = '';
     loadingEl.classList.remove('hidden');
     contentEl.classList.add('hidden');
 
-    noClockify.classList.toggle('hidden', window.clockify.isConfigured());
-
-    // Fetch Clockify + revenue for every month in range
-    var clockifyPromise = window.clockify.isConfigured()
-      ? Promise.all(months.map(function (m) {
-          return Promise.all([
-            window.clockify.fetchMonth(m.year, m.month),
-            window.clockify.fetchMonthByUser(m.year, m.month),
-          ]);
-        }))
-      : Promise.resolve(months.map(function () { return [{}, {}]; }));
-
-    var revenuePromise = Promise.all(
-      months.map(function (m) { return window.db.revenue.forMonth(m.year, m.month); })
-    );
-
+    // Fetch clients, employees, entries (from Supabase) + revenue for all months
     Promise.all([
       window.db.clients.list(),
       window.db.employees.listActive(),
-      clockifyPromise,
-      revenuePromise,
+      Promise.all(months.map(function (m) { return window.db.entries.forMonth(m.year, m.month); })),
+      Promise.all(months.map(function (m) { return window.db.revenue.forMonth(m.year, m.month); })),
     ])
     .then(function (results) {
-      var clients       = results[0];
-      var employees     = results[1];
-      var clockifyMonths = results[2]; // array of [{clientHours}, {userTotals}] per month
-      var revenueMonths  = results[3]; // array of revenue rows per month
+      var clients      = results[0];
+      var employees    = results[1];
+      var entryMonths  = results[2]; // array of entry-arrays per month
+      var revenueMonths = results[3];
 
-      // Aggregate Clockify across all months
+      // Build lookup: clientId → client
+      var clientsById = {};
+      clients.forEach(function (c) { clientsById[c.id] = c; });
+
+      // Build lookup: employeeId → employee
+      var empsById = {};
+      employees.forEach(function (e) { empsById[e.id] = e; });
+
+      // Aggregate entries across all months
+      // clientHours: { normClientName → { normEmpName → hours } }
+      // userTotals:  { normEmpName → totalHours }
       var clientHours = {};
       var userTotals  = {};
-      clockifyMonths.forEach(function (pair) {
-        clientHours = mergeClientHours(clientHours, pair[0]);
-        userTotals  = mergeUserTotals(userTotals,  pair[1]);
+      entryMonths.forEach(function (entries) {
+        entries.forEach(function (entry) {
+          var client = clientsById[entry.client_id];
+          var emp    = empsById[entry.employee_id]
+                    || (entry.employees && { name: entry.employees.name });
+          if (!client || !emp || !entry.hours) return;
+          var cKey = norm(client.name);
+          var uKey = norm(emp.name);
+          if (!clientHours[cKey]) clientHours[cKey] = {};
+          clientHours[cKey][uKey] = (clientHours[cKey][uKey] || 0) + entry.hours;
+          userTotals[uKey]        = (userTotals[uKey]        || 0) + entry.hours;
+        });
       });
 
       // Aggregate revenue across all months
@@ -161,17 +136,13 @@
 
     clients.forEach(function (client) {
       var cNorm = norm(client.name);
-
-      // Revenue: match via lexoffice_name (preferred) or client name
-      var lxName  = norm(client.lexoffice_name || client.name);
+      var lxName = norm(client.lexoffice_name || client.name);
       var revenue = revenueMap[lxName] || revenueMap[cNorm] || 0;
 
-      // Hours for this client per user from Clockify
       var cHours = clientHours[cNorm] || {};
       var totalClientHours = 0;
       Object.values(cHours).forEach(function (h) { totalClientHours += h; });
 
-      // Cost: allocate each employee's salary (× numMonths) by hours fraction
       var cost = 0;
       employees.forEach(function (emp) {
         if (!emp.monthly_cost || emp.monthly_cost <= 0) return;
@@ -189,18 +160,10 @@
       totalRevenue += revenue;
       totalCost    += cost;
 
-      rows.push({
-        name: client.name,
-        revenue: revenue,
-        cost: cost,
-        profit: profit,
-        margin: margin,
-        hours: totalClientHours,
-        hasRevenue: revenue > 0,
-      });
+      rows.push({ name: client.name, revenue, cost, profit, margin,
+                  hours: totalClientHours, hasRevenue: revenue > 0 });
     });
 
-    // Sort: clients with revenue first, then by profit desc
     rows.sort(function (a, b) {
       if (a.hasRevenue !== b.hasRevenue) return a.hasRevenue ? -1 : 1;
       return b.profit - a.profit;
@@ -212,17 +175,13 @@
       var marginBar = '';
       if (r.margin !== null) {
         var pct = Math.min(Math.abs(r.margin), 100);
-        var cls = r.margin >= 0 ? 'bar-pos' : 'bar-neg';
-        marginBar = '<div class="progress-bar-wrap"><div class="progress-bar ' + cls + '" style="width:' + pct + '%"></div></div>';
+        marginBar = '<div class="progress-bar-wrap"><div class="progress-bar ' +
+          (r.margin >= 0 ? 'bar-pos' : 'bar-neg') + '" style="width:' + pct + '%"></div></div>';
       }
 
       var marginText = r.margin !== null
         ? (r.margin >= 0 ? '+' : '') + r.margin.toFixed(1) + '%'
         : '<span class="no-lexoffice">kein Umsatz</span>';
-
-      var marginCls = r.margin !== null
-        ? (r.margin >= 0 ? 'margin-pos' : 'margin-neg')
-        : '';
 
       tr.innerHTML =
         '<td style="font-weight:500">' + r.name + '</td>' +
@@ -231,29 +190,27 @@
         '<td class="right ' + (r.revenue > 0 || r.cost > 0 ? (r.profit >= 0 ? 'profit-pos' : 'profit-neg') : '') + '">' +
           (r.revenue > 0 || r.cost > 0
             ? (r.profit >= 0 ? '+' : '') + fmt(r.profit)
-            : '<span class="no-lexoffice">—</span>') +
-        '</td>' +
-        '<td class="' + marginCls + '">' + marginText + marginBar + '</td>' +
+            : '<span class="no-lexoffice">—</span>') + '</td>' +
+        '<td class="' + (r.margin !== null ? (r.margin >= 0 ? 'margin-pos' : 'margin-neg') : '') + '">' +
+          marginText + marginBar + '</td>' +
         '<td class="right hours-cell">' + (r.hours > 0 ? r.hours.toFixed(1) + ' h' : '—') + '</td>';
 
       profitBody.appendChild(tr);
     });
 
-    // KPI summary
     var totalProfit = totalRevenue - totalCost;
     var avgMargin   = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : null;
 
     document.getElementById('kpiRevenue').textContent = fmt(totalRevenue);
     document.getElementById('kpiCost').textContent    = fmt(totalCost);
 
-    var profitEl  = document.getElementById('kpiProfit');
+    var profitEl = document.getElementById('kpiProfit');
     profitEl.textContent = (totalProfit >= 0 ? '+' : '') + fmt(totalProfit);
     profitEl.className   = 'kpi-value ' + (totalProfit >= 0 ? 'pos' : 'neg');
 
-    var marginEl  = document.getElementById('kpiMargin');
+    var marginEl = document.getElementById('kpiMargin');
     marginEl.textContent = avgMargin !== null
-      ? (avgMargin >= 0 ? '+' : '') + avgMargin.toFixed(1) + '%'
-      : '—';
+      ? (avgMargin >= 0 ? '+' : '') + avgMargin.toFixed(1) + '%' : '—';
     marginEl.className = 'kpi-value ' + (avgMargin !== null ? (avgMargin >= 0 ? 'pos' : 'neg') : 'neutral');
   }
 
