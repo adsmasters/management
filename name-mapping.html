@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Namen-Zuordnung – Adsmasters Management</title>
+  <link rel="stylesheet" href="css/style.css">
+  <style>
+    .mapping-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      background: var(--primary-light, #e8f0fe);
+      color: var(--primary, #2563eb);
+      border: 1px solid var(--primary-border, #bfdbfe);
+      border-radius: 4px;
+      padding: 2px 8px;
+      font-size: 12px;
+      font-weight: 500;
+      margin: 2px 4px 2px 0;
+    }
+    .tag-remove {
+      background: none;
+      border: none;
+      cursor: pointer;
+      color: inherit;
+      opacity: 0.6;
+      font-size: 14px;
+      line-height: 1;
+      padding: 0 0 0 2px;
+    }
+    .tag-remove:hover { opacity: 1; }
+    .tags-wrap { display: flex; flex-wrap: wrap; align-items: center; min-height: 28px; }
+    .add-form { display: flex; gap: 6px; align-items: center; margin-top: 6px; flex-wrap: wrap; }
+    .add-input {
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 5px 10px;
+      font-size: 13px;
+      background: var(--bg);
+      color: var(--text);
+      width: 280px;
+    }
+    .add-input:focus { outline: none; border-color: var(--primary); }
+    .unmapped-tag {
+      display: inline-block;
+      background: var(--warning-bg, #fef9c3);
+      color: var(--warning-text, #854d0e);
+      border: 1px solid var(--warning-border, #fde047);
+      border-radius: 4px;
+      padding: 3px 10px;
+      font-size: 12px;
+      font-weight: 500;
+      margin: 3px 4px 3px 0;
+    }
+    .section-hint {
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-bottom: 12px;
+    }
+  </style>
+</head>
+<body>
+
+<header class="header">
+  <div class="header-inner">
+    <a href="index.html" class="logo">Adsmasters <span>Management</span></a>
+    <nav>
+      <a href="index.html"        class="nav-link">Übersicht</a>
+      <a href="clients.html"      class="nav-link">Kunden</a>
+      <a href="employees.html"    class="nav-link">Mitarbeiter</a>
+      <a href="utilization.html"  class="nav-link">Auslastung</a>
+      <a href="profit.html"       class="nav-link">Profitabilität</a>
+      <a href="name-mapping.html" class="nav-link active">Zuordnung</a>
+      <a href="settings.html"     class="nav-link">Einstellungen</a>
+    </nav>
+  </div>
+</header>
+
+<main class="main">
+
+  <div id="setupHint" class="hidden">
+    <div class="state-box">
+      <div class="icon">⚙️</div>
+      <h3>Einstellungen erforderlich</h3>
+      <p>Bitte zuerst die Supabase-Verbindung in den <a href="settings.html">Einstellungen</a> konfigurieren.</p>
+      <a href="settings.html" class="btn btn-primary">Zu den Einstellungen</a>
+    </div>
+  </div>
+
+  <div id="error"></div>
+
+  <div class="page-header">
+    <div>
+      <h1>Namen-Zuordnung</h1>
+      <div class="sub">Clockify-Kunden mit LexOffice-Rechnungsnamen verbinden</div>
+    </div>
+  </div>
+
+  <div id="loading" class="hidden">
+    <div class="loading-bar"><div class="spinner"></div>Daten werden geladen…</div>
+  </div>
+
+  <div id="content" class="hidden">
+
+    <!-- Mapping-Tabelle -->
+    <div class="card">
+      <p class="section-hint">
+        Jedem Clockify-Kunden können beliebig viele LexOffice-Namen zugeordnet werden.
+        Die Profitabilitäts-Auswertung summiert dann den Umsatz aller zugeordneten Namen.
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th style="min-width:200px">Clockify-Kunde</th>
+              <th>Zugeordnete LexOffice-Namen</th>
+            </tr>
+          </thead>
+          <tbody id="mappingBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Nicht zugeordnete LexOffice-Namen -->
+    <div class="card">
+      <h2 style="font-size:15px;font-weight:700;margin-bottom:8px">Noch nicht zugeordnete LexOffice-Namen</h2>
+      <p class="section-hint">Diese Namen kommen in LexOffice-Rechnungen vor, sind aber noch keinem Clockify-Kunden zugeordnet.</p>
+      <div id="unmappedNames"></div>
+    </div>
+
+  </div>
+
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/db.js"></script>
+<script src="js/utils.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/name-mapping.js"></script>
+</body>
+</html>

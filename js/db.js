@@ -128,6 +128,19 @@
     revenue: {
       forMonth: (year, month) =>
         q(s => s.from('revenue').select('*').eq('year', year).eq('month', month)),
+      allContactNames: () =>
+        q(s => s.from('revenue').select('contact_name').order('contact_name'))
+          .then(rows => [...new Set(rows.map(r => r.contact_name).filter(Boolean))].sort()),
+    },
+
+    mappings: {
+      list: () =>
+        q(s => s.from('client_revenue_mappings').select('*').order('lexoffice_name')),
+      add: (clientId, lexofficeName) =>
+        q(s => s.from('client_revenue_mappings')
+          .insert({ client_id: clientId, lexoffice_name: lexofficeName }).select().single()),
+      remove: (id) =>
+        q(s => s.from('client_revenue_mappings').delete().eq('id', id)),
     },
 
     entries: {

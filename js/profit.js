@@ -73,12 +73,21 @@
       window.db.employees.listActive(),
       Promise.all(months.map(function (m) { return window.db.entries.forMonth(m.year, m.month); })),
       Promise.all(months.map(function (m) { return window.db.revenue.forMonth(m.year, m.month); })),
+      window.db.mappings.list(),
     ])
     .then(function (results) {
-      var clients      = results[0];
-      var employees    = results[1];
-      var entryMonths  = results[2]; // array of entry-arrays per month
+      var clients       = results[0];
+      var employees     = results[1];
+      var entryMonths   = results[2]; // array of entry-arrays per month
       var revenueMonths = results[3];
+      var mappings      = results[4];
+
+      // Build lookup: clientId → [lexoffice_name, ...]
+      var mappingsByClient = {};
+      mappings.forEach(function (m) {
+        if (!mappingsByClient[m.client_id]) mappingsByClient[m.client_id] = [];
+        mappingsByClient[m.client_id].push(m.lexoffice_name);
+      });
 
       // Build lookup: clientId → client
       var clientsById = {};
@@ -119,7 +128,7 @@
       loadingEl.classList.add('hidden');
       contentEl.classList.remove('hidden');
 
-      render(clients, employees, clientHours, userTotals, revenueMap, numMonths, months);
+      render(clients, employees, clientHours, userTotals, revenueMap, mappingsByClient, numMonths, months);
     })
     .catch(function (e) {
       loadingEl.classList.add('hidden');
@@ -127,7 +136,7 @@
     });
   }
 
-  function render(clients, employees, clientHours, userTotals, revenueMap, numMonths, months) {
+  function render(clients, employees, clientHours, userTotals, revenueMap, mappingsByClient, numMonths, months) {
     profitBody.innerHTML = '';
 
     var totalRevenue = 0;
@@ -136,8 +145,18 @@
 
     clients.forEach(function (client) {
       var cNorm = norm(client.name);
-      var lxName = norm(client.lexoffice_name || client.name);
-      var revenue = revenueMap[lxName] || revenueMap[cNorm] || 0;
+
+      // Revenue: sum all mapped LexOffice names; fallback to lexoffice_name field or client name
+      var revenue = 0;
+      var clientMappedNames = mappingsByClient[client.id] || [];
+      if (clientMappedNames.length > 0) {
+        clientMappedNames.forEach(function (lxN) {
+          revenue += revenueMap[norm(lxN)] || 0;
+        });
+      } else {
+        var lxName = norm(client.lexoffice_name || client.name);
+        revenue = revenueMap[lxName] || revenueMap[cNorm] || 0;
+      }
 
       var cHours = clientHours[cNorm] || {};
       var totalClientHours = 0;
