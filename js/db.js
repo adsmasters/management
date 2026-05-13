@@ -125,6 +125,11 @@
         ).select().single()),
     },
 
+    revenue: {
+      forMonth: (year, month) =>
+        q(s => s.from('revenue').select('*').eq('year', year).eq('month', month)),
+    },
+
     entries: {
       // All entries for a month across all clients (includes employee data)
       forMonth: (year, month) =>

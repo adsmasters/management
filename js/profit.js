@@ -8,7 +8,6 @@
   var errorEl     = document.getElementById('error');
   var profitBody  = document.getElementById('profitBody');
   var setupHint   = document.getElementById('setupHint');
-  var noLexoffice = document.getElementById('noLexoffice');
   var noClockify  = document.getElementById('noClockify');
 
   // ── Default to current month ──────────────────────────────────────────
@@ -38,8 +37,7 @@
     loadingEl.classList.remove('hidden');
     contentEl.classList.add('hidden');
 
-    noLexoffice.classList.toggle('hidden', window.lexoffice.isConfigured());
-    noClockify.classList.toggle('hidden',  window.clockify.isConfigured());
+    noClockify.classList.toggle('hidden', window.clockify.isConfigured());
 
     // Always load clients + employees from Supabase
     Promise.all([
@@ -51,17 +49,22 @@
             window.clockify.fetchMonthByUser(year, month),
           ])
         : Promise.resolve([{}, {}]),
-      window.lexoffice.isConfigured()
-        ? window.lexoffice.fetchMonth(year, month)
-        : Promise.resolve({}),
+      window.db.revenue.forMonth(year, month),
     ])
     .then(function (results) {
-      var clients    = results[0];
-      var employees  = results[1];
-      var cfData     = results[2];
+      var clients     = results[0];
+      var employees   = results[1];
+      var cfData      = results[2];
       var clientHours = cfData[0]; // { normClientName → { normUserName → hours } }
       var userTotals  = cfData[1]; // { normUserName → totalHours }
-      var revenueMap  = results[3]; // { normContactName → totalBrutto }
+
+      // Build revenueMap from Supabase rows (one row per invoice, aggregate by contact_name)
+      var revenueRows = results[3];
+      var revenueMap  = {};
+      revenueRows.forEach(function (row) {
+        var key = norm(row.contact_name || '');
+        revenueMap[key] = (revenueMap[key] || 0) + (row.total_amount || 0);
+      });
 
       loadingEl.classList.add('hidden');
       contentEl.classList.remove('hidden');
