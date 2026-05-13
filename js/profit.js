@@ -248,6 +248,57 @@
     marginEl.className = 'kpi-value ' + (avgMargin !== null ? (avgMargin >= 0 ? 'pos' : 'neg') : 'neutral');
   }
 
+  // ── LexOffice sync ───────────────────────────────────────────────────
+  var lexSyncBtn = document.getElementById('lexSyncBtn');
+
+  lexSyncBtn.addEventListener('click', function () {
+    if (!window.lexoffice.isConfigured()) {
+      showError('LexOffice nicht verbunden. Bitte zuerst in den <a href="settings.html">Einstellungen</a> den API Key eintragen.');
+      return;
+    }
+
+    var fromParts = monthFrom.value.split('-');
+    var toParts   = monthTo.value.split('-');
+    if (!fromParts[0] || !toParts[0]) { showError('Bitte zuerst einen Zeitraum wählen.'); return; }
+
+    var fromYear  = parseInt(fromParts[0]);
+    var fromMonth = parseInt(fromParts[1]);
+    var toYear    = parseInt(toParts[0]);
+    var toMonth   = parseInt(toParts[1]);
+    var months    = monthsInRange(fromYear, fromMonth, toYear, toMonth);
+
+    lexSyncBtn.disabled = true;
+    errorEl.innerHTML = '';
+
+    (function syncNext(i) {
+      if (i >= months.length) {
+        lexSyncBtn.textContent = '✓ LexOffice synchronisiert';
+        setTimeout(function () { lexSyncBtn.textContent = 'Von LexOffice sync'; }, 3000);
+        lexSyncBtn.disabled = false;
+        load();
+        return;
+      }
+      var m = months[i];
+      var label = (window.MONTHS_DE ? window.MONTHS_DE[m.month - 1] : m.month) + ' ' + m.year;
+      lexSyncBtn.textContent = 'Sync ' + label + '… (' + (i + 1) + '/' + months.length + ')';
+
+      window.lexoffice.fetchMonthRaw(m.year, m.month)
+        .then(function (rows) {
+          return window.db.revenue.clearMonth(m.year, m.month)
+            .then(function () {
+              if (rows.length === 0) return;
+              return window.db.revenue.insertMany(m.year, m.month, rows);
+            });
+        })
+        .then(function () { syncNext(i + 1); })
+        .catch(function (e) {
+          showError('LexOffice Fehler (' + label + '): ' + e.message);
+          lexSyncBtn.textContent = 'Von LexOffice sync';
+          lexSyncBtn.disabled = false;
+        });
+    })(0);
+  });
+
   // ── Boot ──────────────────────────────────────────────────────────────
   if (!window.isConfigured()) {
     setupHint.classList.remove('hidden');

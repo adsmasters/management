@@ -131,6 +131,12 @@
       allContactNames: () =>
         q(s => s.from('revenue').select('contact_name').order('contact_name'))
           .then(rows => [...new Set(rows.map(r => r.contact_name).filter(Boolean))].sort()),
+      clearMonth: (year, month) =>
+        q(s => s.from('revenue').delete().eq('year', year).eq('month', month)),
+      insertMany: (year, month, rows) =>
+        q(s => s.from('revenue').insert(
+          rows.map(r => ({ year, month, contact_name: r.contact_name, total_amount: r.total_amount }))
+        )),
     },
 
     mappings: {

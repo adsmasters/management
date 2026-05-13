@@ -62,5 +62,36 @@
         });
       });
     },
+
+    // Returns [{ contact_name, total_amount }] with original (non-normalized) names
+    fetchMonthRaw: function (year, month) {
+      var from = new Date(Date.UTC(year, month - 1, 1)).toISOString().substring(0, 10);
+      var to   = new Date(Date.UTC(year, month,     0)).toISOString().substring(0, 10);
+
+      function fetchPage(page) {
+        return lfetch('/voucherlist?voucherType=invoice&voucherStatus=open,paid'
+          + '&voucherDateFrom=' + from + '&voucherDateTo=' + to
+          + '&size=250&page=' + page);
+      }
+
+      return fetchPage(0).then(function (data) {
+        var all   = data.content || [];
+        var pages = data.totalPages || 1;
+        var more  = [];
+        for (var p = 1; p < pages; p++) more.push(fetchPage(p));
+        return Promise.all(more).then(function (results) {
+          results.forEach(function (r) { all = all.concat(r.content || []); });
+          var map = {};
+          all.forEach(function (v) {
+            var name = (v.contactName || '').trim();
+            if (!name) return;
+            map[name] = (map[name] || 0) + (v.totalAmount || 0);
+          });
+          return Object.keys(map).map(function (name) {
+            return { contact_name: name, total_amount: map[name] };
+          });
+        });
+      });
+    },
   };
 })();
