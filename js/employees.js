@@ -14,7 +14,10 @@
   const empName        = document.getElementById('empName');
   const empRole        = document.getElementById('empRole');
   const empEmail       = document.getElementById('empEmail');
-  const empCost        = document.getElementById('empCost');
+  const empGross       = document.getElementById('empGross');
+  const empEmployerCost = document.getElementById('empEmployerCost');
+  const empCostTotal   = document.getElementById('empCostTotal');
+  const empCostTotalVal = document.getElementById('empCostTotalVal');
   const empActive      = document.getElementById('empActive');
   const roleHint       = document.getElementById('roleHint');
   const empModalClose  = document.getElementById('empModalClose');
@@ -42,14 +45,32 @@
     roleHint.textContent = ROLE_HINTS[empRole.value] || '';
   });
 
+  // ── Live-Summe Gesamtkosten ───────────────────────────────────────────
+  function updateCostTotal() {
+    const gross    = parseFloat(empGross.value)        || 0;
+    const employer = parseFloat(empEmployerCost.value) || 0;
+    const total    = gross + employer;
+    if (total > 0) {
+      empCostTotalVal.textContent = total.toLocaleString('de-DE', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) + ' €';
+      empCostTotal.style.display = '';
+    } else {
+      empCostTotal.style.display = 'none';
+    }
+  }
+  empGross.addEventListener('input', updateCostTotal);
+  empEmployerCost.addEventListener('input', updateCostTotal);
+
   // ── Open / close emp modal ────────────────────────────────────────────
   function openEmpModal(emp = null) {
     editingId = emp?.id ?? null;
     empModalTitle.textContent = emp ? 'Mitarbeiter bearbeiten' : 'Neuer Mitarbeiter';
-    empName.value    = emp?.name   ?? '';
-    empRole.value    = emp?.role   ?? 'account_manager';
-    empEmail.value   = emp?.email  ?? '';
-    empCost.value    = emp?.monthly_cost > 0 ? emp.monthly_cost : '';
+    empName.value         = emp?.name   ?? '';
+    empRole.value         = emp?.role   ?? 'account_manager';
+    empEmail.value        = emp?.email  ?? '';
+    empGross.value        = emp?.gross_salary   > 0 ? emp.gross_salary   : '';
+    empEmployerCost.value = emp?.employer_costs > 0 ? emp.employer_costs : '';
+    empCostTotal.style.display = 'none';
+    if ((emp?.gross_salary || 0) + (emp?.employer_costs || 0) > 0) updateCostTotal();
     empActive.checked = emp ? !!emp.active : true;
     document.getElementById('activeField').classList.toggle('hidden', !emp);
     roleHint.textContent = ROLE_HINTS[empRole.value] || '';
@@ -67,16 +88,22 @@
     if (!name) { empName.focus(); empName.style.borderColor = 'var(--danger)'; return; }
     empName.style.borderColor = '';
 
-    const role        = empRole.value;
-    const email       = empEmail.value.trim() || null;
-    const monthlyCost = parseFloat(empCost.value) || 0;
-    const active      = empActive.checked;
+    const role         = empRole.value;
+    const email        = empEmail.value.trim() || null;
+    const gross        = parseFloat(empGross.value)        || 0;
+    const employerCost = parseFloat(empEmployerCost.value) || 0;
+    const monthlyCost  = gross + employerCost;
+    const active       = empActive.checked;
 
     empModalSave.disabled = true;
     empModalSave.textContent = 'Speichern…';
 
+    const fields = { name, role, email, active,
+                     gross_salary: gross || null,
+                     employer_costs: employerCost || null,
+                     monthly_cost: monthlyCost || 0 };
     const promise = editingId
-      ? window.db.employees.update(editingId, { name, role, email, active, monthly_cost: monthlyCost })
+      ? window.db.employees.update(editingId, fields)
       : window.db.employees.create(name, role, email, monthlyCost);
 
     promise
@@ -145,9 +172,21 @@
       const tr = document.createElement('tr');
       if (!emp.active) tr.style.opacity = '0.5';
 
-      const costFmt = emp.monthly_cost > 0
-        ? emp.monthly_cost.toLocaleString('de-DE', { minimumFractionDigits: 0, maximumFractionDigits: 0 }) + ' €'
-        : '<span style="color:var(--text-muted)">—</span>';
+      const gross    = emp.gross_salary   || 0;
+      const agKosten = emp.employer_costs || 0;
+      const total    = emp.monthly_cost   || 0;
+      let costFmt;
+      if (total > 0) {
+        const fmt = n => n.toLocaleString('de-DE', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+        if (gross > 0 && agKosten > 0) {
+          costFmt = '<strong>' + fmt(total) + ' €</strong>'
+            + ' <span style="font-size:11px;color:var(--text-muted)">(' + fmt(gross) + ' + ' + fmt(agKosten) + ')</span>';
+        } else {
+          costFmt = fmt(total) + ' €';
+        }
+      } else {
+        costFmt = '<span style="color:var(--text-muted)">—</span>';
+      }
 
       tr.innerHTML = `
         <td style="font-weight:500"><a href="employee-detail.html?id=${encodeURIComponent(emp.id)}&name=${encodeURIComponent(emp.name)}" style="font-weight:600;color:var(--primary)">${emp.name}</a></td>
