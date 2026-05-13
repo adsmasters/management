@@ -108,18 +108,29 @@
         <label for="empEmail">E-Mail <span style="color:var(--text-muted);font-weight:400">(optional)</span></label>
         <input type="email" id="empEmail" placeholder="max@agentur.de">
       </div>
-      <div class="field">
-        <label for="empGross">Bruttogehalt <span style="color:var(--text-muted);font-weight:400">(optional)</span></label>
-        <input type="number" id="empGross" min="0" step="100" placeholder="z.B. 3500">
-        <span class="hint">Monatliches Bruttogehalt des Mitarbeiters in €</span>
+      <!-- Gehalt (für alle außer Freelancer) -->
+      <div id="salaryFields">
+        <div class="field">
+          <label for="empGross">Bruttogehalt <span style="color:var(--text-muted);font-weight:400">(optional)</span></label>
+          <input type="number" id="empGross" min="0" step="100" placeholder="z.B. 3500">
+          <span class="hint">Monatliches Bruttogehalt in €</span>
+        </div>
+        <div class="field">
+          <label for="empEmployerCost">Arbeitgeberkosten <span style="color:var(--text-muted);font-weight:400">(optional)</span></label>
+          <input type="number" id="empEmployerCost" min="0" step="50" placeholder="z.B. 700">
+          <span class="hint">Zusätzliche AG-Kosten (Sozialabgaben etc.) in €/Monat</span>
+        </div>
+        <div id="empCostTotal" style="display:none;padding:10px 12px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);font-size:13px;color:var(--text-secondary);margin-bottom:14px">
+          Gesamtkosten AG: <strong id="empCostTotalVal" style="color:var(--text)">—</strong>
+        </div>
       </div>
-      <div class="field">
-        <label for="empEmployerCost">Arbeitgeberkosten <span style="color:var(--text-muted);font-weight:400">(optional)</span></label>
-        <input type="number" id="empEmployerCost" min="0" step="50" placeholder="z.B. 700">
-        <span class="hint">Zusätzliche AG-Kosten (Sozialabgaben etc.) in € pro Monat</span>
-      </div>
-      <div id="empCostTotal" style="display:none;padding:10px 12px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);font-size:13px;color:var(--text-secondary)">
-        Gesamtkosten AG: <strong id="empCostTotalVal" style="color:var(--text)">—</strong>
+      <!-- Stundensatz (nur für Freelancer) -->
+      <div id="hourlyField" style="display:none">
+        <div class="field">
+          <label for="empHourlyRate">Stundensatz <span style="color:var(--text-muted);font-weight:400">(optional)</span></label>
+          <input type="number" id="empHourlyRate" min="0" step="5" placeholder="z.B. 80">
+          <span class="hint">Kosten pro Stunde in € – wird direkt mit den erfassten Stunden multipliziert</span>
+        </div>
       </div>
       <div class="field" id="activeField" style="flex-direction:row;align-items:center;gap:10px">
         <input type="checkbox" id="empActive" checked style="width:auto;padding:0;accent-color:var(--primary)">

@@ -145,12 +145,14 @@
 
       var cost = 0;
       employees.forEach(function (emp) {
-        if (!emp.monthly_cost || emp.monthly_cost <= 0) return;
         var uNorm       = norm(emp.name);
-        var empTotal    = userTotals[uNorm] || 0;
-        var empOnClient = cHours[uNorm]     || 0;
-        if (empTotal > 0 && empOnClient > 0) {
-          cost += (empOnClient / empTotal) * emp.monthly_cost * numMonths;
+        var empOnClient = cHours[uNorm] || 0;
+        if (empOnClient <= 0) return;
+        if (emp.role === 'freelancer' && emp.hourly_rate > 0) {
+          cost += empOnClient * emp.hourly_rate;
+        } else if (emp.monthly_cost > 0) {
+          var empTotal = userTotals[uNorm] || 0;
+          if (empTotal > 0) cost += (empOnClient / empTotal) * emp.monthly_cost * numMonths;
         }
       });
 
