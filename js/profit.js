@@ -1,7 +1,8 @@
 (function () {
   'use strict';
 
-  var monthFilter = document.getElementById('monthFilter');
+  var monthFrom   = document.getElementById('monthFrom');
+  var monthTo     = document.getElementById('monthTo');
   var loadBtn     = document.getElementById('loadBtn');
   var loadingEl   = document.getElementById('loading');
   var contentEl   = document.getElementById('content');
@@ -12,7 +13,17 @@
 
   // ── Default to current month ──────────────────────────────────────────
   var now = new Date();
-  monthFilter.value = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+  var currentMonth = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+  monthFrom.value = currentMonth;
+  monthTo.value   = currentMonth;
+
+  // Keep "Bis" >= "Von"
+  monthFrom.addEventListener('change', function () {
+    if (monthTo.value && monthTo.value < monthFrom.value) monthTo.value = monthFrom.value;
+  });
+  monthTo.addEventListener('change', function () {
+    if (monthFrom.value && monthTo.value < monthFrom.value) monthFrom.value = monthTo.value;
+  });
 
   function fmt(n) {
     return n.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
@@ -24,14 +35,62 @@
     errorEl.innerHTML = '<div class="alert alert-danger">⚠️ ' + msg + '</div>';
   }
 
+  // ── Generate list of {year, month} for a range ────────────────────────
+  function monthsInRange(fromYear, fromMonth, toYear, toMonth) {
+    var list = [];
+    var y = fromYear, m = fromMonth;
+    while (y < toYear || (y === toYear && m <= toMonth)) {
+      list.push({ year: y, month: m });
+      m++;
+      if (m > 12) { m = 1; y++; }
+    }
+    return list;
+  }
+
+  // ── Merge two clientHours maps ────────────────────────────────────────
+  function mergeClientHours(a, b) {
+    var result = {};
+    Object.keys(a).forEach(function (c) {
+      result[c] = Object.assign({}, a[c]);
+    });
+    Object.keys(b).forEach(function (c) {
+      if (!result[c]) result[c] = {};
+      Object.keys(b[c]).forEach(function (u) {
+        result[c][u] = (result[c][u] || 0) + b[c][u];
+      });
+    });
+    return result;
+  }
+
+  // ── Merge two userTotals maps ─────────────────────────────────────────
+  function mergeUserTotals(a, b) {
+    var result = Object.assign({}, a);
+    Object.keys(b).forEach(function (u) {
+      result[u] = (result[u] || 0) + b[u];
+    });
+    return result;
+  }
+
   // ── Load ──────────────────────────────────────────────────────────────
   loadBtn.addEventListener('click', load);
 
   function load() {
-    var parts = monthFilter.value.split('-');
-    if (!parts[0] || !parts[1]) return;
-    var year  = parseInt(parts[0]);
-    var month = parseInt(parts[1]);
+    var fromParts = monthFrom.value.split('-');
+    var toParts   = monthTo.value.split('-');
+    if (!fromParts[0] || !toParts[0]) return;
+
+    var fromYear  = parseInt(fromParts[0]);
+    var fromMonth = parseInt(fromParts[1]);
+    var toYear    = parseInt(toParts[0]);
+    var toMonth   = parseInt(toParts[1]);
+
+    if (fromYear > toYear || (fromYear === toYear && fromMonth > toMonth)) {
+      showError('„Von" darf nicht nach „Bis" liegen.');
+      return;
+    }
+
+    var months   = monthsInRange(fromYear, fromMonth, toYear, toMonth);
+    var numMonths = months.length;
 
     errorEl.innerHTML = '';
     loadingEl.classList.remove('hidden');
@@ -39,37 +98,53 @@
 
     noClockify.classList.toggle('hidden', window.clockify.isConfigured());
 
-    // Always load clients + employees from Supabase
+    // Fetch Clockify + revenue for every month in range
+    var clockifyPromise = window.clockify.isConfigured()
+      ? Promise.all(months.map(function (m) {
+          return Promise.all([
+            window.clockify.fetchMonth(m.year, m.month),
+            window.clockify.fetchMonthByUser(m.year, m.month),
+          ]);
+        }))
+      : Promise.resolve(months.map(function () { return [{}, {}]; }));
+
+    var revenuePromise = Promise.all(
+      months.map(function (m) { return window.db.revenue.forMonth(m.year, m.month); })
+    );
+
     Promise.all([
       window.db.clients.list(),
       window.db.employees.listActive(),
-      window.clockify.isConfigured()
-        ? Promise.all([
-            window.clockify.fetchMonth(year, month),
-            window.clockify.fetchMonthByUser(year, month),
-          ])
-        : Promise.resolve([{}, {}]),
-      window.db.revenue.forMonth(year, month),
+      clockifyPromise,
+      revenuePromise,
     ])
     .then(function (results) {
-      var clients     = results[0];
-      var employees   = results[1];
-      var cfData      = results[2];
-      var clientHours = cfData[0]; // { normClientName → { normUserName → hours } }
-      var userTotals  = cfData[1]; // { normUserName → totalHours }
+      var clients       = results[0];
+      var employees     = results[1];
+      var clockifyMonths = results[2]; // array of [{clientHours}, {userTotals}] per month
+      var revenueMonths  = results[3]; // array of revenue rows per month
 
-      // Build revenueMap from Supabase rows (one row per invoice, aggregate by contact_name)
-      var revenueRows = results[3];
-      var revenueMap  = {};
-      revenueRows.forEach(function (row) {
-        var key = norm(row.contact_name || '');
-        revenueMap[key] = (revenueMap[key] || 0) + (row.total_amount || 0);
+      // Aggregate Clockify across all months
+      var clientHours = {};
+      var userTotals  = {};
+      clockifyMonths.forEach(function (pair) {
+        clientHours = mergeClientHours(clientHours, pair[0]);
+        userTotals  = mergeUserTotals(userTotals,  pair[1]);
+      });
+
+      // Aggregate revenue across all months
+      var revenueMap = {};
+      revenueMonths.forEach(function (rows) {
+        rows.forEach(function (row) {
+          var key = norm(row.contact_name || '');
+          revenueMap[key] = (revenueMap[key] || 0) + (row.total_amount || 0);
+        });
       });
 
       loadingEl.classList.add('hidden');
       contentEl.classList.remove('hidden');
 
-      render(clients, employees, clientHours, userTotals, revenueMap);
+      render(clients, employees, clientHours, userTotals, revenueMap, numMonths);
     })
     .catch(function (e) {
       loadingEl.classList.add('hidden');
@@ -77,7 +152,7 @@
     });
   }
 
-  function render(clients, employees, clientHours, userTotals, revenueMap) {
+  function render(clients, employees, clientHours, userTotals, revenueMap, numMonths) {
     profitBody.innerHTML = '';
 
     var totalRevenue = 0;
@@ -96,15 +171,15 @@
       var totalClientHours = 0;
       Object.values(cHours).forEach(function (h) { totalClientHours += h; });
 
-      // Cost: allocate each employee's monthly_cost proportionally by Clockify hours
+      // Cost: allocate each employee's salary (× numMonths) by hours fraction
       var cost = 0;
       employees.forEach(function (emp) {
         if (!emp.monthly_cost || emp.monthly_cost <= 0) return;
-        var uNorm      = norm(emp.name);
-        var empTotal   = userTotals[uNorm] || 0;
-        var empOnClient = cHours[uNorm]    || 0;
+        var uNorm       = norm(emp.name);
+        var empTotal    = userTotals[uNorm] || 0;
+        var empOnClient = cHours[uNorm]     || 0;
         if (empTotal > 0 && empOnClient > 0) {
-          cost += (empOnClient / empTotal) * emp.monthly_cost;
+          cost += (empOnClient / empTotal) * emp.monthly_cost * numMonths;
         }
       });
 
