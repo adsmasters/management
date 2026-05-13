@@ -55,10 +55,6 @@
         const peY = pe.getUTCFullYear(), peM = pe.getUTCMonth() + 1;
         if (year > peY || (year === peY && m > peM)) continue;
       }
-      const adj    = adjs[m] || null;
-      const adjAmH  = adj ? (adj.am_hours  || 0) : 0;
-      const adjAdvH = adj ? (adj.adv_hours || 0) : 0;
-
       // Pro-rate current month by elapsed working days
       let ratio = 1;
       if (year === todayY && m === todayM) {
@@ -67,10 +63,19 @@
         ratio = total > 0 ? elapsed / total : 1;
       }
 
-      if (amB  != null) amB  += (client.am_budget  + adjAmH)  * ratio;
-      if (advB != null) advB += (client.adv_budget + adjAdvH) * ratio;
+      if (amB  != null) amB  += client.am_budget  * ratio;
+      if (advB != null) advB += client.adv_budget * ratio;
     }
     return { amB, advB };
+  }
+
+  function adjTotalHours(adjs, maxMonth) {
+    let amAdj = 0, advAdj = 0;
+    for (let m = 1; m <= maxMonth; m++) {
+      const a = adjs[m];
+      if (a) { amAdj += a.am_hours || 0; advAdj += a.adv_hours || 0; }
+    }
+    return { amAdj, advAdj };
   }
 
   function effectiveMonths(client, year, maxMonth) {
@@ -271,17 +276,22 @@
       const { client: c, entries: clientEntries, agg, adjs } = row;
       const { amH, advH, flH, amTotal, breakdown } = agg;
 
-      // Budget = monthly budget × effective months + per-month corrections
+      // Budget = monthly budget × effective months (pure, no adj)
       const { amB: annualAmBdg, advB: annualAdvBdg } = effectiveBudget(c, adjs, year, maxMonth);
 
-      const amDiff  = annualAmBdg  != null ? amTotal - annualAmBdg  : null;
-      const advDiff = annualAdvBdg != null ? advH    - annualAdvBdg : null;
+      // Subtract adjustment hours from tracked hours
+      const { amAdj, advAdj } = adjTotalHours(adjs, maxMonth);
+      const amEff  = Math.max(0, amTotal - amAdj);
+      const advEff = Math.max(0, advH    - advAdj);
+
+      const amDiff  = annualAmBdg  != null ? amEff - annualAmBdg  : null;
+      const advDiff = annualAdvBdg != null ? advEff - annualAdvBdg : null;
       const amOver  = amDiff  != null && amDiff  > 0.05;
       const advOver = advDiff != null && advDiff > 0.05;
       const amOk    = amDiff  != null && amDiff  <= 0.05;
       const advOk   = advDiff != null && advDiff <= 0.05;
 
-      const total     = amTotal + advH;
+      const total     = amEff + advEff;
       const hasBudget = c.am_budget != null || c.adv_budget != null;
       const totalBdg  = (annualAmBdg || 0) + (annualAdvBdg || 0);
       const totalDiff = hasBudget ? total - totalBdg : null;
@@ -301,11 +311,11 @@
 
       const amCellContent = hasAMData
         ? `<button class="expand-btn" id="${btnId}" data-target="${expandId}">
-             ${window.svgChevron()} ${window.fmtHours(amTotal)}
+             ${window.svgChevron()} ${window.fmtHours(amEff)}
            </button>
            ${amDiff != null ? `<div style="font-size:11.5px">${window.fmtDiff(amDiff).text}</div>` : ''}`
         : `<div class="cell-hours">
-             <span class="h-main">${window.fmtHours(amTotal)}</span>
+             <span class="h-main">${window.fmtHours(amEff)}</span>
              ${amDiff != null ? `<span class="h-diff">${window.fmtDiff(amDiff).text}</span>` : ''}
            </div>`;
 
@@ -322,7 +332,7 @@
         <td class="right ${amOver ? 'cell-over' : amOk ? 'cell-ok' : ''}">${amCellContent}</td>
         <td class="right ${advOver ? 'cell-over' : advOk ? 'cell-ok' : ''}">
           <div class="cell-hours">
-            <span class="h-main">${window.fmtHours(advH)}</span>
+            <span class="h-main">${window.fmtHours(advEff)}</span>
             ${advDiff != null ? `<span class="h-diff">${window.fmtDiff(advDiff).text}</span>` : ''}
           </div>
         </td>
@@ -331,13 +341,18 @@
           ${totalDiff != null ? window.fmtDiff(totalDiff).text : '<span class="text-muted">—</span>'}
         </td>
         <td class="center">${overHtml}</td>
-        <td class="center">
+        <td class="center" style="white-space:nowrap">
           <a class="btn btn-ghost btn-sm" href="detail.html?id=${encodeURIComponent(c.id)}&name=${encodeURIComponent(c.name)}">
             Details ${window.svgArrow()}
           </a>
+          <button class="btn btn-ghost btn-sm adj-open-btn" style="margin-left:4px" title="Stundenanpassungen">±</button>
         </td>`;
 
       tbody.appendChild(tr);
+
+      tr.querySelector('.adj-open-btn')?.addEventListener('click', () => {
+        openAdjModal(c, adjs, year, maxMonth);
+      });
 
       // AM breakdown sub-row
       if (hasAMData) {
@@ -502,6 +517,120 @@
       syncBtn.disabled = false;
     }
   }
+
+  // ── Adjustment modal ─────────────────────────────────────────────────
+  const adjModal      = document.getElementById('adjModal');
+  const adjClientName = document.getElementById('adjClientName');
+  const adjExistingEl = document.getElementById('adjExisting');
+  const adjMonthSel   = document.getElementById('adjMonth');
+  const adjAmHoursEl  = document.getElementById('adjAmHours');
+  const adjAdvHoursEl = document.getElementById('adjAdvHours');
+  const adjNoteEl     = document.getElementById('adjNote');
+  const adjSaveBtn    = document.getElementById('adjModalSave');
+
+  let _adjClient = null, _adjYear = null, _adjMaxMonth = null, _adjAdjs = null;
+
+  function openAdjModal(client, adjs, year, maxMonth) {
+    _adjClient   = client;
+    _adjYear     = year;
+    _adjMaxMonth = maxMonth;
+    _adjAdjs     = Object.assign({}, adjs);
+
+    adjClientName.textContent = client.name;
+
+    adjMonthSel.innerHTML = '';
+    for (let m = 1; m <= maxMonth; m++) {
+      const o = document.createElement('option');
+      o.value = m;
+      o.textContent = window.MONTHS_DE[m - 1];
+      adjMonthSel.appendChild(o);
+    }
+    const curM = new Date().getMonth() + 1;
+    adjMonthSel.value = curM <= maxMonth ? curM : maxMonth;
+
+    adjAmHoursEl.value  = '';
+    adjAdvHoursEl.value = '';
+    adjNoteEl.value     = '';
+
+    renderAdjExisting();
+    adjModal.classList.remove('hidden');
+  }
+
+  function closeAdjModal() {
+    adjModal.classList.add('hidden');
+  }
+
+  function renderAdjExisting() {
+    const entries = Object.values(_adjAdjs).filter(a => a.am_hours || a.adv_hours || a.note);
+    if (!entries.length) {
+      adjExistingEl.innerHTML = '<p style="color:var(--text-muted);font-size:13px;margin:0 0 4px">Keine Anpassungen vorhanden.</p>';
+      return;
+    }
+    adjExistingEl.innerHTML =
+      '<div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted);margin-bottom:8px">Bestehende Anpassungen</div>' +
+      '<table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:12px">' +
+        '<thead><tr style="border-bottom:1px solid var(--border)">' +
+          '<th style="text-align:left;padding:4px 8px 6px;font-weight:600">Monat</th>' +
+          '<th style="text-align:right;padding:4px 8px 6px;font-weight:600">AM</th>' +
+          '<th style="text-align:right;padding:4px 8px 6px;font-weight:600">Adv</th>' +
+          '<th style="text-align:left;padding:4px 8px 6px;font-weight:600">Notiz</th>' +
+          '<th></th>' +
+        '</tr></thead><tbody>' +
+        entries.slice().sort((a, b) => a.month - b.month).map(a =>
+          '<tr style="border-bottom:1px solid var(--border)">' +
+            '<td style="padding:6px 8px">' + window.MONTHS_DE[a.month - 1] + '</td>' +
+            '<td style="padding:6px 8px;text-align:right">' + (a.am_hours  ? a.am_hours  + ' h' : '—') + '</td>' +
+            '<td style="padding:6px 8px;text-align:right">' + (a.adv_hours ? a.adv_hours + ' h' : '—') + '</td>' +
+            '<td style="padding:6px 8px;color:var(--text-muted)">' + (a.note || '') + '</td>' +
+            '<td style="padding:6px 8px;text-align:right">' +
+              '<button class="btn btn-ghost btn-sm adj-del-btn" data-month="' + a.month + '" style="color:var(--danger,#dc2626)">✕</button>' +
+            '</td>' +
+          '</tr>'
+        ).join('') +
+        '</tbody></table>';
+
+    adjExistingEl.querySelectorAll('.adj-del-btn').forEach(btn => {
+      btn.addEventListener('click', function () {
+        const month = parseInt(btn.dataset.month);
+        btn.disabled = true;
+        window.db.adjustments.delete(_adjClient.id, _adjYear, month)
+          .then(() => {
+            delete _adjAdjs[month];
+            renderAdjExisting();
+            loadData();
+          })
+          .catch(e => showError(e.message));
+      });
+    });
+  }
+
+  document.getElementById('adjModalClose').addEventListener('click', closeAdjModal);
+  document.getElementById('adjModalCancel').addEventListener('click', closeAdjModal);
+  adjModal.addEventListener('click', e => { if (e.target === adjModal) closeAdjModal(); });
+
+  adjSaveBtn.addEventListener('click', function () {
+    const month = parseInt(adjMonthSel.value);
+    const amH   = parseFloat(adjAmHoursEl.value)  || 0;
+    const advH  = parseFloat(adjAdvHoursEl.value) || 0;
+    const note  = adjNoteEl.value.trim();
+    if (!month) return;
+
+    adjSaveBtn.disabled = true;
+    window.db.adjustments.upsert(_adjClient.id, _adjYear, month, amH, advH, note)
+      .then(saved => {
+        _adjAdjs[month]     = saved;
+        adjAmHoursEl.value  = '';
+        adjAdvHoursEl.value = '';
+        adjNoteEl.value     = '';
+        renderAdjExisting();
+        loadData();
+        adjSaveBtn.disabled = false;
+      })
+      .catch(e => {
+        showError(e.message);
+        adjSaveBtn.disabled = false;
+      });
+  });
 
   // ── Boot ──────────────────────────────────────────────────────────────
   if (!window.isConfigured()) {
