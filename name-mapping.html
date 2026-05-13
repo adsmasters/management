@@ -31,17 +31,38 @@
     }
     .tag-remove:hover { opacity: 1; }
     .tags-wrap { display: flex; flex-wrap: wrap; align-items: center; min-height: 28px; }
-    .add-form { display: flex; gap: 6px; align-items: center; margin-top: 6px; flex-wrap: wrap; }
-    .add-input {
+    .add-dropdown-panel {
+      position: absolute;
+      top: calc(100% + 4px);
+      left: 0;
+      z-index: 100;
+      background: var(--card-bg, #fff);
       border: 1px solid var(--border);
-      border-radius: 6px;
-      padding: 5px 10px;
-      font-size: 13px;
-      background: var(--bg);
-      color: var(--text);
-      width: 280px;
+      border-radius: 8px;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.12);
+      width: 320px;
+      overflow: hidden;
     }
-    .add-input:focus { outline: none; border-color: var(--primary); }
+    .add-filter-input {
+      width: 100%;
+      border: none;
+      border-bottom: 1px solid var(--border);
+      padding: 10px 12px;
+      font-size: 13px;
+      background: var(--bg, #fff);
+      color: var(--text);
+      outline: none;
+      box-sizing: border-box;
+    }
+    .add-name-list { max-height: 240px; overflow-y: auto; }
+    .add-name-item {
+      padding: 8px 12px;
+      font-size: 13px;
+      cursor: pointer;
+      color: var(--text);
+    }
+    .add-name-item:hover { background: var(--bg-hover, #f3f4f6); }
+    .add-name-custom { color: var(--primary, #2563eb); font-weight: 500; }
     .unmapped-tag {
       display: inline-block;
       background: var(--warning-bg, #fef9c3);
