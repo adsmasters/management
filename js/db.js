@@ -137,6 +137,13 @@
           .select('*, employees(id, name, role)')
           .eq('year', year).eq('month', month)),
 
+      // All entries for one employee in a month (includes client data)
+      forEmployeeMonth: (employeeId, year, month) =>
+        q(s => s.from('entries')
+          .select('*, clients(id, name)')
+          .eq('employee_id', employeeId).eq('year', year).eq('month', month)
+          .gt('hours', 0).order('hours', { ascending: false })),
+
       // All entries for a specific client + month
       forClientMonth: (clientId, year, month) =>
         q(s => s.from('entries')

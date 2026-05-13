@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mitarbeiter-Stunden – Adsmasters Management</title>
+  <link rel="stylesheet" href="css/style.css">
+  <style>
+    .emp-header { display:flex; align-items:center; gap:14px; margin-bottom:6px; }
+    .emp-avatar {
+      width:42px; height:42px; border-radius:50%;
+      background:var(--primary); color:#fff;
+      display:flex; align-items:center; justify-content:center;
+      font-size:17px; font-weight:700; flex-shrink:0;
+    }
+    .hours-bar-wrap { height:6px; background:var(--border); border-radius:3px; margin-top:5px; min-width:100px; }
+    .hours-bar      { height:6px; border-radius:3px; background:var(--primary); transition:width .3s; }
+    .total-row td   { font-weight:700; border-top:2px solid var(--border); }
+  </style>
+</head>
+<body>
+
+<header class="header">
+  <div class="header-inner">
+    <a href="index.html" class="logo">Adsmasters <span>Management</span></a>
+    <nav>
+      <a href="index.html"       class="nav-link">Übersicht</a>
+      <a href="clients.html"     class="nav-link">Kunden</a>
+      <a href="employees.html"   class="nav-link active">Mitarbeiter</a>
+      <a href="utilization.html" class="nav-link">Auslastung</a>
+      <a href="profit.html"      class="nav-link">Profitabilität</a>
+      <a href="settings.html"    class="nav-link">Einstellungen</a>
+    </nav>
+  </div>
+</header>
+
+<main class="main">
+
+  <div id="error"></div>
+
+  <div class="page-header" style="flex-wrap:wrap;gap:12px">
+    <div class="emp-header">
+      <div class="emp-avatar" id="empAvatar">?</div>
+      <div>
+        <h1 id="empName" style="margin:0">Mitarbeiter</h1>
+        <div class="sub" id="empSub">Stundenübersicht pro Kunde</div>
+      </div>
+    </div>
+    <div class="toolbar">
+      <div class="filter-group">
+        <label for="monthFrom">Von</label>
+        <input type="month" id="monthFrom" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;background:var(--surface);color:var(--text)">
+      </div>
+      <div class="filter-group">
+        <label for="monthTo">Bis</label>
+        <input type="month" id="monthTo" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;background:var(--surface);color:var(--text)">
+      </div>
+      <button id="loadBtn" class="btn btn-primary">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4.3"/></svg>
+        Laden
+      </button>
+      <a href="employees.html" class="btn btn-ghost">← Zurück</a>
+    </div>
+  </div>
+
+  <div id="loading" class="hidden">
+    <div class="loading-bar"><div class="spinner"></div>Daten werden geladen…</div>
+  </div>
+
+  <div id="content" class="hidden">
+    <div class="card">
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th style="min-width:200px">Kunde</th>
+              <th class="right" style="min-width:110px">Stunden</th>
+              <th style="min-width:200px">Anteil</th>
+            </tr>
+          </thead>
+          <tbody id="detailBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div id="emptyState" class="hidden">
+    <div class="state-box">
+      <div class="icon">🕐</div>
+      <h3>Keine Stunden erfasst</h3>
+      <p>Für diesen Zeitraum wurden keine Stunden eingetragen.</p>
+    </div>
+  </div>
+
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/db.js"></script>
+<script src="js/utils.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/employee-detail.js"></script>
+</body>
+</html>
