@@ -282,20 +282,21 @@
       var label = (window.MONTHS_DE ? window.MONTHS_DE[m.month - 1] : m.month) + ' ' + m.year;
       lexSyncBtn.textContent = 'Sync ' + label + '… (' + (i + 1) + '/' + months.length + ')';
 
-      window.lexoffice.fetchMonthRaw(m.year, m.month)
-        .then(function (rows) {
-          return window.db.revenue.clearMonth(m.year, m.month)
-            .then(function () {
-              if (rows.length === 0) return;
-              return window.db.revenue.insertMany(m.year, m.month, rows);
-            });
-        })
-        .then(function () { syncNext(i + 1); })
-        .catch(function (e) {
-          showError('LexOffice Fehler (' + label + '): ' + e.message);
-          lexSyncBtn.textContent = 'Von LexOffice sync';
-          lexSyncBtn.disabled = false;
-        });
+      window.getSb().functions.invoke('sync-lexoffice', {
+        body: {
+          lexofficeKey: localStorage.getItem('lexofficeKey'),
+          year: m.year,
+          month: m.month,
+        },
+      }).then(function (result) {
+        if (result.error) throw result.error;
+        if (result.data && result.data.error) throw new Error(result.data.error);
+        syncNext(i + 1);
+      }).catch(function (e) {
+        showError('LexOffice Fehler (' + label + '): ' + e.message);
+        lexSyncBtn.textContent = 'Von LexOffice sync';
+        lexSyncBtn.disabled = false;
+      });
     })(0);
   });
 
