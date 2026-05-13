@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Management – Adsmasters</title>
+  <link rel="stylesheet" href="css/style.css">
+  <style>
+    .profit-table td.revenue  { color: #0369a1; font-weight: 500; }
+    .profit-table td.cost     { color: #dc2626; font-weight: 500; }
+    .profit-table td.profit-pos { background: var(--success-bg) !important; color: #065f46; font-weight: 600; }
+    .profit-table td.profit-neg { background: var(--danger-bg)  !important; color: #991b1b; font-weight: 600; }
+    .profit-table td.margin-pos { color: #065f46; font-weight: 500; }
+    .profit-table td.margin-neg { color: #991b1b; font-weight: 500; }
+    .summary-strip { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
+    .kpi-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 16px 20px; flex: 1; min-width: 160px;
+    }
+    .kpi-card .kpi-label { font-size: 12px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: .04em; font-weight: 600; }
+    .kpi-card .kpi-value { font-size: 24px; font-weight: 700; margin-top: 4px; }
+    .kpi-card .kpi-value.pos { color: var(--success); }
+    .kpi-card .kpi-value.neg { color: var(--danger); }
+    .kpi-card .kpi-value.neutral { color: var(--text); }
+    .no-data { color: var(--text-muted); font-style: italic; font-size: 12px; }
+    .hint-row { font-size: 12px; color: var(--text-muted); padding: 10px 20px; border-top: 1px solid var(--border); }
+    .progress-bar-wrap { height: 6px; background: var(--border); border-radius: 3px; margin-top: 4px; min-width: 80px; }
+    .progress-bar { height: 6px; border-radius: 3px; transition: width .3s; }
+    .bar-pos { background: var(--success); }
+    .bar-neg { background: var(--danger); }
+    .hours-cell { font-size: 12px; color: var(--text-secondary); }
+  </style>
+</head>
+<body>
+
+<header class="header">
+  <div class="header-inner">
+    <a href="index.html" class="logo">Adsmasters <span>Management</span></a>
+    <nav>
+      <a href="index.html"    class="nav-link active">Profitabilität</a>
+      <a href="settings.html" class="nav-link">Einstellungen</a>
+    </nav>
+  </div>
+</header>
+
+<main class="main">
+
+  <div id="error"></div>
+
+  <div class="page-header" style="flex-wrap:wrap;gap:12px">
+    <div>
+      <h1>Profitabilität</h1>
+      <div class="sub">Umsatz, Kosten und Marge pro Kunde</div>
+    </div>
+    <div class="toolbar">
+      <div class="filter-group">
+        <label for="monthFilter">Monat</label>
+        <input type="month" id="monthFilter" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;background:var(--surface);color:var(--text)">
+      </div>
+      <button id="loadBtn" class="btn btn-primary">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4.3"/></svg>
+        Laden
+      </button>
+    </div>
+  </div>
+
+  <div id="noLexoffice" class="hidden">
+    <div class="alert alert-info" style="margin-bottom:16px">
+      ⚠️ Kein LexOffice API-Key hinterlegt.
+      <a href="settings.html" style="margin-left:8px;font-weight:600">Jetzt einrichten →</a>
+    </div>
+  </div>
+
+  <div id="loading" class="hidden">
+    <div class="loading-bar"><div class="spinner"></div>Daten werden geladen…</div>
+  </div>
+
+  <div id="content" class="hidden">
+    <div class="summary-strip">
+      <div class="kpi-card">
+        <div class="kpi-label">Gesamtumsatz</div>
+        <div class="kpi-value neutral" id="kpiRevenue">—</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Gesamtkosten</div>
+        <div class="kpi-value neutral" id="kpiCost">—</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Gewinn / Verlust</div>
+        <div class="kpi-value" id="kpiProfit">—</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Ø Marge</div>
+        <div class="kpi-value" id="kpiMargin">—</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="table-wrap">
+        <table class="profit-table">
+          <thead>
+            <tr>
+              <th style="min-width:200px">Kunde</th>
+              <th class="right" style="min-width:140px">Umsatz (Brutto)</th>
+              <th class="right" style="min-width:120px">Kosten</th>
+              <th class="right" style="min-width:130px">Gewinn/Verlust</th>
+              <th style="min-width:140px">Marge</th>
+              <th class="right" style="min-width:100px">Stunden</th>
+            </tr>
+          </thead>
+          <tbody id="profitBody"></tbody>
+        </table>
+      </div>
+      <div class="hint-row">
+        Umsatz = Brutto-Rechnungsbetrag aus LexOffice (gestellt + bezahlt) &nbsp;·&nbsp;
+        Kosten = Mitarbeitergehälter anteilig nach Clockify-Stunden
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/db.js"></script>
+<script src="js/utils.js"></script>
+<script src="js/clockify.js"></script>
+<script src="js/lexoffice.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/profit.js"></script>
+</body>
+</html>

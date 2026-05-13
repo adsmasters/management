@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Einstellungen – Adsmasters Management</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<header class="header">
+  <div class="header-inner">
+    <a href="index.html" class="logo">Adsmasters <span>Management</span></a>
+    <nav>
+      <a href="index.html"    class="nav-link">Profitabilität</a>
+      <a href="settings.html" class="nav-link active">Einstellungen</a>
+    </nav>
+  </div>
+</header>
+
+<main class="main">
+
+  <div class="page-header">
+    <div>
+      <h1>Einstellungen</h1>
+      <div class="sub">API-Verbindungen konfigurieren</div>
+    </div>
+  </div>
+
+  <div class="settings-grid">
+
+    <!-- LexOffice -->
+    <div class="card">
+      <div class="card-header">
+        <h2>💶 LexOffice-Verbindung</h2>
+        <span id="lexofficeStatus"></span>
+      </div>
+      <div class="card-body">
+        <div class="alert alert-info" style="margin-bottom:20px">
+          Den Key findest du unter: <strong>app.lexoffice.de → Einstellungen → Integrationen → Öffentliche API</strong>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:14px;max-width:520px">
+          <div class="field">
+            <label for="lexofficeKey">LexOffice API Key</label>
+            <input type="password" id="lexofficeKey" placeholder="••••••••••••••••••••••••••••••••" autocomplete="off" style="font-family:monospace;font-size:12px">
+          </div>
+          <div style="display:flex;gap:10px;align-items:center">
+            <button id="lexofficeSaveBtn" class="btn btn-primary">Verbindung speichern &amp; testen</button>
+            <span id="lexofficeSaveStatus" style="font-size:13px"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Clockify -->
+    <div class="card">
+      <div class="card-header">
+        <h2>⏱️ Clockify-Verbindung</h2>
+        <span id="clockifyStatus"></span>
+      </div>
+      <div class="card-body">
+        <div class="alert alert-info" style="margin-bottom:20px">
+          Den Key findest du unter: <strong>clockify.me → Profil → API</strong>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:14px;max-width:520px">
+          <div class="field">
+            <label for="clockifyKey">Clockify API Key</label>
+            <input type="password" id="clockifyKey" placeholder="••••••••••••••••••••••••••••••••" autocomplete="off" style="font-family:monospace;font-size:12px">
+          </div>
+          <div style="display:flex;gap:10px;align-items:center">
+            <button id="clockifySaveBtn" class="btn btn-primary">Verbindung speichern &amp; testen</button>
+            <span id="clockifySaveStatus" style="font-size:13px"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Supabase -->
+    <div class="card">
+      <div class="card-header">
+        <h2>🔗 Supabase-Verbindung</h2>
+        <span id="connStatus"></span>
+      </div>
+      <div class="card-body">
+        <div class="alert alert-info" style="margin-bottom:20px">
+          Dieselbe Supabase-Datenbank wie das Mitarbeiter-Tool.
+        </div>
+        <div style="display:flex;flex-direction:column;gap:14px;max-width:520px">
+          <div class="field">
+            <label for="supabaseUrl">Supabase Project URL</label>
+            <input type="text" id="supabaseUrl" placeholder="https://xxxxxxxxxxxx.supabase.co" autocomplete="off">
+          </div>
+          <div class="field">
+            <label for="supabaseKey">Supabase Anon Key</label>
+            <input type="password" id="supabaseKey" placeholder="eyJhbGci…" autocomplete="off" style="font-family:monospace;font-size:12px">
+          </div>
+          <div style="display:flex;gap:10px;align-items:center">
+            <button id="saveBtn" class="btn btn-primary">Verbindung speichern &amp; testen</button>
+            <span id="saveStatus" style="font-size:13px"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/db.js"></script>
+<script src="js/utils.js"></script>
+<script src="js/clockify.js"></script>
+<script src="js/lexoffice.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/settings.js"></script>
+</body>
+</html>
