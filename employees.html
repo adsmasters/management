@@ -132,6 +132,11 @@
           <span class="hint">Kosten pro Stunde in € – wird direkt mit den erfassten Stunden multipliziert</span>
         </div>
       </div>
+      <div class="field">
+        <label for="empLeaveStart">Abwesend ab <span style="color:var(--text-muted);font-weight:400">(optional – z.B. Mutterschutz, Elternzeit)</span></label>
+        <input type="month" id="empLeaveStart">
+        <span class="hint">Ab diesem Monat werden keine Kosten mehr für diese Person berechnet</span>
+      </div>
       <div class="field" id="activeField" style="flex-direction:row;align-items:center;gap:10px">
         <input type="checkbox" id="empActive" checked style="width:auto;padding:0;accent-color:var(--primary)">
         <label for="empActive" style="margin:0;cursor:pointer">Aktiv (erscheint in der Stunden-Eingabe)</label>

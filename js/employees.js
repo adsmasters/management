@@ -21,6 +21,7 @@
   const empHourlyRate   = document.getElementById('empHourlyRate');
   const salaryFields    = document.getElementById('salaryFields');
   const hourlyField     = document.getElementById('hourlyField');
+  const empLeaveStart   = document.getElementById('empLeaveStart');
   const empActive       = document.getElementById('empActive');
   const roleHint       = document.getElementById('roleHint');
   const empModalClose  = document.getElementById('empModalClose');
@@ -77,6 +78,7 @@
     empGross.value        = emp?.gross_salary   > 0 ? emp.gross_salary   : '';
     empEmployerCost.value = emp?.employer_costs > 0 ? emp.employer_costs : '';
     empHourlyRate.value   = emp?.hourly_rate    > 0 ? emp.hourly_rate    : '';
+    empLeaveStart.value   = emp?.leave_start ? emp.leave_start.substring(0, 7) : '';
     empCostTotal.style.display = 'none';
     if ((emp?.gross_salary || 0) + (emp?.employer_costs || 0) > 0) updateCostTotal();
     updateRoleFields();
@@ -109,11 +111,13 @@
     empModalSave.disabled = true;
     empModalSave.textContent = 'Speichern…';
 
+    const leaveStart = empLeaveStart.value ? empLeaveStart.value + '-01' : null;
     const fields = { name, role, email, active,
                      gross_salary:   isFreelancer ? null : (gross        || null),
                      employer_costs: isFreelancer ? null : (employerCost || null),
                      monthly_cost:   isFreelancer ? 0    : monthlyCost,
-                     hourly_rate:    isFreelancer ? (hourlyRate || null) : null };
+                     hourly_rate:    isFreelancer ? (hourlyRate || null) : null,
+                     leave_start:    leaveStart };
     const promise = editingId
       ? window.db.employees.update(editingId, fields)
       : window.db.employees.create(name, role, email, monthlyCost);
@@ -203,8 +207,11 @@
         }
       }
 
+      const leaveBadge = emp.leave_start
+        ? ' <span style="font-size:10px;background:#fef9c3;color:#854d0e;border:1px solid #fde047;border-radius:4px;padding:1px 6px;font-weight:600">Abwesend ab ' + emp.leave_start.substring(0,7) + '</span>'
+        : '';
       tr.innerHTML = `
-        <td style="font-weight:500"><a href="employee-detail.html?id=${encodeURIComponent(emp.id)}&name=${encodeURIComponent(emp.name)}" style="font-weight:600;color:var(--primary)">${emp.name}</a></td>
+        <td style="font-weight:500"><a href="employee-detail.html?id=${encodeURIComponent(emp.id)}&name=${encodeURIComponent(emp.name)}" style="font-weight:600;color:var(--primary)">${emp.name}</a>${leaveBadge}</td>
         <td><span class="role-badge ${roleCls}">${roleLabel}</span></td>
         <td style="color:var(--text-secondary)">${emp.email || '<span class="text-muted">—</span>'}</td>
         <td class="right" style="font-variant-numeric:tabular-nums">${costFmt}</td>

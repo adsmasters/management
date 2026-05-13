@@ -119,7 +119,7 @@
       loadingEl.classList.add('hidden');
       contentEl.classList.remove('hidden');
 
-      render(clients, employees, clientHours, userTotals, revenueMap, numMonths);
+      render(clients, employees, clientHours, userTotals, revenueMap, numMonths, months);
     })
     .catch(function (e) {
       loadingEl.classList.add('hidden');
@@ -127,7 +127,7 @@
     });
   }
 
-  function render(clients, employees, clientHours, userTotals, revenueMap, numMonths) {
+  function render(clients, employees, clientHours, userTotals, revenueMap, numMonths, months) {
     profitBody.innerHTML = '';
 
     var totalRevenue = 0;
@@ -148,11 +148,24 @@
         var uNorm       = norm(emp.name);
         var empOnClient = cHours[uNorm] || 0;
         if (empOnClient <= 0) return;
+
+        // Count how many months in the range this employee was NOT on leave
+        var activeMonths = numMonths;
+        if (emp.leave_start) {
+          var ls = new Date(emp.leave_start);
+          var leaveVal = ls.getFullYear() * 12 + ls.getMonth(); // 0-based month
+          activeMonths = months.filter(function (m) {
+            return (m.year * 12 + (m.month - 1)) < leaveVal;
+          }).length;
+        }
+        if (activeMonths <= 0) return; // vollständig abwesend im Zeitraum
+
         if (emp.role === 'freelancer' && emp.hourly_rate > 0) {
+          // Freelancer: Stunden × Stundensatz (Stunden sind bereits nur für aktive Monate)
           cost += empOnClient * emp.hourly_rate;
         } else if (emp.monthly_cost > 0) {
           var empTotal = userTotals[uNorm] || 0;
-          if (empTotal > 0) cost += (empOnClient / empTotal) * emp.monthly_cost * numMonths;
+          if (empTotal > 0) cost += (empOnClient / empTotal) * emp.monthly_cost * activeMonths;
         }
       });
 
