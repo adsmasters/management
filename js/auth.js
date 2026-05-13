@@ -4,21 +4,7 @@
   window.auth = {
     _session: null,
 
-    init: function () {
-      // settings.html always accessible (initial setup)
-      if (location.pathname.includes('login.html'))    return;
-      if (location.pathname.includes('settings.html')) return;
-      if (!window.isConfigured()) return;
-
-      window.getSb().auth.getSession().then(function (result) {
-        var session = result.data && result.data.session;
-        if (!session) { location.href = 'login.html'; return; }
-        window.auth._session = session;
-        window.auth._setupNav(session);
-      }).catch(function () {
-        location.href = 'login.html';
-      });
-    },
+    init: function () { return; },
 
     signOut: function () {
       window.getSb().auth.signOut().finally(function () {
