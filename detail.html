@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kundendetail – Adsmasters Management</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<header class="header">
+  <div class="header-inner">
+    <a href="index.html" class="logo">Adsmasters <span>Management</span></a>
+    <nav>
+      <a href="index.html"       class="nav-link">Übersicht</a>
+      <a href="clients.html"     class="nav-link">Kunden</a>
+      <a href="employees.html"   class="nav-link">Mitarbeiter</a>
+      <a href="utilization.html" class="nav-link">Auslastung</a>
+      <a href="profit.html"      class="nav-link">Profitabilität</a>
+      <a href="settings.html"    class="nav-link">Einstellungen</a>
+    </nav>
+  </div>
+</header>
+
+<main class="main">
+
+  <div id="setupHint" class="hidden">
+    <div class="state-box">
+      <div class="icon">⚙️</div>
+      <h3>Einstellungen erforderlich</h3>
+      <p>Bitte zuerst die Supabase-Verbindung in den <a href="settings.html">Einstellungen</a> konfigurieren.</p>
+      <a href="settings.html" class="btn btn-primary">Zu den Einstellungen</a>
+    </div>
+  </div>
+
+  <a href="index.html" class="back-link">
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="13" y1="8" x2="3" y2="8"/><polyline points="7 4 3 8 7 12"/></svg>
+    Zurück zur Übersicht
+  </a>
+
+  <div id="error"></div>
+
+  <div class="page-header">
+    <div>
+      <h1 id="clientTitle">Kunde</h1>
+      <div id="clientBudgetInfo" class="sub"></div>
+    </div>
+    <div class="filters">
+      <div class="filter-group">
+        <label for="yearSelect">Jahr</label>
+        <select id="yearSelect" style="width:82px"></select>
+      </div>
+      <button id="loadBtn" class="btn btn-primary">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+        Laden
+      </button>
+      <a id="editClientBtn" href="#" class="btn btn-secondary">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+        Budget bearbeiten
+      </a>
+    </div>
+  </div>
+
+  <div id="loading"></div>
+  <div id="summary" class="hidden"></div>
+
+  <div id="tableWrap" class="card hidden">
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th style="min-width:110px">Monat</th>
+            <th class="right" style="min-width:145px">
+              Account Mgmt
+              <div style="font-weight:400;font-size:10px;text-transform:none;letter-spacing:0;color:var(--text-muted);margin-top:1px">Budget: <span id="amBudgetHdr">—</span>/Mo · inkl. FL÷3</div>
+            </th>
+            <th class="right" style="min-width:120px">
+              Advertising
+              <div style="font-weight:400;font-size:10px;text-transform:none;letter-spacing:0;color:var(--text-muted);margin-top:1px">Budget: <span id="advBudgetHdr">—</span>/Mo</div>
+            </th>
+            <th class="right" style="min-width:105px">Gesamt</th>
+            <th class="center" style="min-width:150px">Über Budget</th>
+            <th class="center" style="min-width:90px">Bearbeiten</th>
+          </tr>
+        </thead>
+        <tbody id="monthsBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+
+</main>
+
+<!-- Entry Modal -->
+<div id="entryModal" class="modal-overlay hidden">
+  <div class="modal" style="max-width:500px">
+    <div class="modal-header">
+      <h3 id="modalTitle">Stunden erfassen</h3>
+      <button class="modal-close" id="modalClose">✕</button>
+    </div>
+    <div class="modal-body">
+      <div id="modalClientInfo" style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;font-weight:500"></div>
+      <div id="modalEmployeeRows">
+        <div class="loading-bar" style="padding:16px 0"><div class="spinner"></div>Lade Mitarbeiter…</div>
+      </div>
+      <div id="modalTotals" class="entry-totals hidden"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" id="modalCancel">Abbrechen</button>
+      <button class="btn btn-primary"   id="modalSave">Speichern</button>
+    </div>
+  </div>
+</div>
+
+<!-- Correction Modal -->
+<div id="adjModal" class="modal-overlay hidden">
+  <div class="modal" style="max-width:420px">
+    <div class="modal-header">
+      <h3 id="adjModalTitle">Monatskorrektur</h3>
+      <button class="modal-close" id="adjModalClose">✕</button>
+    </div>
+    <div class="modal-body">
+      <div id="adjModalInfo" style="font-size:13px;color:var(--text-secondary);margin-bottom:4px;font-weight:500"></div>
+      <p style="font-size:12.5px;color:var(--text-muted);margin-bottom:16px">
+        Zusätzliche Stunden, die zum Clockify-Sync dazukommen.<br>Negative Werte möglich (z.B. bei Gutschriften).
+      </p>
+      <div class="field-row">
+        <div class="field">
+          <label for="adjAmInput">AM Korrektur (h)</label>
+          <input type="number" id="adjAmInput" step="0.25" placeholder="z.B. 5 oder -2">
+        </div>
+        <div class="field">
+          <label for="adjAdvInput">ADV Korrektur (h)</label>
+          <input type="number" id="adjAdvInput" step="0.25" placeholder="z.B. 3">
+        </div>
+      </div>
+      <div class="field">
+        <label for="adjNoteInput">Notiz <span style="color:var(--text-muted);font-weight:400">(optional)</span></label>
+        <input type="text" id="adjNoteInput" placeholder="z.B. Zusatzauftrag Q2, Sommerrabatt …">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost btn-sm" id="adjModalDelete" style="margin-right:auto;color:var(--danger)">Korrektur löschen</button>
+      <button class="btn btn-secondary" id="adjModalCancel">Abbrechen</button>
+      <button class="btn btn-primary"   id="adjModalSave">Speichern</button>
+    </div>
+  </div>
+</div>
+
+<!-- Edit client budget modal -->
+<div id="budgetModal" class="modal-overlay hidden">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Budget bearbeiten</h3>
+      <button class="modal-close" id="budgetModalClose">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="field">
+        <label for="budgetAmInput">Account Mgmt Budget (h/Monat)</label>
+        <input type="number" id="budgetAmInput" min="0" step="0.5" placeholder="z.B. 20">
+      </div>
+      <div class="field">
+        <label for="budgetAdvInput">Advertising Budget (h/Monat)</label>
+        <input type="number" id="budgetAdvInput" min="0" step="0.5" placeholder="z.B. 15">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" id="budgetModalCancel">Abbrechen</button>
+      <button class="btn btn-primary"   id="budgetModalSave">Speichern</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/db.js"></script>
+<script src="js/utils.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/detail.js"></script>
+</body>
+</html>

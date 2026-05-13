@@ -3,33 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Management – Adsmasters</title>
+  <title>Adsmasters Management</title>
   <link rel="stylesheet" href="css/style.css">
-  <style>
-    .profit-table td.revenue  { color: #0369a1; font-weight: 500; }
-    .profit-table td.cost     { color: #dc2626; font-weight: 500; }
-    .profit-table td.profit-pos { background: var(--success-bg) !important; color: #065f46; font-weight: 600; }
-    .profit-table td.profit-neg { background: var(--danger-bg)  !important; color: #991b1b; font-weight: 600; }
-    .profit-table td.margin-pos { color: #065f46; font-weight: 500; }
-    .profit-table td.margin-neg { color: #991b1b; font-weight: 500; }
-    .summary-strip { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
-    .kpi-card {
-      background: var(--surface); border: 1px solid var(--border);
-      border-radius: var(--radius); padding: 16px 20px; flex: 1; min-width: 160px;
-    }
-    .kpi-card .kpi-label { font-size: 12px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: .04em; font-weight: 600; }
-    .kpi-card .kpi-value { font-size: 24px; font-weight: 700; margin-top: 4px; }
-    .kpi-card .kpi-value.pos { color: var(--success); }
-    .kpi-card .kpi-value.neg { color: var(--danger); }
-    .kpi-card .kpi-value.neutral { color: var(--text); }
-    .no-data { color: var(--text-muted); font-style: italic; font-size: 12px; }
-    .hint-row { font-size: 12px; color: var(--text-muted); padding: 10px 20px; border-top: 1px solid var(--border); }
-    .progress-bar-wrap { height: 6px; background: var(--border); border-radius: 3px; margin-top: 4px; min-width: 80px; }
-    .progress-bar { height: 6px; border-radius: 3px; transition: width .3s; }
-    .bar-pos { background: var(--success); }
-    .bar-neg { background: var(--danger); }
-    .hours-cell { font-size: 12px; color: var(--text-secondary); }
-  </style>
 </head>
 <body>
 
@@ -37,92 +12,104 @@
   <div class="header-inner">
     <a href="index.html" class="logo">Adsmasters <span>Management</span></a>
     <nav>
-      <a href="index.html"    class="nav-link active">Profitabilität</a>
-      <a href="settings.html" class="nav-link">Einstellungen</a>
+      <a href="index.html"       class="nav-link active">Übersicht</a>
+      <a href="clients.html"     class="nav-link">Kunden</a>
+      <a href="employees.html"   class="nav-link">Mitarbeiter</a>
+      <a href="utilization.html" class="nav-link">Auslastung</a>
+      <a href="profit.html"      class="nav-link">Profitabilität</a>
+      <a href="settings.html"    class="nav-link">Einstellungen</a>
     </nav>
   </div>
 </header>
 
 <main class="main">
 
+  <div id="setupHint" class="hidden">
+    <div class="state-box">
+      <div class="icon">⚙️</div>
+      <h3>Einstellungen erforderlich</h3>
+      <p>Bitte zuerst die Supabase-Verbindung in den <a href="settings.html">Einstellungen</a> konfigurieren.</p>
+      <a href="settings.html" class="btn btn-primary" style="margin-top:4px">Zu den Einstellungen</a>
+    </div>
+  </div>
+
   <div id="error"></div>
 
-  <div class="page-header" style="flex-wrap:wrap;gap:12px">
+  <div class="page-header">
     <div>
-      <h1>Profitabilität</h1>
-      <div class="sub">Umsatz, Kosten und Marge pro Kunde</div>
+      <h1>Kundenübersicht</h1>
+      <div class="sub">Jahresübersicht – gebuchte Stunden vs. Budget pro Kunde</div>
     </div>
-    <div class="toolbar">
+    <div class="filters">
       <div class="filter-group">
-        <label for="monthFrom">Von</label>
-        <input type="month" id="monthFrom" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;background:var(--surface);color:var(--text)">
-      </div>
-      <div class="filter-group">
-        <label for="monthTo">Bis</label>
-        <input type="month" id="monthTo" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;background:var(--surface);color:var(--text)">
+        <label for="yearSelect">Jahr</label>
+        <select id="yearSelect" style="width:82px"></select>
       </div>
       <button id="loadBtn" class="btn btn-primary">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4.3"/></svg>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
         Laden
+      </button>
+      <button id="syncBtn" class="btn btn-secondary">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+        Von Clockify sync
       </button>
     </div>
   </div>
 
-  <div id="loading" class="hidden">
-    <div class="loading-bar"><div class="spinner"></div>Daten werden geladen…</div>
+  <div id="loading"></div>
+  <div id="summary" class="hidden"></div>
+
+  <div id="tableWrap" class="card hidden">
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th data-sort="name" class="sortable" style="min-width:180px">Kunde <span class="sort-ind"></span></th>
+            <th data-sort="am" class="sortable right" style="min-width:145px">
+              Account Mgmt <span class="sort-ind"></span>
+              <div id="thAmSub" style="font-weight:400;font-size:10px;text-transform:none;letter-spacing:0;color:var(--text-muted);margin-top:1px">inkl. FL÷3</div>
+            </th>
+            <th data-sort="adv" class="sortable right" style="min-width:120px">
+              Advertising <span class="sort-ind"></span>
+              <div id="thAdvSub" style="font-weight:400;font-size:10px;text-transform:none;letter-spacing:0;color:var(--text-muted);margin-top:1px"></div>
+            </th>
+            <th data-sort="total" class="sortable right" style="min-width:105px">Gesamt <span class="sort-ind"></span></th>
+            <th data-sort="diff" class="sortable right" style="min-width:105px">Differenz <span class="sort-ind"></span></th>
+            <th class="sortable center" style="min-width:160px">Über Budget</th>
+            <th class="center" style="min-width:90px">Details</th>
+          </tr>
+        </thead>
+        <tbody id="clientsBody"></tbody>
+      </table>
+    </div>
   </div>
 
-  <div id="content" class="hidden">
-    <div class="summary-strip">
-      <div class="kpi-card">
-        <div class="kpi-label">Gesamtumsatz</div>
-        <div class="kpi-value neutral" id="kpiRevenue">—</div>
-      </div>
-      <div class="kpi-card">
-        <div class="kpi-label">Gesamtkosten</div>
-        <div class="kpi-value neutral" id="kpiCost">—</div>
-      </div>
-      <div class="kpi-card">
-        <div class="kpi-label">Gewinn / Verlust</div>
-        <div class="kpi-value" id="kpiProfit">—</div>
-      </div>
-      <div class="kpi-card">
-        <div class="kpi-label">Ø Marge</div>
-        <div class="kpi-value" id="kpiMargin">—</div>
-      </div>
+  <div id="emptyClients" class="hidden">
+    <div class="state-box">
+      <div class="icon">📋</div>
+      <h3>Noch keine Kunden angelegt</h3>
+      <p>Lege zuerst Kunden auf der <a href="clients.html">Kunden-Seite</a> an.</p>
+      <a href="clients.html" class="btn btn-primary" style="margin-top:4px">Kunden anlegen</a>
     </div>
+  </div>
 
-    <div class="card">
-      <div class="table-wrap">
-        <table class="profit-table">
-          <thead>
-            <tr>
-              <th style="min-width:200px">Kunde</th>
-              <th class="right" style="min-width:140px">Umsatz (Brutto)</th>
-              <th class="right" style="min-width:120px">Kosten</th>
-              <th class="right" style="min-width:130px">Gewinn/Verlust</th>
-              <th style="min-width:140px">Marge</th>
-              <th class="right" style="min-width:100px">Stunden</th>
-            </tr>
-          </thead>
-          <tbody id="profitBody"></tbody>
-        </table>
-      </div>
-      <div class="hint-row">
-        Umsatz = Brutto-Rechnungsbetrag aus LexOffice (gestellt + bezahlt) &nbsp;·&nbsp;
-        Kosten = Mitarbeitergehälter anteilig nach Clockify-Stunden
-      </div>
-    </div>
+  <div style="margin-top:14px;text-align:right;font-size:11.5px;color:var(--text-muted)">
+    <span style="display:inline-flex;align-items:center;gap:5px;margin-right:14px">
+      <span style="width:10px;height:10px;border-radius:2px;background:var(--danger-bg);border:1px solid var(--danger-border);display:inline-block"></span> Über Budget
+    </span>
+    <span style="display:inline-flex;align-items:center;gap:5px">
+      <span style="width:10px;height:10px;border-radius:2px;background:var(--success-bg);border:1px solid var(--success-border);display:inline-block"></span> Unter Budget
+    </span>
   </div>
 
 </main>
 
+
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="js/db.js"></script>
 <script src="js/utils.js"></script>
-<script src="js/clockify.js"></script>
-<script src="js/lexoffice.js"></script>
 <script src="js/auth.js"></script>
-<script src="js/profit.js"></script>
+<script src="js/clockify.js"></script>
+<script src="js/overview.js?v=2"></script>
 </body>
 </html>

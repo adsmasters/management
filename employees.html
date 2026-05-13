@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mitarbeiter – Adsmasters Management</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<header class="header">
+  <div class="header-inner">
+    <a href="index.html" class="logo">Adsmasters <span>Management</span></a>
+    <nav>
+      <a href="index.html"       class="nav-link">Übersicht</a>
+      <a href="clients.html"     class="nav-link">Kunden</a>
+      <a href="employees.html"   class="nav-link active">Mitarbeiter</a>
+      <a href="utilization.html" class="nav-link">Auslastung</a>
+      <a href="profit.html"      class="nav-link">Profitabilität</a>
+      <a href="settings.html"    class="nav-link">Einstellungen</a>
+    </nav>
+  </div>
+</header>
+
+<main class="main">
+
+  <div id="setupHint" class="hidden">
+    <div class="state-box">
+      <div class="icon">⚙️</div>
+      <h3>Einstellungen erforderlich</h3>
+      <p>Bitte zuerst die Supabase-Verbindung in den <a href="settings.html">Einstellungen</a> konfigurieren.</p>
+      <a href="settings.html" class="btn btn-primary">Zu den Einstellungen</a>
+    </div>
+  </div>
+
+  <div id="error"></div>
+
+  <div class="page-header">
+    <div>
+      <h1>Mitarbeiter</h1>
+      <div class="sub">Teammitglieder anlegen und Abteilungen zuweisen</div>
+    </div>
+    <button id="addBtn" class="btn btn-primary">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      Neuer Mitarbeiter
+    </button>
+  </div>
+
+  <div id="loading"></div>
+
+  <div id="tableWrap" class="card hidden">
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th style="min-width:180px">Name</th>
+            <th style="min-width:200px">Abteilung</th>
+            <th style="min-width:180px">E-Mail</th>
+            <th class="right" style="min-width:120px">Kosten/Monat</th>
+            <th class="center" style="min-width:80px">Aktiv</th>
+            <th class="center" style="min-width:130px">Aktionen</th>
+          </tr>
+        </thead>
+        <tbody id="employeesBody"></tbody>
+      </table>
+    </div>
+
+    <div style="padding:14px 20px;border-top:1px solid var(--border);font-size:12px;color:var(--text-muted);display:flex;flex-wrap:wrap;gap:8px 20px">
+      <span><span class="role-badge role-am">Account Manager</span> Stunden fließen 1:1 in Account Mgmt</span>
+      <span><span class="role-badge role-fl">Freelancer/WS</span> Stunden ÷ 3 → Account Mgmt</span>
+      <span><span class="role-badge role-adv">Advertising Mgr</span> Stunden fließen in Advertising</span>
+    </div>
+  </div>
+
+  <div id="emptyState" class="hidden">
+    <div class="state-box">
+      <div class="icon">👥</div>
+      <h3>Noch keine Mitarbeiter angelegt</h3>
+      <p>Klicke auf „Neuer Mitarbeiter", um dein Team einzutragen.</p>
+    </div>
+  </div>
+
+</main>
+
+<!-- Add / Edit Modal -->
+<div id="empModal" class="modal-overlay hidden">
+  <div class="modal">
+    <div class="modal-header">
+      <h3 id="empModalTitle">Neuer Mitarbeiter</h3>
+      <button class="modal-close" id="empModalClose">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="field">
+        <label for="empName">Name <span style="color:var(--danger)">*</span></label>
+        <input type="text" id="empName" placeholder="z.B. Max Mustermann" autocomplete="off">
+      </div>
+      <div class="field">
+        <label for="empRole">Abteilung <span style="color:var(--danger)">*</span></label>
+        <select id="empRole">
+          <option value="account_manager">Account Manager</option>
+          <option value="advertising">Advertising Manager</option>
+          <option value="freelancer">Freelancer / Werksstudent</option>
+          <option value="other">Sonstige (wird nicht gewertet)</option>
+        </select>
+        <span class="hint" id="roleHint"></span>
+      </div>
+      <div class="field">
+        <label for="empEmail">E-Mail <span style="color:var(--text-muted);font-weight:400">(optional)</span></label>
+        <input type="email" id="empEmail" placeholder="max@agentur.de">
+      </div>
+      <div class="field">
+        <label for="empCost">Monatsgehalt / Kosten <span style="color:var(--text-muted);font-weight:400">(optional)</span></label>
+        <input type="number" id="empCost" min="0" step="100" placeholder="z.B. 3500">
+        <span class="hint">Brutto-Kosten pro Monat in € – für Profitabilitätsberechnung</span>
+      </div>
+      <div class="field" id="activeField" style="flex-direction:row;align-items:center;gap:10px">
+        <input type="checkbox" id="empActive" checked style="width:auto;padding:0;accent-color:var(--primary)">
+        <label for="empActive" style="margin:0;cursor:pointer">Aktiv (erscheint in der Stunden-Eingabe)</label>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" id="empModalCancel">Abbrechen</button>
+      <button class="btn btn-primary"   id="empModalSave">Speichern</button>
+    </div>
+  </div>
+</div>
+
+<!-- Confirm Delete -->
+<div id="deleteModal" class="modal-overlay hidden">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Mitarbeiter löschen</h3>
+      <button class="modal-close" id="deleteModalClose">✕</button>
+    </div>
+    <div class="modal-body">
+      <p class="confirm-text">Möchtest du <strong id="deleteEmpName"></strong> wirklich löschen?<br>
+      Alle gebuchten Stunden dieser Person werden ebenfalls gelöscht.</p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" id="deleteModalCancel">Abbrechen</button>
+      <button class="btn btn-danger"    id="deleteModalConfirm">Endgültig löschen</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/db.js"></script>
+<script src="js/utils.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/employees.js"></script>
+</body>
+</html>

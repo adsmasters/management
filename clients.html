@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kunden – Adsmasters Management</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<header class="header">
+  <div class="header-inner">
+    <a href="index.html" class="logo">Adsmasters <span>Management</span></a>
+    <nav>
+      <a href="index.html"       class="nav-link">Übersicht</a>
+      <a href="clients.html"     class="nav-link active">Kunden</a>
+      <a href="employees.html"   class="nav-link">Mitarbeiter</a>
+      <a href="utilization.html" class="nav-link">Auslastung</a>
+      <a href="profit.html"      class="nav-link">Profitabilität</a>
+      <a href="settings.html"    class="nav-link">Einstellungen</a>
+    </nav>
+  </div>
+</header>
+
+<main class="main">
+
+  <div id="setupHint" class="hidden">
+    <div class="state-box">
+      <div class="icon">⚙️</div>
+      <h3>Einstellungen erforderlich</h3>
+      <p>Bitte zuerst die Supabase-Verbindung in den <a href="settings.html">Einstellungen</a> konfigurieren.</p>
+      <a href="settings.html" class="btn btn-primary">Zu den Einstellungen</a>
+    </div>
+  </div>
+
+  <div id="error"></div>
+
+  <div class="page-header">
+    <div>
+      <h1>Kunden</h1>
+      <div class="sub">Kunden anlegen, Budgets setzen und Bearbeiter zuweisen</div>
+    </div>
+    <button id="addClientBtn" class="btn btn-primary">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      Neuer Kunde
+    </button>
+  </div>
+
+  <div id="loading"></div>
+
+  <div id="tableWrap" class="card hidden">
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th style="width:40px;padding-right:4px"><input type="checkbox" id="selectAll" style="accent-color:var(--primary);width:15px;height:15px;cursor:pointer"></th>
+            <th style="min-width:200px">Kundenname</th>
+            <th style="min-width:100px">Typ</th>
+            <th class="right" style="min-width:160px">Budget AM</th>
+            <th class="right" style="min-width:160px">Budget Advertising</th>
+            <th style="min-width:160px">Account Manager</th>
+            <th style="min-width:160px">Advertising Mgr</th>
+            <th class="center" style="min-width:130px">Aktionen</th>
+          </tr>
+        </thead>
+        <tbody id="clientsBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div id="emptyState" class="hidden">
+    <div class="state-box">
+      <div class="icon">📋</div>
+      <h3>Noch keine Kunden angelegt</h3>
+      <p>Klicke auf „Neuer Kunde", um deinen ersten Kunden anzulegen.</p>
+    </div>
+  </div>
+
+</main>
+
+<!-- Add / Edit Client Modal -->
+<div id="clientModal" class="modal-overlay hidden">
+  <div class="modal" style="max-width:520px">
+    <div class="modal-header">
+      <h3 id="clientModalTitle">Neuer Kunde</h3>
+      <button class="modal-close" id="clientModalClose">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="field">
+        <label for="clientNameInput">Kundenname <span style="color:var(--danger)">*</span></label>
+        <input type="text" id="clientNameInput" placeholder="z.B. Muster GmbH" autocomplete="off">
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label for="clientAmInput">Budget Account Mgmt</label>
+          <input type="number" id="clientAmInput" min="0" step="0.5" placeholder="z.B. 20">
+          <span class="hint">Stunden / Monat</span>
+        </div>
+        <div class="field">
+          <label for="clientAdvInput">Budget Advertising</label>
+          <input type="number" id="clientAdvInput" min="0" step="0.5" placeholder="z.B. 15">
+          <span class="hint">Stunden / Monat</span>
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label for="clientAmEmpSelect">Primärer Account Manager</label>
+          <select id="clientAmEmpSelect">
+            <option value="">— kein —</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="clientAdvEmpSelect">Primärer Advertising Manager</label>
+          <select id="clientAdvEmpSelect">
+            <option value="">— kein —</option>
+          </select>
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label for="clientStartInput">Vertragsstart <span style="color:var(--text-muted);font-weight:400">(optional)</span></label>
+          <input type="month" id="clientStartInput">
+          <span class="hint">Budget ab diesem Monat</span>
+        </div>
+        <div class="field" id="projectEndField" style="display:none">
+          <label for="clientEndInput">Projektende</label>
+          <input type="month" id="clientEndInput">
+          <span class="hint">Budget bis diesem Monat</span>
+        </div>
+      </div>
+      <div class="field" style="flex-direction:row;align-items:center;gap:10px">
+        <input type="checkbox" id="clientIsProject" style="width:auto;padding:0;accent-color:var(--primary)">
+        <label for="clientIsProject" style="margin:0;cursor:pointer;font-size:13.5px">
+          Projektkunde <span style="color:var(--text-muted);font-weight:400;font-size:12px">(einmaliges Projekt mit fixer Laufzeit)</span>
+        </label>
+      </div>
+      <div class="field">
+        <label for="clientLexofficeName">LexOffice Kontaktname <span style="color:var(--text-muted);font-weight:400">(optional)</span></label>
+        <input type="text" id="clientLexofficeName" placeholder="z.B. Muster GmbH &amp; Co. KG" autocomplete="off">
+        <span class="hint">Exakter Name aus LexOffice – nur nötig wenn er vom Kundennamen abweicht</span>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" id="clientModalCancel">Abbrechen</button>
+      <button class="btn btn-primary"   id="clientModalSave">Speichern</button>
+    </div>
+  </div>
+</div>
+
+<!-- Confirm Delete Modal -->
+<div id="deleteModal" class="modal-overlay hidden">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Kunde löschen</h3>
+      <button class="modal-close" id="deleteModalClose">✕</button>
+    </div>
+    <div class="modal-body">
+      <p class="confirm-text">Möchtest du <strong id="deleteClientName"></strong> wirklich löschen?<br>Alle eingetragenen Stunden für diesen Kunden werden ebenfalls gelöscht.</p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" id="deleteModalCancel">Abbrechen</button>
+      <button class="btn btn-danger"    id="deleteModalConfirm">Endgültig löschen</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/db.js"></script>
+<script src="js/utils.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/clients.js"></script>
+</body>
+</html>
