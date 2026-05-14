@@ -304,15 +304,15 @@
           if (data.error) {
             // Retry once after 5s on rate limit
             if (data.error.indexOf('429') !== -1 || data.error.indexOf('Rate limit') !== -1) {
-              lexSyncBtn.textContent = 'Rate limit – warte 5s… (' + (i + 1) + '/' + months.length + ')';
-              setTimeout(function () { syncNext(i); }, 5000);
+              lexSyncBtn.textContent = 'Rate limit – warte 15s… (' + (i + 1) + '/' + months.length + ')';
+              setTimeout(function () { syncNext(i); }, 15000);
               return;
             }
             throw new Error(data.error);
           }
           if (!res.ok) throw new Error('HTTP ' + res.status);
-          // Small pause between months to avoid rate limiting
-          setTimeout(function () { syncNext(i + 1); }, 800);
+          // Pause between months to respect LexOffice rate limit
+          setTimeout(function () { syncNext(i + 1); }, 3000);
         });
       }).catch(function (e) {
         console.error('[sync-lexoffice] error', e.message);
