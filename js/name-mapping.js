@@ -149,6 +149,17 @@
         });
         panel.classList.toggle('hidden');
         if (!panel.classList.contains('hidden')) {
+          // Position panel relative to button using fixed coords
+          var rect = showBtn.getBoundingClientRect();
+          var panelH = 300; // approx max height
+          var spaceBelow = window.innerHeight - rect.bottom;
+          if (spaceBelow < panelH && rect.top > panelH) {
+            // Open upward
+            panel.style.top  = (rect.top - panelH) + 'px';
+          } else {
+            panel.style.top  = (rect.bottom + 4) + 'px';
+          }
+          panel.style.left = rect.left + 'px';
           filter.value = '';
           buildList('');
           filter.focus();
