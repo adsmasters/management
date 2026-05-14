@@ -1,0 +1,129 @@
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+
+const CORS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+};
+
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+
+Deno.serve(async (req) => {
+  if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
+
+  try {
+    const { lexofficeKey, year, month } = await req.json();
+    if (!lexofficeKey) throw new Error('LexOffice API Key fehlt');
+
+    const targetYear  = year as number;
+    const targetMonth = month as number; // 1-based
+
+    // Fetch range: 1st of prev month → 15th of following month
+    // Wide window to catch invoices dated in adjacent months but with Leistungsdatum in target month
+    const from = new Date(Date.UTC(targetYear, targetMonth - 2, 1)).toISOString().substring(0, 10);
+    const to   = new Date(Date.UTC(targetYear, targetMonth, 15)).toISOString().substring(0, 10);
+
+    async function lexGet(path: string) {
+      const res = await fetch('https://api.lexoffice.io/v1' + path, {
+        headers: { 'Authorization': `Bearer ${lexofficeKey}`, 'Accept': 'application/json' },
+      });
+      if (!res.ok) {
+        const txt = await res.text();
+        throw new Error(`LexOffice ${res.status}: ${txt}`);
+      }
+      return res.json();
+    }
+
+    // Fetch all voucher pages
+    const first = await lexGet(
+      `/voucherlist?voucherType=invoice&voucherStatus=open,paid&voucherDateFrom=${from}&voucherDateTo=${to}&size=250&page=0`
+    );
+    const pages = first.totalPages || 1;
+    const allVouchers = [...(first.content || [])];
+    for (let p = 1; p < pages; p++) {
+      await sleep(600);
+      const data = await lexGet(
+        `/voucherlist?voucherType=invoice&voucherStatus=open,paid&voucherDateFrom=${from}&voucherDateTo=${to}&size=250&page=${p}`
+      );
+      allVouchers.push(...(data.content || []));
+    }
+
+    // For every voucher: fetch full invoice to get serviceDate (Leistungsdatum) + net amount
+    const map: Record<string, number> = {};
+
+    for (let i = 0; i < allVouchers.length; i++) {
+      const v = allVouchers[i];
+      if (i > 0 && i % 4 === 0) await sleep(800); // rate-limit buffer
+
+      const contactName = (v.contactName || '').trim();
+      if (!contactName) continue;
+
+      try {
+        const voucherId = v.id || v.voucherId;
+        const invoice = await lexGet(`/invoices/${voucherId}`);
+
+        // Determine which month this invoice belongs to
+        const sd = invoice.serviceDate;
+        let belongs = false;
+
+        if (sd) {
+          // serviceDate (Leistungsdatum) is present → use it exclusively
+          const dateStr: string = sd.date || sd.startDate || sd.endDate || '';
+          if (dateStr) {
+            const d = new Date(dateStr);
+            if (!isNaN(d.getTime())) {
+              belongs = d.getUTCFullYear() === targetYear && d.getUTCMonth() + 1 === targetMonth;
+            }
+          }
+        } else {
+          // No serviceDate → fall back to voucherDate (Rechnungsdatum)
+          const vd = new Date(v.voucherDate || '');
+          belongs = vd.getUTCFullYear() === targetYear && vd.getUTCMonth() + 1 === targetMonth;
+        }
+
+        if (belongs) {
+          // Use net amount (Nettobetrag) from full invoice
+          const netAmount: number = invoice.totalPrice?.totalNetAmount ?? (v.totalAmount || 0);
+          map[contactName] = (map[contactName] || 0) + netAmount;
+        }
+      } catch (_) {
+        // If individual fetch fails: fall back to voucherDate + gross amount
+        const vd = new Date(v.voucherDate || '');
+        if (vd.getUTCFullYear() === targetYear && vd.getUTCMonth() + 1 === targetMonth) {
+          map[contactName] = (map[contactName] || 0) + (v.totalAmount || 0);
+        }
+      }
+    }
+
+    const rows = Object.entries(map).map(([contact_name, total_amount]) => ({
+      year: targetYear,
+      month: targetMonth,
+      contact_name,
+      total_amount,
+      voucher_id: `agg_${targetYear}_${targetMonth}_${contact_name.toLowerCase().replace(/[^a-z0-9]/g, '_').substring(0, 40)}`,
+    }));
+
+    const sb = createClient(
+      Deno.env.get('SUPABASE_URL')!,
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+    );
+
+    const { error: delErr } = await sb.from('revenue').delete().eq('year', targetYear).eq('month', targetMonth);
+    if (delErr) throw delErr;
+
+    if (rows.length > 0) {
+      const { error: insErr } = await sb.from('revenue').insert(rows);
+      if (insErr) throw insErr;
+    }
+
+    return new Response(
+      JSON.stringify({ ok: true, count: rows.length }),
+      { headers: { ...CORS, 'Content-Type': 'application/json' } }
+    );
+
+  } catch (e: any) {
+    return new Response(
+      JSON.stringify({ error: e.message }),
+      { status: 200, headers: { ...CORS, 'Content-Type': 'application/json' } }
+    );
+  }
+});
