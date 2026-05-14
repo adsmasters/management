@@ -299,7 +299,9 @@
         : '';
 
       tr.innerHTML =
-        '<td style="font-weight:500">' + r.name +
+        '<td style="font-weight:500;cursor:pointer" class="client-name-cell">' +
+          '<span class="expand-arrow" style="display:inline-block;margin-right:4px;font-size:10px;transition:transform .2s">▶</span>' +
+          r.name +
           ' <button class="btn btn-ghost btn-sm rev-adj-btn" style="font-size:11px;padding:1px 6px;margin-left:4px" data-id="' + r.id + '" data-name="' + r.name + '">± Korrektur</button></td>' +
         '<td class="right revenue">' + (r.revenue > 0 ? fmt(r.revenue) + deductionHint : '<span class="no-lexoffice">—</span>') + '</td>' +
         '<td class="right cost">'    + (r.cost > 0 ? fmt(r.cost) : '<span class="no-lexoffice">—</span>') + '</td>' +
@@ -312,8 +314,74 @@
         '<td class="right hours-cell">' + (r.hours > 0 ? r.hours.toFixed(1) + ' h' : '—') + '</td>';
 
       // Korrektur-Button
-      tr.querySelector('.rev-adj-btn').addEventListener('click', function () {
+      tr.querySelector('.rev-adj-btn').addEventListener('click', function (e) {
+        e.stopPropagation();
         openRevAdj(r.id, r.name, months, deductionsByClientMonth[r.id] || {});
+      });
+
+      // Aufklapp-Detail pro Mitarbeiter
+      tr.querySelector('.client-name-cell').addEventListener('click', function () {
+        var existing = tr.nextElementSibling;
+        var arrow = tr.querySelector('.expand-arrow');
+        if (existing && existing.classList.contains('detail-emp-row')) {
+          existing.remove();
+          arrow.style.transform = '';
+          return;
+        }
+        arrow.style.transform = 'rotate(90deg)';
+
+        // Mitarbeiter-Kosten berechnen
+        var cNorm  = norm(r.name);
+        var cHours = clientHours[cNorm] || {};
+        var empRows = [];
+        employees.forEach(function (emp) {
+          var uNorm       = norm(emp.name);
+          var empOnClient = cHours[uNorm] || 0;
+          if (empOnClient <= 0) return;
+          var activeMonths = numMonths;
+          if (emp.leave_start) {
+            var ls = new Date(emp.leave_start);
+            var leaveVal = ls.getFullYear() * 12 + ls.getMonth();
+            activeMonths = months.filter(function (m) {
+              return (m.year * 12 + (m.month - 1)) < leaveVal;
+            }).length;
+          }
+          if (activeMonths <= 0) return;
+          var empCost = 0;
+          if (emp.role === 'freelancer' && emp.hourly_rate > 0) {
+            empCost = empOnClient * emp.hourly_rate;
+          } else if (emp.monthly_cost > 0) {
+            var empTotal = userTotals[uNorm] || 0;
+            if (empTotal > 0) empCost = (empOnClient / empTotal) * emp.monthly_cost * activeMonths;
+          }
+          empRows.push({ name: emp.name, role: emp.role, hours: empOnClient, cost: empCost });
+        });
+        empRows.sort(function (a, b) { return b.hours - a.hours; });
+
+        var detailTr = document.createElement('tr');
+        detailTr.className = 'detail-emp-row';
+        var html = '<td colspan="6" style="padding:0;border-top:none">' +
+          '<div style="background:var(--surface-hover,#f8fafc);border-bottom:1px solid var(--border);padding:8px 16px 8px 36px">' +
+          '<table style="width:100%;border-collapse:collapse;font-size:12px">' +
+          '<thead><tr>' +
+          '<th style="text-align:left;padding:4px 8px;color:var(--text-secondary);font-weight:600">Mitarbeiter</th>' +
+          '<th style="text-align:right;padding:4px 8px;color:var(--text-secondary);font-weight:600">Stunden</th>' +
+          '<th style="text-align:right;padding:4px 8px;color:var(--text-secondary);font-weight:600">Kosten</th>' +
+          '</tr></thead><tbody>';
+        if (empRows.length === 0) {
+          html += '<tr><td colspan="3" style="padding:6px 8px;color:var(--text-muted);font-style:italic">Keine Stunden gebucht</td></tr>';
+        } else {
+          empRows.forEach(function (er) {
+            html += '<tr>' +
+              '<td style="padding:4px 8px">' + er.name + (er.role === 'freelancer' ? ' <span style="font-size:10px;color:var(--text-muted)">(FL)</span>' : '') + '</td>' +
+              '<td style="padding:4px 8px;text-align:right;color:var(--text-secondary)">' + er.hours.toFixed(1) + ' h</td>' +
+              '<td style="padding:4px 8px;text-align:right;color:#dc2626;font-weight:500">' + fmt(er.cost) + '</td>' +
+              '</tr>';
+          });
+        }
+        html += '</tbody></table></div></td>';
+        detailTr.innerHTML = html;
+        tr.after(detailTr);
       });
 
       profitBody.appendChild(tr);

@@ -17,8 +17,7 @@ Deno.serve(async (req) => {
     const targetYear  = year as number;
     const targetMonth = month as number; // 1-based
 
-    // Fetch range: 1st of prev month → 15th of following month
-    // Wide window to catch invoices dated in adjacent months but with Leistungsdatum in target month
+    // Wide window: 1st of prev month -> 15th of following month
     const from = new Date(Date.UTC(targetYear, targetMonth - 2, 1)).toISOString().substring(0, 10);
     const to   = new Date(Date.UTC(targetYear, targetMonth, 15)).toISOString().substring(0, 10);
 
@@ -47,26 +46,27 @@ Deno.serve(async (req) => {
       allVouchers.push(...(data.content || []));
     }
 
-    // For every voucher: fetch full invoice to get serviceDate (Leistungsdatum) + net amount
     const map: Record<string, number> = {};
+    const debugRows: any[] = [];
 
     for (let i = 0; i < allVouchers.length; i++) {
       const v = allVouchers[i];
-      if (i > 0 && i % 4 === 0) await sleep(800); // rate-limit buffer
+      if (i > 0 && i % 4 === 0) await sleep(800);
 
       const contactName = (v.contactName || '').trim();
       if (!contactName) continue;
+
+      let usedNet = false;
+      let fetchError = '';
 
       try {
         const voucherId = v.id || v.voucherId;
         const invoice = await lexGet(`/invoices/${voucherId}`);
 
-        // Determine which month this invoice belongs to
+        // Determine month via Leistungsdatum (serviceDate), fallback to Rechnungsdatum
         const sd = invoice.serviceDate;
         let belongs = false;
-
         if (sd) {
-          // serviceDate (Leistungsdatum) is present → use it exclusively
           const dateStr: string = sd.date || sd.startDate || sd.endDate || '';
           if (dateStr) {
             const d = new Date(dateStr);
@@ -75,21 +75,40 @@ Deno.serve(async (req) => {
             }
           }
         } else {
-          // No serviceDate → fall back to voucherDate (Rechnungsdatum)
           const vd = new Date(v.voucherDate || '');
           belongs = vd.getUTCFullYear() === targetYear && vd.getUTCMonth() + 1 === targetMonth;
         }
 
         if (belongs) {
-          // Use net amount (Nettobetrag) from full invoice
-          const netAmount: number = invoice.totalPrice?.totalNetAmount ?? (v.totalAmount || 0);
+          const tp = invoice.totalPrice || {};
+          const netAmount: number = Number(
+            tp.totalNetAmount ?? tp.netAmount ?? tp.net ?? v.totalAmount
+          ) || 0;
+          usedNet = tp.totalNetAmount != null;
           map[contactName] = (map[contactName] || 0) + netAmount;
+          debugRows.push({
+            contact: contactName,
+            gross: v.totalAmount,
+            net: netAmount,
+            usedNet,
+            totalPrice: tp,
+          });
         }
-      } catch (_) {
-        // If individual fetch fails: fall back to voucherDate + gross amount
+      } catch (err: any) {
+        fetchError = err?.message || 'unknown';
+        // Fallback: voucherDate + net estimate (gross / 1.19)
         const vd = new Date(v.voucherDate || '');
         if (vd.getUTCFullYear() === targetYear && vd.getUTCMonth() + 1 === targetMonth) {
-          map[contactName] = (map[contactName] || 0) + (v.totalAmount || 0);
+          const netFallback = Math.round((v.totalAmount || 0) / 1.19 * 100) / 100;
+          map[contactName] = (map[contactName] || 0) + netFallback;
+          debugRows.push({
+            contact: contactName,
+            gross: v.totalAmount,
+            net: netFallback,
+            usedNet: false,
+            fetchError,
+            fallback: 'gross/1.19',
+          });
         }
       }
     }
@@ -116,7 +135,7 @@ Deno.serve(async (req) => {
     }
 
     return new Response(
-      JSON.stringify({ ok: true, count: rows.length }),
+      JSON.stringify({ ok: true, count: rows.length, debug: debugRows }),
       { headers: { ...CORS, 'Content-Type': 'application/json' } }
     );
 
