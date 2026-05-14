@@ -98,12 +98,15 @@
           .eq('client_id', clientId).eq('year', year)),
       forYear: (year) =>
         q(s => s.from('adjustments').select('*').eq('year', year)),
-      upsert: (clientId, year, month, amHours, advHours, note) =>
+      forMonth: (year, month) =>
+        q(s => s.from('adjustments').select('*').eq('year', year).eq('month', month)),
+      upsert: (clientId, year, month, amHours, advHours, note, revenueDeduction) =>
         q(s => s.from('adjustments').upsert(
           { client_id: clientId, year, month,
-            am_hours:  amHours  || 0,
-            adv_hours: advHours || 0,
-            note:      note     || null,
+            am_hours:          amHours          || 0,
+            adv_hours:         advHours         || 0,
+            note:              note             || null,
+            revenue_deduction: revenueDeduction || 0,
             updated_at: new Date().toISOString() },
           { onConflict: 'client_id,year,month' }
         ).select().single()),

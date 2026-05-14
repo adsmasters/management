@@ -74,13 +74,15 @@
       Promise.all(months.map(function (m) { return window.db.entries.forMonth(m.year, m.month); })),
       Promise.all(months.map(function (m) { return window.db.revenue.forMonth(m.year, m.month); })),
       window.db.mappings.list(),
+      Promise.all(months.map(function (m) { return window.db.adjustments.forMonth(m.year, m.month); })),
     ])
     .then(function (results) {
-      var clients       = results[0];
-      var employees     = results[1];
-      var entryMonths   = results[2]; // array of entry-arrays per month
-      var revenueMonths = results[3];
-      var mappings      = results[4];
+      var clients          = results[0];
+      var employees        = results[1];
+      var entryMonths      = results[2];
+      var revenueMonths    = results[3];
+      var mappings         = results[4];
+      var adjustmentMonths = results[5];
 
       // Build lookup: clientId → [lexoffice_name, ...]
       var mappingsByClient = {};
@@ -138,10 +140,23 @@
         });
       });
 
+      // Build deductions map: clientId → total revenue_deduction across months
+      var deductionsMap = {}; // clientId → amount
+      var deductionsByClientMonth = {}; // clientId → { 'YYYY-M' → amount }
+      adjustmentMonths.forEach(function (adjs, idx) {
+        var m = months[idx];
+        adjs.forEach(function (a) {
+          if (!a.revenue_deduction) return;
+          deductionsMap[a.client_id] = (deductionsMap[a.client_id] || 0) + a.revenue_deduction;
+          if (!deductionsByClientMonth[a.client_id]) deductionsByClientMonth[a.client_id] = {};
+          deductionsByClientMonth[a.client_id][m.year + '-' + m.month] = a.revenue_deduction;
+        });
+      });
+
       loadingEl.classList.add('hidden');
       contentEl.classList.remove('hidden');
 
-      render(clients, employees, clientHours, userTotals, revenueMap, mappingsByClient, numMonths, months);
+      render(clients, employees, clientHours, userTotals, revenueMap, mappingsByClient, numMonths, months, deductionsMap, deductionsByClientMonth);
     })
     .catch(function (e) {
       loadingEl.classList.add('hidden');
@@ -149,7 +164,9 @@
     });
   }
 
-  function render(clients, employees, clientHours, userTotals, revenueMap, mappingsByClient, numMonths, months) {
+  function render(clients, employees, clientHours, userTotals, revenueMap, mappingsByClient, numMonths, months, deductionsMap, deductionsByClientMonth) {
+    deductionsMap = deductionsMap || {};
+    deductionsByClientMonth = deductionsByClientMonth || {};
     profitBody.innerHTML = '';
 
     var totalRevenue = 0;
@@ -201,14 +218,18 @@
         }
       });
 
-      var profit = revenue - cost;
-      var margin = revenue > 0 ? (profit / revenue) * 100 : null;
+      var deduction = deductionsMap[client.id] || 0;
+      var revenueNet = Math.max(0, revenue - deduction);
+      var profit = revenueNet - cost;
+      var margin = revenueNet > 0 ? (profit / revenueNet) * 100 : (cost > 0 ? -Infinity : null);
+      if (margin === -Infinity) margin = null;
 
-      totalRevenue += revenue;
+      totalRevenue += revenueNet;
       totalCost    += cost;
 
-      rows.push({ name: client.name, revenue, cost, profit, margin,
-                  hours: totalClientHours, hasRevenue: revenue > 0 });
+      rows.push({ id: client.id, name: client.name, revenue: revenueNet, revenueGross: revenue,
+                  deduction, cost, profit, margin,
+                  hours: totalClientHours, hasRevenue: revenueNet > 0 });
     });
 
     rows.sort(function (a, b) {
@@ -230,10 +251,15 @@
         ? (r.margin >= 0 ? '+' : '') + r.margin.toFixed(1) + '%'
         : '<span class="no-lexoffice">kein Umsatz</span>';
 
+      var deductionHint = r.deduction > 0
+        ? ' <span title="Brutto: ' + fmt(r.revenueGross) + ' · Abzug: ' + fmt(r.deduction) + '" style="font-size:11px;color:var(--text-secondary)">(-' + fmt(r.deduction) + ')</span>'
+        : '';
+
       tr.innerHTML =
-        '<td style="font-weight:500">' + r.name + '</td>' +
-        '<td class="right revenue">' + (r.revenue > 0 ? fmt(r.revenue) : '<span class="no-lexoffice">—</span>') + '</td>' +
-        '<td class="right cost">'    + (r.cost    > 0 ? fmt(r.cost)    : '<span class="no-lexoffice">—</span>') + '</td>' +
+        '<td style="font-weight:500">' + r.name +
+          ' <button class="btn btn-ghost btn-sm rev-adj-btn" style="font-size:11px;padding:1px 6px;margin-left:4px" data-id="' + r.id + '" data-name="' + r.name + '">± Korrektur</button></td>' +
+        '<td class="right revenue">' + (r.revenue > 0 ? fmt(r.revenue) + deductionHint : '<span class="no-lexoffice">—</span>') + '</td>' +
+        '<td class="right cost">'    + (r.cost > 0 ? fmt(r.cost) : '<span class="no-lexoffice">—</span>') + '</td>' +
         '<td class="right ' + (r.revenue > 0 || r.cost > 0 ? (r.profit >= 0 ? 'profit-pos' : 'profit-neg') : '') + '">' +
           (r.revenue > 0 || r.cost > 0
             ? (r.profit >= 0 ? '+' : '') + fmt(r.profit)
@@ -241,6 +267,11 @@
         '<td class="' + (r.margin !== null ? (r.margin >= 0 ? 'margin-pos' : 'margin-neg') : '') + '">' +
           marginText + marginBar + '</td>' +
         '<td class="right hours-cell">' + (r.hours > 0 ? r.hours.toFixed(1) + ' h' : '—') + '</td>';
+
+      // Korrektur-Button
+      tr.querySelector('.rev-adj-btn').addEventListener('click', function () {
+        openRevAdj(r.id, r.name, months, deductionsByClientMonth[r.id] || {});
+      });
 
       profitBody.appendChild(tr);
     });
@@ -260,6 +291,66 @@
       ? (avgMargin >= 0 ? '+' : '') + avgMargin.toFixed(1) + '%' : '—';
     marginEl.className = 'kpi-value ' + (avgMargin !== null ? (avgMargin >= 0 ? 'pos' : 'neg') : 'neutral');
   }
+
+  // ── Revenue Adjustment Modal ─────────────────────────────────────────
+  var revAdjModal  = document.getElementById('revAdjModal');
+  var revAdjTitle  = document.getElementById('revAdjTitle');
+  var revAdjBody   = document.getElementById('revAdjBody');
+  var revAdjClose  = document.getElementById('revAdjClose');
+  var revAdjCancel = document.getElementById('revAdjCancel');
+  var revAdjSave   = document.getElementById('revAdjSave');
+
+  var MONTHS_DE = ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
+
+  function openRevAdj(clientId, clientName, months, existing) {
+    revAdjTitle.textContent = 'Umsatz-Korrektur – ' + clientName;
+    revAdjBody.innerHTML = '';
+    months.forEach(function (m) {
+      var key = m.year + '-' + m.month;
+      var val = existing[key] || 0;
+      var tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td style="padding:6px 8px;font-size:13px">' + MONTHS_DE[m.month - 1] + ' ' + m.year + '</td>' +
+        '<td style="padding:6px 8px;text-align:right">' +
+          '<input type="number" min="0" step="0.01" value="' + (val || '') + '" placeholder="0,00" ' +
+          'data-year="' + m.year + '" data-month="' + m.month + '" ' +
+          'style="width:120px;text-align:right;padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;background:var(--surface);color:var(--text)">' +
+        '</td>';
+      revAdjBody.appendChild(tr);
+    });
+    revAdjModal._clientId = clientId;
+    revAdjModal._months   = months;
+    revAdjModal.classList.remove('hidden');
+  }
+
+  function closeRevAdj() { revAdjModal.classList.add('hidden'); }
+  revAdjClose.addEventListener('click', closeRevAdj);
+  revAdjCancel.addEventListener('click', closeRevAdj);
+  revAdjModal.addEventListener('click', function (e) { if (e.target === revAdjModal) closeRevAdj(); });
+
+  revAdjSave.addEventListener('click', function () {
+    var clientId = revAdjModal._clientId;
+    revAdjSave.disabled = true;
+    revAdjSave.textContent = 'Speichern…';
+
+    var inputs = revAdjBody.querySelectorAll('input');
+    var saves  = Array.from(inputs).map(function (inp) {
+      var year  = parseInt(inp.getAttribute('data-year'));
+      var month = parseInt(inp.getAttribute('data-month'));
+      var val   = parseFloat(inp.value) || 0;
+      // upsert with existing hours staying intact (pass 0/null for hours fields)
+      return window.db.adjustments.upsert(clientId, year, month, 0, 0, null, val);
+    });
+
+    Promise.all(saves).then(function () {
+      closeRevAdj();
+      load();
+    }).catch(function (e) {
+      showError('Fehler: ' + e.message);
+      revAdjSave.disabled = false;
+      revAdjSave.textContent = 'Speichern';
+    });
+  });
 
   // ── LexOffice sync ───────────────────────────────────────────────────
   var lexSyncBtn = document.getElementById('lexSyncBtn');
