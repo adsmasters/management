@@ -261,8 +261,8 @@
         }
       });
 
-      var deduction = deductionsMap[client.id] || 0;
-      var revenueNet = revenue - deduction;
+      var correction = deductionsMap[client.id] || 0;
+      var revenueNet = revenue + correction;
       var profit = revenueNet - cost;
       var margin = revenueNet > 0 ? (profit / revenueNet) * 100 : (cost > 0 ? -Infinity : null);
       if (margin === -Infinity) margin = null;
@@ -271,7 +271,7 @@
       totalCost    += cost;
 
       rows.push({ id: client.id, name: client.name, revenue: revenueNet, revenueGross: revenue,
-                  deduction, cost, profit, margin,
+                  deduction: correction, cost, profit, margin,
                   hours: totalClientHours, hasRevenue: revenueNet > 0 });
     });
 
@@ -294,8 +294,8 @@
         ? (r.margin >= 0 ? '+' : '') + r.margin.toFixed(1) + '%'
         : '<span class="no-lexoffice">kein Umsatz</span>';
 
-      var deductionHint = r.deduction > 0
-        ? ' <span title="Brutto: ' + fmt(r.revenueGross) + ' · Abzug: ' + fmt(r.deduction) + '" style="font-size:11px;color:var(--text-secondary)">(-' + fmt(r.deduction) + ')</span>'
+      var deductionHint = r.deduction !== 0
+        ? ' <span title="Basis: ' + fmt(r.revenueGross) + ' · Korrektur: ' + (r.deduction > 0 ? '+' : '') + fmt(r.deduction) + '" style="font-size:11px;color:var(--text-secondary)">(' + (r.deduction > 0 ? '+' : '') + fmt(r.deduction) + ')</span>'
         : '';
 
       tr.innerHTML =
