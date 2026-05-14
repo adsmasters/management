@@ -116,10 +116,23 @@
         });
       });
 
-      // Aggregate revenue across all months
+      // Load exclude keywords from settings
+      var excludeKeywords = (localStorage.getItem('revenueExcludeKeywords') || '')
+        .split('\n')
+        .map(function (k) { return k.trim().toLowerCase(); })
+        .filter(function (k) { return k.length > 0; });
+
+      function isExcluded(contactName) {
+        if (!excludeKeywords.length) return false;
+        var n = (contactName || '').toLowerCase();
+        return excludeKeywords.some(function (kw) { return n.includes(kw); });
+      }
+
+      // Aggregate revenue across all months (excluding configured keywords)
       var revenueMap = {};
       revenueMonths.forEach(function (rows) {
         rows.forEach(function (row) {
+          if (isExcluded(row.contact_name)) return;
           var key = norm(row.contact_name || '');
           revenueMap[key] = (revenueMap[key] || 0) + (row.total_amount || 0);
         });

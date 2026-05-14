@@ -34,6 +34,28 @@
 
   <div class="settings-grid">
 
+    <!-- Umsatz-Ausschlüsse -->
+    <div class="card">
+      <div class="card-header">
+        <h2>🚫 Umsatz-Ausschlüsse</h2>
+      </div>
+      <div class="card-body">
+        <div class="alert alert-info" style="margin-bottom:20px">
+          LexOffice-Kontaktnamen, die diese Begriffe enthalten, werden beim Umsatz <strong>nicht</strong> gezählt (z.B. Durchlaufposten, Werbekosten-Ausgleich).
+        </div>
+        <div style="display:flex;flex-direction:column;gap:14px;max-width:520px">
+          <div class="field">
+            <label for="revenueExcludeKeywords">Ausschluss-Keywords <span style="font-weight:400;color:var(--text-secondary)">(ein Begriff pro Zeile, Groß-/Kleinschreibung egal)</span></label>
+            <textarea id="revenueExcludeKeywords" rows="5" placeholder="Ausgleich Media Budget&#10;Werbekosten Ausgleich&#10;..." style="width:100%;font-size:13px;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);color:var(--text);resize:vertical;box-sizing:border-box"></textarea>
+          </div>
+          <div style="display:flex;gap:10px;align-items:center">
+            <button id="excludeSaveBtn" class="btn btn-primary">Speichern</button>
+            <span id="excludeSaveStatus" style="font-size:13px"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <!-- LexOffice -->
     <div class="card">
       <div class="card-header">

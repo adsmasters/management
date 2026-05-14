@@ -149,6 +149,20 @@
       });
   });
 
+  // ── Umsatz-Ausschlüsse ───────────────────────────────────────────────
+  var excludeInput      = document.getElementById('revenueExcludeKeywords');
+  var excludeSaveBtn    = document.getElementById('excludeSaveBtn');
+  var excludeSaveStatus = document.getElementById('excludeSaveStatus');
+
+  excludeInput.value = localStorage.getItem('revenueExcludeKeywords') || '';
+
+  excludeSaveBtn.addEventListener('click', function () {
+    localStorage.setItem('revenueExcludeKeywords', excludeInput.value);
+    excludeSaveStatus.textContent = 'Gespeichert ✓';
+    excludeSaveStatus.style.color = 'var(--success)';
+    setTimeout(function () { excludeSaveStatus.textContent = ''; }, 2000);
+  });
+
   copyBtn.addEventListener('click', function () {
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(sqlBlock.textContent.trim())
