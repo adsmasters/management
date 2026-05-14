@@ -506,8 +506,11 @@
       if (unmatched.users.size)   warns.push('Nicht zugeordnete Nutzer: <strong>' + [...unmatched.users].join(', ')   + '</strong>');
       if (warns.length) showWarn(warns.join('<br>'));
 
-      syncBtn.textContent = `✓ ${matched} Einträge synchronisiert`;
-      setTimeout(() => { syncBtn.textContent = 'Von Clockify sync'; }, 3000);
+      syncBtn.textContent = 'Von Clockify sync';
+      syncBtn.disabled = false;
+      const warnHtml = warns.length ? '<br>' + warns.join('<br>') : '';
+      errorEl.innerHTML = `<div class="alert alert-success">✓ Clockify sync abgeschlossen – ${matched} Einträge gespeichert.${warnHtml}</div>`;
+      setTimeout(() => { errorEl.innerHTML = ''; }, 8000);
       loadData();
 
     } catch (e) {
