@@ -116,6 +116,30 @@
       <h1>Namen-Zuordnung</h1>
       <div class="sub">Clockify-Kunden mit LexOffice-Rechnungsnamen verbinden</div>
     </div>
+    <div class="toolbar">
+      <button id="autoMatchBtn" class="btn btn-primary">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg>
+        Auto-Zuordnung
+      </button>
+    </div>
+  </div>
+
+  <!-- Auto-Match Modal -->
+  <div id="autoMatchModal" class="modal-backdrop hidden">
+    <div class="modal" style="max-width:680px;width:100%">
+      <div class="modal-header">
+        <h2 class="modal-title">Auto-Zuordnung</h2>
+        <button class="modal-close" id="autoMatchClose">×</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size:13px;color:var(--text-secondary);margin-bottom:16px" id="autoMatchDesc"></p>
+        <div id="autoMatchList" style="display:flex;flex-direction:column;gap:8px;max-height:400px;overflow-y:auto"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" id="autoMatchCancel">Abbrechen</button>
+        <button class="btn btn-primary" id="autoMatchApply">Markierte übernehmen</button>
+      </div>
+    </div>
   </div>
 
   <div id="loading" class="hidden">

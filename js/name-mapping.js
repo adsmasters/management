@@ -189,6 +189,131 @@
     }).join('');
   }
 
+  // ── Auto-Match ────────────────────────────────────────────────────────
+  var autoMatchBtn    = document.getElementById('autoMatchBtn');
+  var autoMatchModal  = document.getElementById('autoMatchModal');
+  var autoMatchClose  = document.getElementById('autoMatchClose');
+  var autoMatchCancel = document.getElementById('autoMatchCancel');
+  var autoMatchApply  = document.getElementById('autoMatchApply');
+  var autoMatchDesc   = document.getElementById('autoMatchDesc');
+  var autoMatchList   = document.getElementById('autoMatchList');
+
+  function normForMatch(s) {
+    return (s || '')
+      .toLowerCase()
+      .replace(/\b(gmbh\s*&\s*co\.?\s*kg|gmbh|ug|ag|gbr|ohg|kg|se|e\.k\.|e\.v\.|ltd|llc|inc)\b/g, '')
+      .replace(/[^a-z0-9äöüß]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function matchScore(lexName, clientName) {
+    var a = normForMatch(lexName);
+    var b = normForMatch(clientName);
+    if (!a || !b) return 0;
+    if (a === b) return 1.0;
+    if (a.includes(b) || b.includes(a)) return 0.92;
+    // Word-overlap (Jaccard over words longer than 2 chars)
+    var wa = a.split(' ').filter(function (w) { return w.length > 2; });
+    var wb = b.split(' ').filter(function (w) { return w.length > 2; });
+    if (!wa.length || !wb.length) return 0;
+    var setB = new Set(wb);
+    var inter = wa.filter(function (w) { return setB.has(w); }).length;
+    var union  = new Set(wa.concat(wb)).size;
+    return union > 0 ? inter / union : 0;
+  }
+
+  function openAutoMatch() {
+    // LexOffice names already mapped
+    var mappedLex = new Set(allMappings.map(function (m) { return norm(m.lexoffice_name); }));
+    // Also consider client.lexoffice_name / client.name as auto-mapped
+    allClients.forEach(function (c) {
+      if (c.lexoffice_name) mappedLex.add(norm(c.lexoffice_name));
+    });
+
+    var unmatchedLex = allLexNames.filter(function (n) { return !mappedLex.has(norm(n)); });
+
+    if (!unmatchedLex.length) {
+      autoMatchDesc.textContent = 'Alle LexOffice-Namen sind bereits zugeordnet.';
+      autoMatchList.innerHTML   = '';
+      autoMatchApply.style.display = 'none';
+      autoMatchModal.classList.remove('hidden');
+      return;
+    }
+
+    // Find best client match for each unmatched LexOffice name
+    var suggestions = [];
+    unmatchedLex.forEach(function (lexName) {
+      var best = null, bestScore = 0;
+      allClients.forEach(function (client) {
+        var s = matchScore(lexName, client.name);
+        if (s > bestScore) { bestScore = s; best = client; }
+      });
+      if (best && bestScore >= 0.45) {
+        suggestions.push({ lexName: lexName, client: best, score: bestScore });
+      }
+    });
+
+    suggestions.sort(function (a, b) { return b.score - a.score; });
+
+    autoMatchApply.style.display = '';
+    autoMatchDesc.textContent = suggestions.length
+      ? suggestions.length + ' mögliche Zuordnung(en) gefunden – markierte übernehmen:'
+      : 'Keine automatischen Zuordnungen gefunden (zu unterschiedliche Namen).';
+
+    autoMatchList.innerHTML = '';
+    suggestions.forEach(function (s, i) {
+      var pct = Math.round(s.score * 100);
+      var checked = s.score >= 0.7;
+      var row = document.createElement('label');
+      row.style.cssText = 'display:flex;align-items:center;gap:12px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;cursor:pointer;';
+      row.innerHTML =
+        '<input type="checkbox" data-idx="' + i + '" ' + (checked ? 'checked' : '') + ' style="width:16px;height:16px;flex-shrink:0">' +
+        '<span style="flex:1;font-size:13px"><strong>' + escHtml(s.lexName) + '</strong> → ' + escHtml(s.client.name) + '</span>' +
+        '<span style="font-size:11px;padding:2px 8px;border-radius:12px;font-weight:600;background:' +
+          (pct >= 80 ? 'var(--success-bg);color:#065f46' : pct >= 60 ? '#fef9c3;color:#854d0e' : 'var(--bg-hover);color:var(--text-secondary)') +
+          '">' + pct + '% Match</span>';
+      autoMatchList.appendChild(row);
+    });
+
+    // Store suggestions for apply step
+    autoMatchModal._suggestions = suggestions;
+    autoMatchModal.classList.remove('hidden');
+  }
+
+  function closeAutoMatch() { autoMatchModal.classList.add('hidden'); }
+
+  autoMatchBtn.addEventListener('click', openAutoMatch);
+  autoMatchClose.addEventListener('click', closeAutoMatch);
+  autoMatchCancel.addEventListener('click', closeAutoMatch);
+  autoMatchModal.addEventListener('click', function (e) {
+    if (e.target === autoMatchModal) closeAutoMatch();
+  });
+
+  autoMatchApply.addEventListener('click', function () {
+    var suggestions = autoMatchModal._suggestions || [];
+    var checked = Array.from(autoMatchList.querySelectorAll('input[type=checkbox]:checked'));
+    var toCreate = checked.map(function (cb) {
+      return suggestions[parseInt(cb.getAttribute('data-idx'))];
+    }).filter(Boolean);
+
+    if (!toCreate.length) { closeAutoMatch(); return; }
+
+    autoMatchApply.disabled = true;
+    autoMatchApply.textContent = 'Speichern…';
+
+    Promise.all(toCreate.map(function (s) {
+      return window.db.mappings.add(s.client.id, s.lexName);
+    })).then(function () {
+      closeAutoMatch();
+      load();
+    }).catch(function (e) {
+      showError('Fehler beim Speichern: ' + e.message);
+      autoMatchApply.disabled = false;
+      autoMatchApply.textContent = 'Markierte übernehmen';
+    });
+  });
+
   if (!window.isConfigured()) {
     setupHint.classList.remove('hidden');
   } else {
