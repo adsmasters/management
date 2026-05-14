@@ -1,8 +1,10 @@
 (function () {
   'use strict';
 
-  var monthFrom  = document.getElementById('monthFrom');
-  var monthTo    = document.getElementById('monthTo');
+  var monthFromM = document.getElementById('monthFromM');
+  var monthFromY = document.getElementById('monthFromY');
+  var monthToM   = document.getElementById('monthToM');
+  var monthToY   = document.getElementById('monthToY');
   var loadBtn    = document.getElementById('loadBtn');
   var loadingEl  = document.getElementById('loading');
   var contentEl  = document.getElementById('content');
@@ -10,17 +12,60 @@
   var profitBody = document.getElementById('profitBody');
   var setupHint  = document.getElementById('setupHint');
 
-  // ── Default to current month ──────────────────────────────────────────
+  // ── Populate month/year selects ───────────────────────────────────────
+  var MONTHS_LABEL = ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
   var now = new Date();
-  var currentMonth = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
-  monthFrom.value = currentMonth;
-  monthTo.value   = currentMonth;
+  var curYear  = now.getFullYear();
+  var curMonth = now.getMonth() + 1; // 1-based
 
-  monthFrom.addEventListener('change', function () {
-    if (monthTo.value && monthTo.value < monthFrom.value) monthTo.value = monthFrom.value;
-  });
-  monthTo.addEventListener('change', function () {
-    if (monthFrom.value && monthTo.value < monthFrom.value) monthFrom.value = monthTo.value;
+  function buildSelects() {
+    // Months
+    [monthFromM, monthToM].forEach(function (sel) {
+      MONTHS_LABEL.forEach(function (name, idx) {
+        var opt = document.createElement('option');
+        opt.value = idx + 1;
+        opt.textContent = name;
+        sel.appendChild(opt);
+      });
+    });
+    // Years: current year -3 to current year +1
+    for (var y = curYear - 3; y <= curYear + 1; y++) {
+      [monthFromY, monthToY].forEach(function (sel) {
+        var opt = document.createElement('option');
+        opt.value = y;
+        opt.textContent = y;
+        sel.appendChild(opt);
+      });
+    }
+    // Default: current month
+    monthFromM.value = curMonth;
+    monthFromY.value = curYear;
+    monthToM.value   = curMonth;
+    monthToY.value   = curYear;
+  }
+  buildSelects();
+
+  function getMonthVal(selM, selY) {
+    return parseInt(selY.value) * 100 + parseInt(selM.value); // YYYYMM as number for comparison
+  }
+  function getFromParts() { return { year: parseInt(monthFromY.value), month: parseInt(monthFromM.value) }; }
+  function getToParts()   { return { year: parseInt(monthToY.value),   month: parseInt(monthToM.value) }; }
+
+  // Keep From ≤ To
+  function clampDates() {
+    if (getMonthVal(monthFromM, monthFromY) > getMonthVal(monthToM, monthToY)) {
+      monthToM.value = monthFromM.value;
+      monthToY.value = monthFromY.value;
+    }
+  }
+  [monthFromM, monthFromY].forEach(function (el) { el.addEventListener('change', clampDates); });
+  [monthToM, monthToY].forEach(function (el) {
+    el.addEventListener('change', function () {
+      if (getMonthVal(monthToM, monthToY) < getMonthVal(monthFromM, monthFromY)) {
+        monthFromM.value = monthToM.value;
+        monthFromY.value = monthToY.value;
+      }
+    });
   });
 
   function fmt(n) {
@@ -46,14 +91,12 @@
   loadBtn.addEventListener('click', load);
 
   function load() {
-    var fromParts = monthFrom.value.split('-');
-    var toParts   = monthTo.value.split('-');
-    if (!fromParts[0] || !toParts[0]) return;
-
-    var fromYear  = parseInt(fromParts[0]);
-    var fromMonth = parseInt(fromParts[1]);
-    var toYear    = parseInt(toParts[0]);
-    var toMonth   = parseInt(toParts[1]);
+    var fp = getFromParts();
+    var tp = getToParts();
+    var fromYear  = fp.year;
+    var fromMonth = fp.month;
+    var toYear    = tp.year;
+    var toMonth   = tp.month;
 
     if (fromYear > toYear || (fromYear === toYear && fromMonth > toMonth)) {
       showError('„Von" darf nicht nach „Bis" liegen.');
@@ -300,7 +343,6 @@
   var revAdjCancel = document.getElementById('revAdjCancel');
   var revAdjSave   = document.getElementById('revAdjSave');
 
-  var MONTHS_DE = ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
 
   function openRevAdj(clientId, clientName, months, existing) {
     revAdjTitle.textContent = 'Umsatz-Korrektur – ' + clientName;
@@ -310,7 +352,7 @@
       var val = existing[key] || 0;
       var tr = document.createElement('tr');
       tr.innerHTML =
-        '<td style="padding:6px 8px;font-size:13px">' + MONTHS_DE[m.month - 1] + ' ' + m.year + '</td>' +
+        '<td style="padding:6px 8px;font-size:13px">' + MONTHS_LABEL[m.month - 1] + ' ' + m.year + '</td>' +
         '<td style="padding:6px 8px;text-align:right">' +
           '<input type="number" min="0" step="0.01" value="' + (val || '') + '" placeholder="0,00" ' +
           'data-year="' + m.year + '" data-month="' + m.month + '" ' +
@@ -383,14 +425,12 @@
       return;
     }
 
-    var fromParts = monthFrom.value.split('-');
-    var toParts   = monthTo.value.split('-');
-    if (!fromParts[0] || !toParts[0]) { showError('Bitte zuerst einen Zeitraum wählen.'); return; }
-
-    var fromYear  = parseInt(fromParts[0]);
-    var fromMonth = parseInt(fromParts[1]);
-    var toYear    = parseInt(toParts[0]);
-    var toMonth   = parseInt(toParts[1]);
+    var fp = getFromParts();
+    var tp = getToParts();
+    var fromYear  = fp.year;
+    var fromMonth = fp.month;
+    var toYear    = tp.year;
+    var toMonth   = tp.month;
     var months    = monthsInRange(fromYear, fromMonth, toYear, toMonth);
 
     lexSyncBtn.disabled = true;
@@ -405,7 +445,7 @@
         return;
       }
       var m = months[i];
-      var label = (window.MONTHS_DE ? window.MONTHS_DE[m.month - 1] : m.month) + ' ' + m.year;
+      var label = MONTHS_LABEL[m.month - 1] + ' ' + m.year;
       lexSyncBtn.textContent = 'Sync ' + label + '… (' + (i + 1) + '/' + months.length + ')';
 
       var supabaseUrl = localStorage.getItem('supabaseUrl') || 'https://lgrnmiszhhahfcmctmwo.supabase.co';
