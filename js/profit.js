@@ -323,33 +323,55 @@
     revAdjModal.classList.remove('hidden');
   }
 
-  function closeRevAdj() { revAdjModal.classList.add('hidden'); }
+  function closeRevAdj() {
+    revAdjModal.classList.add('hidden');
+    revAdjSave.disabled = false;
+    revAdjSave.textContent = 'Speichern';
+  }
   revAdjClose.addEventListener('click', closeRevAdj);
   revAdjCancel.addEventListener('click', closeRevAdj);
   revAdjModal.addEventListener('click', function (e) { if (e.target === revAdjModal) closeRevAdj(); });
 
   revAdjSave.addEventListener('click', function () {
     var clientId = revAdjModal._clientId;
+    var months   = revAdjModal._months;
     revAdjSave.disabled = true;
     revAdjSave.textContent = 'Speichern…';
 
-    var inputs = revAdjBody.querySelectorAll('input');
-    var saves  = Array.from(inputs).map(function (inp) {
-      var year  = parseInt(inp.getAttribute('data-year'));
-      var month = parseInt(inp.getAttribute('data-month'));
-      var val   = parseFloat(inp.value) || 0;
-      // upsert with existing hours staying intact (pass 0/null for hours fields)
-      return window.db.adjustments.upsert(clientId, year, month, 0, 0, null, val);
-    });
+    var inputs = Array.from(revAdjBody.querySelectorAll('input'));
 
-    Promise.all(saves).then(function () {
-      closeRevAdj();
-      load();
-    }).catch(function (e) {
-      showError('Fehler: ' + e.message);
-      revAdjSave.disabled = false;
-      revAdjSave.textContent = 'Speichern';
-    });
+    // Load existing adjustments first so we don't overwrite hours values
+    var years = [...new Set(months.map(function (m) { return m.year; }))];
+    Promise.all(years.map(function (y) { return window.db.adjustments.forClientYear(clientId, y); }))
+      .then(function (results) {
+        var existingMap = {}; // 'year-month' → adjustment row
+        results.forEach(function (rows) {
+          rows.forEach(function (r) { existingMap[r.year + '-' + r.month] = r; });
+        });
+
+        return Promise.all(inputs.map(function (inp) {
+          var year  = parseInt(inp.getAttribute('data-year'));
+          var month = parseInt(inp.getAttribute('data-month'));
+          var val   = parseFloat(inp.value) || 0;
+          var ex    = existingMap[year + '-' + month] || {};
+          return window.db.adjustments.upsert(
+            clientId, year, month,
+            ex.am_hours  || 0,
+            ex.adv_hours || 0,
+            ex.note      || null,
+            val
+          );
+        }));
+      })
+      .then(function () {
+        closeRevAdj();
+        load();
+      })
+      .catch(function (e) {
+        showError('Fehler: ' + e.message);
+        revAdjSave.disabled = false;
+        revAdjSave.textContent = 'Speichern';
+      });
   });
 
   // ── LexOffice sync ───────────────────────────────────────────────────
