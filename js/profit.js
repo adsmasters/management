@@ -262,7 +262,7 @@
       });
 
       var deduction = deductionsMap[client.id] || 0;
-      var revenueNet = Math.max(0, revenue - deduction);
+      var revenueNet = revenue - deduction;
       var profit = revenueNet - cost;
       var margin = revenueNet > 0 ? (profit / revenueNet) * 100 : (cost > 0 ? -Infinity : null);
       if (margin === -Infinity) margin = null;
@@ -354,7 +354,7 @@
       tr.innerHTML =
         '<td style="padding:6px 8px;font-size:13px">' + MONTHS_LABEL[m.month - 1] + ' ' + m.year + '</td>' +
         '<td style="padding:6px 8px;text-align:right">' +
-          '<input type="number" min="0" step="0.01" value="' + (val || '') + '" placeholder="0,00" ' +
+          '<input type="number" step="0.01" value="' + (val || '') + '" placeholder="0,00" ' +
           'data-year="' + m.year + '" data-month="' + m.month + '" ' +
           'style="width:120px;text-align:right;padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;background:var(--surface);color:var(--text)">' +
         '</td>';
