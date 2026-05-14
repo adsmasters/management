@@ -282,17 +282,31 @@
       var label = (window.MONTHS_DE ? window.MONTHS_DE[m.month - 1] : m.month) + ' ' + m.year;
       lexSyncBtn.textContent = 'Sync ' + label + '… (' + (i + 1) + '/' + months.length + ')';
 
-      window.getSb().functions.invoke('sync-lexoffice', {
-        body: {
+      var supabaseUrl = localStorage.getItem('supabaseUrl') || 'https://lgrnmiszhhahfcmctmwo.supabase.co';
+      var supabaseKey = localStorage.getItem('supabaseKey') || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imxncm5taXN6aGhhaGZjbWN0bXdvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM2NjE2NDksImV4cCI6MjA4OTIzNzY0OX0.FDZRGMESves7XbAMs_oMLWmvnywMlVqe8p7f1kt06qk';
+      console.log('[sync-lexoffice] POST →', supabaseUrl + '/functions/v1/sync-lexoffice', { year: m.year, month: m.month });
+      fetch(supabaseUrl + '/functions/v1/sync-lexoffice', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': 'Bearer ' + supabaseKey,
+          'apikey': supabaseKey,
+        },
+        body: JSON.stringify({
           lexofficeKey: localStorage.getItem('lexofficeKey'),
           year: m.year,
           month: m.month,
-        },
-      }).then(function (result) {
-        if (result.error) throw result.error;
-        if (result.data && result.data.error) throw new Error(result.data.error);
-        syncNext(i + 1);
+        }),
+      }).then(function (res) {
+        console.log('[sync-lexoffice] HTTP', res.status);
+        return res.json().then(function (data) {
+          console.log('[sync-lexoffice] body', JSON.stringify(data));
+          if (data.error) throw new Error(data.error);
+          if (!res.ok) throw new Error('HTTP ' + res.status);
+          syncNext(i + 1);
+        });
       }).catch(function (e) {
+        console.error('[sync-lexoffice] error', e.message);
         showError('LexOffice Fehler (' + label + '): ' + e.message);
         lexSyncBtn.textContent = 'Von LexOffice sync';
         lexSyncBtn.disabled = false;
