@@ -301,9 +301,18 @@
         console.log('[sync-lexoffice] HTTP', res.status);
         return res.json().then(function (data) {
           console.log('[sync-lexoffice] body', JSON.stringify(data));
-          if (data.error) throw new Error(data.error);
+          if (data.error) {
+            // Retry once after 5s on rate limit
+            if (data.error.indexOf('429') !== -1 || data.error.indexOf('Rate limit') !== -1) {
+              lexSyncBtn.textContent = 'Rate limit – warte 5s… (' + (i + 1) + '/' + months.length + ')';
+              setTimeout(function () { syncNext(i); }, 5000);
+              return;
+            }
+            throw new Error(data.error);
+          }
           if (!res.ok) throw new Error('HTTP ' + res.status);
-          syncNext(i + 1);
+          // Small pause between months to avoid rate limiting
+          setTimeout(function () { syncNext(i + 1); }, 800);
         });
       }).catch(function (e) {
         console.error('[sync-lexoffice] error', e.message);
