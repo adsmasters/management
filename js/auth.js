@@ -1,10 +1,25 @@
 (function () {
   'use strict';
 
+  var ALLOWED_EMAIL = 'hallo@tobias-dziuba.de';
+
   window.auth = {
     _session: null,
 
-    init: function () { return; },
+    init: function () {
+      if (!window.isConfigured()) { location.href = 'login.html'; return; }
+      window.getSb().auth.getSession().then(function (r) {
+        var session = r.data && r.data.session;
+        if (!session || session.user.email !== ALLOWED_EMAIL) {
+          window.getSb().auth.signOut().finally(function () {
+            location.href = 'login.html';
+          });
+          return;
+        }
+        window.auth._session = session;
+        window.auth._setupNav(session);
+      });
+    },
 
     signOut: function () {
       window.getSb().auth.signOut().finally(function () {
