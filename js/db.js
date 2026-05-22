@@ -65,13 +65,14 @@
           .order('name')),
       get: (id) =>
         q(s => s.from('clients').select('*').eq('id', id).single()),
-      create: (name, amBudget, advBudget, amEmpId, advEmpId, contractStart, isProject, projectEnd, lexofficeName) =>
+      create: (name, amBudget, advBudget, amEmpId, advEmpId, contractStart, isProject, projectEnd, lexofficeName, source) =>
         q(s => s.from('clients')
           .insert({ name, am_budget: amBudget || null, adv_budget: advBudget || null,
                     am_employee_id: amEmpId || null, adv_employee_id: advEmpId || null,
                     contract_start: contractStart || null,
                     is_project: !!isProject, project_end: projectEnd || null,
-                    lexoffice_name: lexofficeName || null })
+                    lexoffice_name: lexofficeName || null,
+                    source: source || null })
           .select().single()),
       update: (id, fields) =>
         q(s => s.from('clients').update(fields).eq('id', id).select().single()),
@@ -134,6 +135,8 @@
       allContactNames: () =>
         q(s => s.from('revenue').select('contact_name').order('contact_name'))
           .then(rows => [...new Set(rows.map(r => r.contact_name).filter(Boolean))].sort()),
+      allRows: () =>
+        q(s => s.from('revenue').select('contact_name,total_amount')),
       clearMonth: (year, month) =>
         q(s => s.from('revenue').delete().eq('year', year).eq('month', month)),
       insertMany: (year, month, rows) =>
@@ -150,6 +153,20 @@
           .insert({ client_id: clientId, lexoffice_name: lexofficeName }).select().single()),
       remove: (id) =>
         q(s => s.from('client_revenue_mappings').delete().eq('id', id)),
+    },
+
+    acquisitionCosts: {
+      list: () =>
+        q(s => s.from('acquisition_costs').select('*').order('cost_date', { ascending: false, nullsFirst: false })),
+      create: (sourceName, sourceType, amount, costDate, notes) =>
+        q(s => s.from('acquisition_costs')
+          .insert({ source_name: sourceName, source_type: sourceType || 'sonstige',
+                    amount: amount || 0, cost_date: costDate || null, notes: notes || null })
+          .select().single()),
+      update: (id, fields) =>
+        q(s => s.from('acquisition_costs').update(fields).eq('id', id).select().single()),
+      delete: (id) =>
+        q(s => s.from('acquisition_costs').delete().eq('id', id)),
     },
 
     entries: {

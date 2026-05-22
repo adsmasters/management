@@ -27,6 +27,7 @@
     if (!clientIsProject.checked) clientEndInput.value = '';
   });
   var clientLexofficeName = document.getElementById('clientLexofficeName');
+  var clientSourceInput   = document.getElementById('clientSourceInput');
   var clientModalClose   = document.getElementById('clientModalClose');
   var clientModalCancel  = document.getElementById('clientModalCancel');
   var clientModalSave    = document.getElementById('clientModalSave');
@@ -120,11 +121,16 @@
     clientEndInput.value     = (client && client.project_end)
       ? client.project_end.substring(0, 7) : '';
     clientLexofficeName.value = (client && client.lexoffice_name) || '';
+    clientSourceInput.value   = (client && client.source) || '';
     projectEndField.style.display = clientIsProject.checked ? '' : 'none';
     clientModal.classList.remove('hidden');
     clientNameInput.focus();
   }
-  function closeClientModal() { clientModal.classList.add('hidden'); editingClientId = null; }
+  function closeClientModal() {
+    clientModal.classList.add('hidden');
+    editingClientId = null;
+    clientSourceInput.value = '';
+  }
   clientModalClose.addEventListener('click',  closeClientModal);
   clientModalCancel.addEventListener('click', closeClientModal);
   clientModal.addEventListener('click', function (e) { if (e.target === clientModal) closeClientModal(); });
@@ -144,6 +150,7 @@
     var isProject      = clientIsProject.checked;
     var projectEnd     = (isProject && clientEndInput.value) ? clientEndInput.value + '-01' : null;
     var lexofficeName  = clientLexofficeName.value.trim() || null;
+    var source         = clientSourceInput.value.trim() || null;
 
     clientModalSave.disabled    = true;
     clientModalSave.textContent = 'Speichern…';
@@ -152,10 +159,11 @@
                    am_employee_id: amEmp, adv_employee_id: advEmp,
                    contract_start: contractStart,
                    is_project: isProject, project_end: projectEnd,
-                   lexoffice_name: lexofficeName };
+                   lexoffice_name: lexofficeName,
+                   source: source };
     var promise = editingClientId
       ? window.db.clients.update(editingClientId, fields)
-      : window.db.clients.create(name, am, adv, amEmp, advEmp, contractStart, isProject, projectEnd, lexofficeName);
+      : window.db.clients.create(name, am, adv, amEmp, advEmp, contractStart, isProject, projectEnd, lexofficeName, source);
 
     promise.then(function () {
       closeClientModal();
@@ -273,7 +281,9 @@
           '<input type="checkbox" class="row-check" data-id="' + c.id + '"' +
             ' style="accent-color:var(--primary);width:15px;height:15px;cursor:pointer">' +
         '</td>' +
-        '<td><a class="client-link" href="detail.html?id=' + encodeURIComponent(c.id) + '&name=' + encodeURIComponent(c.name) + '" style="font-weight:500">' + c.name + '</a></td>' +
+        '<td><a class="client-link" href="detail.html?id=' + encodeURIComponent(c.id) + '&name=' + encodeURIComponent(c.name) + '" style="font-weight:500">' + c.name + '</a>' +
+          (c.source ? ' <span style="font-size:11px;background:#f1f5f9;color:var(--text-secondary);border:1px solid var(--border);border-radius:4px;padding:1px 6px;font-weight:400;vertical-align:middle">' + c.source + '</span>' : '') +
+        '</td>' +
         '<td>' + typeBadge(c) + '</td>' +
         '<td class="right" style="font-variant-numeric:tabular-nums">' +
           (c.am_budget  != null ? '<strong>' + window.fmtHours(c.am_budget)  + '</strong> <span style="font-size:12px;color:var(--text-muted)">/ Monat</span>' : '<span class="text-muted">—</span>') +

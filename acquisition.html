@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Akquisition – Adsmasters Management</title>
+  <link rel="stylesheet" href="css/style.css">
+  <style>
+    .summary-strip { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
+    .kpi-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 16px 20px; flex: 1; min-width: 160px;
+    }
+    .kpi-card .kpi-label { font-size: 12px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: .04em; font-weight: 600; }
+    .kpi-card .kpi-value { font-size: 24px; font-weight: 700; margin-top: 4px; color: var(--text); }
+    .roi-pos { color: #065f46; font-weight: 600; }
+    .roi-neg { color: #991b1b; font-weight: 600; }
+  </style>
+</head>
+<body>
+
+<header class="header">
+  <div class="header-inner">
+    <a href="index.html" class="logo">Adsmasters <span>Management</span></a>
+    <nav>
+      <a href="index.html"            class="nav-link">Übersicht</a>
+      <a href="clients.html"          class="nav-link">Kunden</a>
+      <a href="employees.html"        class="nav-link">Mitarbeiter</a>
+      <a href="utilization.html"      class="nav-link">Auslastung</a>
+      <a href="profit.html"           class="nav-link">Profitabilität</a>
+      <a href="revenue-timeline.html" class="nav-link">Umsatz-Verlauf</a>
+      <a href="acquisition.html"      class="nav-link active">Akquisition</a>
+      <a href="name-mapping.html"     class="nav-link">Zuordnung</a>
+      <a href="settings.html"         class="nav-link">Einstellungen</a>
+    </nav>
+  </div>
+</header>
+
+<main class="main">
+
+  <div id="error"></div>
+
+  <div class="page-header">
+    <div>
+      <h1>Akquisition</h1>
+      <div class="sub">Kosten &amp; ROI nach Akquisitionskanal</div>
+    </div>
+    <button id="addEntryBtn" class="btn btn-primary">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      Neuer Eintrag
+    </button>
+  </div>
+
+  <div id="loading" class="hidden">
+    <div class="loading-bar"><div class="spinner"></div>Daten werden geladen…</div>
+  </div>
+
+  <div id="content" class="hidden">
+    <div class="summary-strip">
+      <div class="kpi-card">
+        <div class="kpi-label">Gesamtausgaben</div>
+        <div class="kpi-value" id="kpiCosts">—</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Umsatz aus zugeordneten Kunden</div>
+        <div class="kpi-value" id="kpiRevenue">—</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Gesamt-ROI</div>
+        <div class="kpi-value" id="kpiRoi">—</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th style="min-width:180px">Quelle</th>
+              <th style="min-width:120px">Typ</th>
+              <th class="right" style="min-width:130px">Kosten</th>
+              <th class="right" style="min-width:80px">Kunden</th>
+              <th class="right" style="min-width:150px">Umsatz (LTD)</th>
+              <th style="min-width:100px">ROI</th>
+              <th class="center" style="min-width:130px">Aktionen</th>
+            </tr>
+          </thead>
+          <tbody id="acqBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div id="emptyState" class="hidden">
+    <div class="state-box">
+      <div class="icon">📊</div>
+      <h3>Noch keine Einträge</h3>
+      <p>Klicke auf „Neuer Eintrag", um Akquisitionskosten zu erfassen.</p>
+    </div>
+  </div>
+
+</main>
+
+<!-- Add / Edit Modal -->
+<div id="acqModal" class="modal-overlay hidden">
+  <div class="modal" style="max-width:480px">
+    <div class="modal-header">
+      <h3 id="acqModalTitle">Neuer Eintrag</h3>
+      <button class="modal-close" id="acqModalClose">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="field">
+        <label for="acqSourceInput">Quelle <span style="color:var(--danger)">*</span></label>
+        <input type="text" id="acqSourceInput" placeholder="z.B. OMR 2025, Google Ads, Messe Hamburg" autocomplete="off">
+      </div>
+      <div class="field-row">
+        <div class="field">
+          <label for="acqTypeSelect">Typ</label>
+          <select id="acqTypeSelect">
+            <option value="messe">Messe</option>
+            <option value="online-marketing">Online-Marketing</option>
+            <option value="seo">SEO</option>
+            <option value="kaltakquise">Kaltakquise</option>
+            <option value="empfehlung">Empfehlung</option>
+            <option value="sonstige" selected>Sonstige</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="acqAmountInput">Betrag (€)</label>
+          <input type="number" id="acqAmountInput" min="0" step="0.01" placeholder="z.B. 4500">
+        </div>
+      </div>
+      <div class="field">
+        <label for="acqDateInput">Datum <span style="color:var(--text-muted);font-weight:400">(optional)</span></label>
+        <input type="date" id="acqDateInput">
+      </div>
+      <div class="field">
+        <label for="acqNotesInput">Notizen <span style="color:var(--text-muted);font-weight:400">(optional)</span></label>
+        <textarea id="acqNotesInput" rows="3" placeholder="Weitere Informationen…" style="resize:vertical"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" id="acqModalCancel">Abbrechen</button>
+      <button class="btn btn-primary"   id="acqModalSave">Speichern</button>
+    </div>
+  </div>
+</div>
+
+<!-- Confirm Delete Modal -->
+<div id="deleteModal" class="modal-overlay hidden">
+  <div class="modal">
+    <div class="modal-header">
+      <h3>Eintrag löschen</h3>
+      <button class="modal-close" id="deleteModalClose">✕</button>
+    </div>
+    <div class="modal-body">
+      <p class="confirm-text">Möchtest du <strong id="deleteEntryName"></strong> wirklich löschen?</p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" id="deleteModalCancel">Abbrechen</button>
+      <button class="btn btn-danger"    id="deleteModalConfirm">Endgültig löschen</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/db.js"></script>
+<script src="js/utils.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/acquisition.js"></script>
+</body>
+</html>
