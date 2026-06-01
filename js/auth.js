@@ -6,24 +6,25 @@
   window.auth = {
     _session: null,
 
+    // Login-Zwang entfernt: Das Tool ist ohne Anmeldung nutzbar.
+    // (Die Daten waren über den öffentlichen anon-Key ohnehin ungeschützt.)
     init: function () {
-      if (!window.isConfigured()) { location.href = 'login.html'; return; }
-      window.getSb().auth.getSession().then(function (r) {
-        var session = r.data && r.data.session;
-        if (!session || session.user.email !== ALLOWED_EMAIL) {
-          window.getSb().auth.signOut().finally(function () {
-            location.href = 'login.html';
-          });
+      try {
+        if (window.isConfigured()) {
+          window.getSb().auth.getSession().then(function (r) {
+            var session = r.data && r.data.session;
+            if (session) { window.auth._session = session; }
+            window.auth._setupNav(session);
+          }).catch(function () { window.auth._setupNav(null); });
           return;
         }
-        window.auth._session = session;
-        window.auth._setupNav(session);
-      });
+      } catch (e) { /* ignore */ }
+      window.auth._setupNav(null);
     },
 
     signOut: function () {
       window.getSb().auth.signOut().finally(function () {
-        location.href = 'login.html';
+        location.reload();
       });
     },
 
@@ -34,20 +35,17 @@
     },
 
     _setupNav: function (session) {
-      var email   = (session.user && session.user.email) || '';
-      var isAdmin = !!(session.user && session.user.user_metadata && session.user.user_metadata.role === 'admin');
+      var user    = (session && session.user) || null;
+      var email   = (user && user.email) || '';
+      var isAdmin = !!(user && user.user_metadata && user.user_metadata.role === 'admin');
       var hi      = document.querySelector('.header-inner');
       if (!hi) return;
       var div = document.createElement('div');
       div.className = 'nav-user';
       div.innerHTML =
         (isAdmin ? '<span class="badge badge-ok" style="font-size:10px;padding:2px 7px">Admin</span>' : '') +
-        '<span class="nav-user-email">' + email + '</span>' +
-        '<button id="logoutBtn" class="btn btn-ghost btn-sm">Abmelden</button>';
+        (email ? '<span class="nav-user-email">' + email + '</span>' : '');
       hi.appendChild(div);
-      document.getElementById('logoutBtn').addEventListener('click', function () {
-        window.auth.signOut();
-      });
     },
   };
 
