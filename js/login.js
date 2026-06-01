@@ -44,5 +44,27 @@
   pwInput.addEventListener('keydown', function (e) { if (e.key === 'Enter') doLogin(); });
   emailInput.addEventListener('keydown', function (e) { if (e.key === 'Enter') pwInput.focus(); });
 
+  // Passwort vergessen → Reset-Link gezielt auf die set-password-Seite leiten
+  // (NICHT über die globale Supabase Site-URL, die auf reviewguards.de zeigt).
+  var forgotLink = document.getElementById('forgotLink');
+  if (forgotLink) {
+    forgotLink.addEventListener('click', function (e) {
+      e.preventDefault();
+      var email = emailInput.value.trim();
+      if (!email) { showError('Bitte zuerst deine E-Mail eingeben.'); emailInput.focus(); return; }
+      var redirectTo = location.origin + location.pathname.replace(/login\.html$/, '') + 'set-password.html';
+      errorEl.classList.add('hidden');
+      window.getSb().auth.resetPasswordForEmail(email, { redirectTo: redirectTo })
+        .then(function (result) {
+          if (result.error) throw result.error;
+          errorEl.textContent = 'Reset-Link gesendet an ' + email + '. Bitte prüfe dein Postfach.';
+          errorEl.classList.remove('alert-danger');
+          errorEl.classList.add('alert-success');
+          errorEl.classList.remove('hidden');
+        })
+        .catch(function () { showError('Reset-Link konnte nicht gesendet werden.'); });
+    });
+  }
+
   emailInput.focus();
 })();

@@ -6,25 +6,24 @@
   window.auth = {
     _session: null,
 
-    // Login-Zwang entfernt: Das Tool ist ohne Anmeldung nutzbar.
-    // (Die Daten waren über den öffentlichen anon-Key ohnehin ungeschützt.)
     init: function () {
-      try {
-        if (window.isConfigured()) {
-          window.getSb().auth.getSession().then(function (r) {
-            var session = r.data && r.data.session;
-            if (session) { window.auth._session = session; }
-            window.auth._setupNav(session);
-          }).catch(function () { window.auth._setupNav(null); });
+      if (!window.isConfigured()) { location.href = 'login.html'; return; }
+      window.getSb().auth.getSession().then(function (r) {
+        var session = r.data && r.data.session;
+        if (!session || session.user.email !== ALLOWED_EMAIL) {
+          window.getSb().auth.signOut().finally(function () {
+            location.href = 'login.html';
+          });
           return;
         }
-      } catch (e) { /* ignore */ }
-      window.auth._setupNav(null);
+        window.auth._session = session;
+        window.auth._setupNav(session);
+      });
     },
 
     signOut: function () {
       window.getSb().auth.signOut().finally(function () {
-        location.reload();
+        location.href = 'login.html';
       });
     },
 
