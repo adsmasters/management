@@ -145,6 +145,21 @@
         )),
     },
 
+    employeeRates: {
+      listAll: () =>
+        q(s => s.from('employee_rates').select('*').order('effective_from')),
+      forEmployee: (employeeId) =>
+        q(s => s.from('employee_rates').select('*')
+          .eq('employee_id', employeeId).order('effective_from')),
+      create: (employeeId, effectiveFrom, monthlyCost, hourlyRate) =>
+        q(s => s.from('employee_rates')
+          .insert({ employee_id: employeeId, effective_from: effectiveFrom,
+                    monthly_cost: monthlyCost || null, hourly_rate: hourlyRate || null })
+          .select().single()),
+      delete: (id) =>
+        q(s => s.from('employee_rates').delete().eq('id', id)),
+    },
+
     manualCosts: {
       forMonth: (year, month) =>
         q(s => s.from('manual_costs').select('*').eq('year', year).eq('month', month)),

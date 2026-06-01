@@ -134,4 +134,92 @@
   }
 
   load();
+
+  // ── Gehalts-/Stundensatz-Historie ────────────────────────────────────
+  var rateBody     = document.getElementById('rateBody');
+  var rateBaseHint = document.getElementById('rateBaseHint');
+  var rateMonth    = document.getElementById('rateMonth');
+  var rateMonthly  = document.getElementById('rateMonthly');
+  var rateHourly   = document.getElementById('rateHourly');
+  var rateAddBtn   = document.getElementById('rateAddBtn');
+  var rateErr      = document.getElementById('rateErr');
+
+  var MONTHS_LABEL = ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
+
+  function eur(n) {
+    if (n == null || n === '') return '—';
+    return Number(n).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
+  }
+  function ymLabel(dateStr) {
+    var d = new Date(dateStr);
+    return MONTHS_LABEL[d.getUTCMonth()] + ' ' + d.getUTCFullYear();
+  }
+
+  function loadRates() {
+    Promise.all([
+      window.db.employees.list(),
+      window.db.employeeRates.forEmployee(empId),
+    ]).then(function (res) {
+      var emp = (res[0] || []).filter(function (e) { return e.id === empId; })[0] || {};
+      var rates = res[1] || [];
+
+      var baseParts = [];
+      if (emp.monthly_cost) baseParts.push('Gehalt ' + eur(emp.monthly_cost) + '/Monat');
+      if (emp.hourly_rate)  baseParts.push('Stundensatz ' + eur(emp.hourly_rate) + '/h');
+      rateBaseHint.innerHTML = baseParts.length
+        ? 'Basis (gilt bis zur ersten Änderung): <strong>' + baseParts.join(' · ') + '</strong>'
+        : 'Keine Basis-Vergütung hinterlegt — bitte auf der Mitarbeiter-Seite eintragen.';
+
+      rateBody.innerHTML = '';
+      if (!rates.length) {
+        rateBody.innerHTML = '<tr><td colspan="4" style="padding:8px;color:var(--text-muted);font-style:italic">Noch keine Änderungen — nur die Basis-Vergütung gilt.</td></tr>';
+        return;
+      }
+      rates.forEach(function (r) {
+        var tr = document.createElement('tr');
+        tr.innerHTML =
+          '<td style="padding:6px 8px">' + ymLabel(r.effective_from) + '</td>' +
+          '<td style="padding:6px 8px;text-align:right">' + eur(r.monthly_cost) + '</td>' +
+          '<td style="padding:6px 8px;text-align:right">' + (r.hourly_rate ? eur(r.hourly_rate) + '/h' : '—') + '</td>' +
+          '<td style="padding:6px 8px;text-align:right"><button class="rate-del" data-id="' + r.id + '" title="Löschen" style="border:none;background:none;color:var(--text-muted);cursor:pointer;font-size:15px;line-height:1">×</button></td>';
+        rateBody.appendChild(tr);
+      });
+      Array.prototype.forEach.call(rateBody.querySelectorAll('.rate-del'), function (btn) {
+        btn.addEventListener('click', function () {
+          btn.disabled = true;
+          window.db.employeeRates.delete(btn.getAttribute('data-id'))
+            .then(loadRates)
+            .catch(function (e) { rateErr.textContent = 'Löschen fehlgeschlagen: ' + e.message; rateErr.style.display = 'inline'; btn.disabled = false; });
+        });
+      });
+    }).catch(function (e) {
+      rateBaseHint.textContent = 'Fehler beim Laden der Historie: ' + e.message;
+    });
+  }
+
+  rateAddBtn.addEventListener('click', function () {
+    rateErr.style.display = 'none';
+    var month   = rateMonth.value;                  // 'YYYY-MM'
+    var monthly = parseFloat(rateMonthly.value);
+    var hourly  = parseFloat(rateHourly.value);
+    if (!month) { rateErr.textContent = 'Bitte „Gültig ab" wählen.'; rateErr.style.display = 'inline'; return; }
+    if ((!monthly || monthly <= 0) && (!hourly || hourly <= 0)) {
+      rateErr.textContent = 'Bitte Gehalt oder Stundensatz eingeben.'; rateErr.style.display = 'inline'; return;
+    }
+    rateAddBtn.disabled = true; rateAddBtn.textContent = '…';
+    window.db.employeeRates.create(
+      empId, month + '-01',
+      (monthly && monthly > 0) ? monthly : null,
+      (hourly  && hourly  > 0) ? hourly  : null
+    ).then(function () {
+      rateMonthly.value = ''; rateHourly.value = '';
+      loadRates();
+    }).catch(function (e) {
+      rateErr.textContent = 'Fehler: ' + e.message; rateErr.style.display = 'inline';
+    }).finally(function () {
+      rateAddBtn.disabled = false; rateAddBtn.textContent = '+ Änderung';
+    });
+  });
+
+  loadRates();
 })();

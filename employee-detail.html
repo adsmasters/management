@@ -66,6 +66,32 @@
     </div>
   </div>
 
+  <div class="card" id="rateCard" style="margin-bottom:18px">
+    <div style="padding:14px 16px;border-bottom:1px solid var(--border)">
+      <h3 style="margin:0;font-size:15px">Gehalts-/Stundensatz-Historie</h3>
+      <div class="sub" style="font-size:12px;color:var(--text-muted);margin-top:2px">Stichtag-Änderung: ab dem gewählten Monat gilt der neue Wert. Frühere Monate bleiben unverändert.</div>
+    </div>
+    <div style="padding:12px 16px">
+      <div id="rateBaseHint" style="font-size:12px;color:var(--text-secondary);margin-bottom:10px"></div>
+      <table style="width:100%;border-collapse:collapse;font-size:13px">
+        <thead><tr>
+          <th style="text-align:left;padding:6px 8px;color:var(--text-secondary);font-weight:600">Gültig ab</th>
+          <th style="text-align:right;padding:6px 8px;color:var(--text-secondary);font-weight:600">Gehalt/Monat</th>
+          <th style="text-align:right;padding:6px 8px;color:var(--text-secondary);font-weight:600">Stundensatz</th>
+          <th style="width:40px"></th>
+        </tr></thead>
+        <tbody id="rateBody"></tbody>
+      </table>
+      <div style="display:flex;gap:8px;margin-top:12px;align-items:center;flex-wrap:wrap">
+        <input type="month" id="rateMonth" title="Gültig ab" style="padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;background:var(--surface);color:var(--text)">
+        <input type="number" id="rateMonthly" step="0.01" placeholder="Gehalt/Monat €" style="width:150px;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;background:var(--surface);color:var(--text)">
+        <input type="number" id="rateHourly" step="0.01" placeholder="Stundensatz €/h (optional)" style="width:200px;padding:6px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;background:var(--surface);color:var(--text)">
+        <button id="rateAddBtn" class="btn btn-primary btn-sm">+ Änderung</button>
+        <span id="rateErr" style="color:#dc2626;font-size:12px;display:none"></span>
+      </div>
+    </div>
+  </div>
+
   <div id="loading" class="hidden">
     <div class="loading-bar"><div class="spinner"></div>Daten werden geladen…</div>
   </div>

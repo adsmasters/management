@@ -87,6 +87,85 @@
     return list;
   }
 
+  // Für (Mitarbeiter, Jahr, Monat) den gültigen Satz bestimmen:
+  // jüngste Gehaltsänderung mit effective_from ≤ Zielmonat; sonst Basiswert vom Mitarbeiter.
+  function effectiveRate(emp, year, month, ratesByEmp) {
+    var targetYm = year * 12 + (month - 1);
+    var rates = (ratesByEmp && ratesByEmp[emp.id]) || [];
+    var best = null, bestYm = -Infinity;
+    rates.forEach(function (r) {
+      var d = new Date(r.effective_from);
+      var ym = d.getUTCFullYear() * 12 + d.getUTCMonth();
+      if (ym <= targetYm && ym > bestYm) { best = r; bestYm = ym; }
+    });
+    if (best) {
+      return {
+        monthly_cost: Number(best.monthly_cost) || 0,
+        hourly_rate:  Number(best.hourly_rate)  || 0,
+      };
+    }
+    return {
+      monthly_cost: Number(emp.monthly_cost) || 0,
+      hourly_rate:  Number(emp.hourly_rate)  || 0,
+    };
+  }
+
+  // Monatsgenaue Kostenberechnung (berücksichtigt zeitabhängige Gehälter/Sätze).
+  // Liefert: costByClient, hoursByClient (alle Stunden), breakdown[clientId] = {empId → {name,role,hours,cost}}
+  function computeCosts(months, entryMonths, clients, employees, ratesByEmp) {
+    var empsById = {};
+    employees.forEach(function (e) { empsById[e.id] = e; });
+
+    var costByClient = {};
+    var hoursByClient = {};
+    var breakdown = {};
+
+    months.forEach(function (mObj, idx) {
+      var entries = entryMonths[idx] || [];
+      var y = mObj.year, m = mObj.month;
+      var leaveCutoff = y * 12 + (m - 1);
+
+      // Stunden dieses Monats: ch[clientId][empId], et[empId]
+      var ch = {}, et = {};
+      entries.forEach(function (entry) {
+        if (!entry.hours) return;
+        var cid = entry.client_id, eid = entry.employee_id;
+        if (!ch[cid]) ch[cid] = {};
+        ch[cid][eid] = (ch[cid][eid] || 0) + entry.hours;
+        et[eid] = (et[eid] || 0) + entry.hours;
+        hoursByClient[cid] = (hoursByClient[cid] || 0) + entry.hours;
+      });
+
+      Object.keys(ch).forEach(function (cid) {
+        Object.keys(ch[cid]).forEach(function (eid) {
+          var emp = empsById[eid];
+          var hrs = ch[cid][eid];
+          if (!emp) return; // unbekannter/inaktiver Mitarbeiter: Stunden zählen, aber keine Kosten
+          if (emp.leave_start) {
+            var ls = new Date(emp.leave_start);
+            var leaveVal = ls.getUTCFullYear() * 12 + ls.getUTCMonth();
+            if (leaveCutoff >= leaveVal) return; // in diesem Monat bereits abwesend
+          }
+          var rate = effectiveRate(emp, y, m, ratesByEmp);
+          var cost = 0;
+          if (emp.role === 'freelancer') {
+            if (rate.hourly_rate > 0) cost = hrs * rate.hourly_rate;
+          } else if (rate.monthly_cost > 0) {
+            var empTot = et[eid] || 0;
+            if (empTot > 0) cost = (hrs / empTot) * rate.monthly_cost;
+          }
+          costByClient[cid] = (costByClient[cid] || 0) + cost;
+          if (!breakdown[cid]) breakdown[cid] = {};
+          if (!breakdown[cid][eid]) breakdown[cid][eid] = { name: emp.name, role: emp.role, hours: 0, cost: 0 };
+          breakdown[cid][eid].hours += hrs;
+          breakdown[cid][eid].cost  += cost;
+        });
+      });
+    });
+
+    return { costByClient: costByClient, hoursByClient: hoursByClient, breakdown: breakdown };
+  }
+
   // ── Load ──────────────────────────────────────────────────────────────
   loadBtn.addEventListener('click', load);
 
@@ -119,6 +198,7 @@
       window.db.mappings.list(),
       Promise.all(months.map(function (m) { return window.db.adjustments.forMonth(m.year, m.month); })),
       Promise.all(months.map(function (m) { return window.db.manualCosts.forMonth(m.year, m.month); })),
+      window.db.employeeRates.listAll(),
     ])
     .then(function (results) {
       var clients          = results[0];
@@ -128,6 +208,14 @@
       var mappings         = results[4];
       var adjustmentMonths = results[5];
       var manualCostMonths = results[6];
+      var employeeRates    = results[7];
+
+      // Sätze nach Mitarbeiter gruppieren
+      var ratesByEmp = {};
+      (employeeRates || []).forEach(function (r) {
+        if (!ratesByEmp[r.employee_id]) ratesByEmp[r.employee_id] = [];
+        ratesByEmp[r.employee_id].push(r);
+      });
 
       // Build lookup: clientId → [lexoffice_name, ...]
       var mappingsByClient = {};
@@ -209,10 +297,13 @@
         });
       });
 
+      // Monatsgenaue Kosten (mit zeitabhängigen Sätzen)
+      var costData = computeCosts(months, entryMonths, clients, employees, ratesByEmp);
+
       loadingEl.classList.add('hidden');
       contentEl.classList.remove('hidden');
 
-      render(clients, employees, clientHours, userTotals, revenueMap, mappingsByClient, numMonths, months, deductionsMap, deductionsByClientMonth, manualCostsTotal, manualCostsByClient);
+      render(clients, costData, revenueMap, mappingsByClient, numMonths, months, deductionsMap, deductionsByClientMonth, manualCostsTotal, manualCostsByClient);
     })
     .catch(function (e) {
       loadingEl.classList.add('hidden');
@@ -220,11 +311,14 @@
     });
   }
 
-  function render(clients, employees, clientHours, userTotals, revenueMap, mappingsByClient, numMonths, months, deductionsMap, deductionsByClientMonth, manualCostsTotal, manualCostsByClient) {
+  function render(clients, costData, revenueMap, mappingsByClient, numMonths, months, deductionsMap, deductionsByClientMonth, manualCostsTotal, manualCostsByClient) {
     deductionsMap = deductionsMap || {};
     deductionsByClientMonth = deductionsByClientMonth || {};
     manualCostsTotal = manualCostsTotal || {};
     manualCostsByClient = manualCostsByClient || {};
+    var costByClient  = (costData && costData.costByClient)  || {};
+    var hoursByClient = (costData && costData.hoursByClient) || {};
+    var breakdown     = (costData && costData.breakdown)     || {};
     profitBody.innerHTML = '';
 
     var totalRevenue = 0;
@@ -246,35 +340,8 @@
         revenue = revenueMap[lxName] || revenueMap[cNorm] || 0;
       }
 
-      var cHours = clientHours[cNorm] || {};
-      var totalClientHours = 0;
-      Object.values(cHours).forEach(function (h) { totalClientHours += h; });
-
-      var cost = 0;
-      employees.forEach(function (emp) {
-        var uNorm       = norm(emp.name);
-        var empOnClient = cHours[uNorm] || 0;
-        if (empOnClient <= 0) return;
-
-        // Count how many months in the range this employee was NOT on leave
-        var activeMonths = numMonths;
-        if (emp.leave_start) {
-          var ls = new Date(emp.leave_start);
-          var leaveVal = ls.getFullYear() * 12 + ls.getMonth(); // 0-based month
-          activeMonths = months.filter(function (m) {
-            return (m.year * 12 + (m.month - 1)) < leaveVal;
-          }).length;
-        }
-        if (activeMonths <= 0) return; // vollständig abwesend im Zeitraum
-
-        if (emp.role === 'freelancer' && emp.hourly_rate > 0) {
-          // Freelancer: Stunden × Stundensatz (Stunden sind bereits nur für aktive Monate)
-          cost += empOnClient * emp.hourly_rate;
-        } else if (emp.monthly_cost > 0) {
-          var empTotal = userTotals[uNorm] || 0;
-          if (empTotal > 0) cost += (empOnClient / empTotal) * emp.monthly_cost * activeMonths;
-        }
-      });
+      var totalClientHours = hoursByClient[client.id] || 0;
+      var cost = costByClient[client.id] || 0;
 
       // Manuelle Zusatzkosten (z.B. externe Freelancer) hinzurechnen
       cost += manualCostsTotal[client.id] || 0;
@@ -348,31 +415,13 @@
         }
         arrow.style.transform = 'rotate(90deg)';
 
-        // Mitarbeiter-Kosten berechnen
-        var cNorm  = norm(r.name);
-        var cHours = clientHours[cNorm] || {};
+        // Mitarbeiter-Aufschlüsselung aus vorab berechneten (monatsgenauen) Kosten
         var empRows = [];
-        employees.forEach(function (emp) {
-          var uNorm       = norm(emp.name);
-          var empOnClient = cHours[uNorm] || 0;
-          if (empOnClient <= 0) return;
-          var activeMonths = numMonths;
-          if (emp.leave_start) {
-            var ls = new Date(emp.leave_start);
-            var leaveVal = ls.getFullYear() * 12 + ls.getMonth();
-            activeMonths = months.filter(function (m) {
-              return (m.year * 12 + (m.month - 1)) < leaveVal;
-            }).length;
-          }
-          if (activeMonths <= 0) return;
-          var empCost = 0;
-          if (emp.role === 'freelancer' && emp.hourly_rate > 0) {
-            empCost = empOnClient * emp.hourly_rate;
-          } else if (emp.monthly_cost > 0) {
-            var empTotal = userTotals[uNorm] || 0;
-            if (empTotal > 0) empCost = (empOnClient / empTotal) * emp.monthly_cost * activeMonths;
-          }
-          empRows.push({ name: emp.name, role: emp.role, hours: empOnClient, cost: empCost });
+        var bd = breakdown[r.id] || {};
+        Object.keys(bd).forEach(function (eid) {
+          var b = bd[eid];
+          if (b.hours <= 0 && b.cost <= 0) return;
+          empRows.push({ name: b.name, role: b.role, hours: b.hours, cost: b.cost });
         });
         empRows.sort(function (a, b) { return b.hours - a.hours; });
 
