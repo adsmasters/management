@@ -118,6 +118,7 @@
       Promise.all(months.map(function (m) { return window.db.revenue.forMonth(m.year, m.month); })),
       window.db.mappings.list(),
       Promise.all(months.map(function (m) { return window.db.adjustments.forMonth(m.year, m.month); })),
+      Promise.all(months.map(function (m) { return window.db.manualCosts.forMonth(m.year, m.month); })),
     ])
     .then(function (results) {
       var clients          = results[0];
@@ -126,6 +127,7 @@
       var revenueMonths    = results[3];
       var mappings         = results[4];
       var adjustmentMonths = results[5];
+      var manualCostMonths = results[6];
 
       // Build lookup: clientId → [lexoffice_name, ...]
       var mappingsByClient = {};
@@ -196,10 +198,21 @@
         });
       });
 
+      // Manuelle Zusatzkosten: clientId → total, und clientId → [rows]
+      var manualCostsTotal = {};       // clientId → summe
+      var manualCostsByClient = {};    // clientId → [{id, year, month, name, amount}]
+      manualCostMonths.forEach(function (rows) {
+        rows.forEach(function (mc) {
+          manualCostsTotal[mc.client_id] = (manualCostsTotal[mc.client_id] || 0) + (Number(mc.amount) || 0);
+          if (!manualCostsByClient[mc.client_id]) manualCostsByClient[mc.client_id] = [];
+          manualCostsByClient[mc.client_id].push(mc);
+        });
+      });
+
       loadingEl.classList.add('hidden');
       contentEl.classList.remove('hidden');
 
-      render(clients, employees, clientHours, userTotals, revenueMap, mappingsByClient, numMonths, months, deductionsMap, deductionsByClientMonth);
+      render(clients, employees, clientHours, userTotals, revenueMap, mappingsByClient, numMonths, months, deductionsMap, deductionsByClientMonth, manualCostsTotal, manualCostsByClient);
     })
     .catch(function (e) {
       loadingEl.classList.add('hidden');
@@ -207,9 +220,11 @@
     });
   }
 
-  function render(clients, employees, clientHours, userTotals, revenueMap, mappingsByClient, numMonths, months, deductionsMap, deductionsByClientMonth) {
+  function render(clients, employees, clientHours, userTotals, revenueMap, mappingsByClient, numMonths, months, deductionsMap, deductionsByClientMonth, manualCostsTotal, manualCostsByClient) {
     deductionsMap = deductionsMap || {};
     deductionsByClientMonth = deductionsByClientMonth || {};
+    manualCostsTotal = manualCostsTotal || {};
+    manualCostsByClient = manualCostsByClient || {};
     profitBody.innerHTML = '';
 
     var totalRevenue = 0;
@@ -260,6 +275,9 @@
           if (empTotal > 0) cost += (empOnClient / empTotal) * emp.monthly_cost * activeMonths;
         }
       });
+
+      // Manuelle Zusatzkosten (z.B. externe Freelancer) hinzurechnen
+      cost += manualCostsTotal[client.id] || 0;
 
       var correction = deductionsMap[client.id] || 0;
       var revenueNet = revenue + correction;
@@ -379,8 +397,68 @@
               '</tr>';
           });
         }
-        html += '</tbody></table></div></td>';
+        html += '</tbody></table>';
+
+        // ── Externe / manuelle Kosten (z.B. Freelancer, nicht in Clockify) ──
+        var mcRows = manualCostsByClient[r.id] || [];
+        html += '<div style="margin-top:8px;padding-top:8px;border-top:1px dashed var(--border)">' +
+          '<div style="font-size:11px;font-weight:600;color:var(--text-secondary);margin-bottom:6px">Externe / manuelle Kosten</div>';
+        mcRows.forEach(function (mc) {
+          html += '<div style="display:flex;align-items:center;gap:8px;padding:2px 0;font-size:12px">' +
+            '<span style="flex:1">' + mc.name +
+              (numMonths > 1 ? ' <span style="color:var(--text-muted);font-size:10px">(' + MONTHS_LABEL[mc.month - 1] + ' ' + mc.year + ')</span>' : '') +
+            '</span>' +
+            '<span style="color:#dc2626;font-weight:500">' + fmt(Number(mc.amount)) + '</span>' +
+            '<button class="mc-del" data-id="' + mc.id + '" title="Löschen" style="border:none;background:none;color:var(--text-muted);cursor:pointer;font-size:15px;line-height:1">×</button>' +
+            '</div>';
+        });
+        html += '<div style="display:flex;gap:6px;margin-top:6px;align-items:center">' +
+          '<input class="mc-name" type="text" placeholder="Name (z.B. Freelancer)" style="flex:1;padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius);font-size:12px;background:var(--surface);color:var(--text)">' +
+          '<input class="mc-amount" type="number" step="0.01" placeholder="0,00" style="width:90px;text-align:right;padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius);font-size:12px;background:var(--surface);color:var(--text)">' +
+          (numMonths > 1
+            ? '<select class="mc-month" style="padding:4px;border:1px solid var(--border);border-radius:var(--radius);font-size:12px;background:var(--surface);color:var(--text)">' +
+                months.map(function (m) { return '<option value="' + m.year + '-' + m.month + '">' + MONTHS_LABEL[m.month - 1] + ' ' + m.year + '</option>'; }).join('') +
+              '</select>'
+            : '') +
+          '<button class="mc-add btn btn-primary btn-sm" style="font-size:12px;padding:3px 10px">+ Kosten</button>' +
+          '</div>' +
+          '<div class="mc-err" style="color:#dc2626;font-size:11px;margin-top:4px;display:none"></div>' +
+          '</div>';
+
+        html += '</div></td>';
         detailTr.innerHTML = html;
+
+        // Löschen
+        Array.prototype.forEach.call(detailTr.querySelectorAll('.mc-del'), function (btn) {
+          btn.addEventListener('click', function () {
+            btn.disabled = true;
+            window.db.manualCosts.delete(btn.getAttribute('data-id'))
+              .then(function () { load(); })
+              .catch(function (e) { showError('Löschen fehlgeschlagen: ' + e.message); btn.disabled = false; });
+          });
+        });
+
+        // Hinzufügen
+        var addBtn = detailTr.querySelector('.mc-add');
+        addBtn.addEventListener('click', function () {
+          var nameInp = detailTr.querySelector('.mc-name');
+          var amtInp  = detailTr.querySelector('.mc-amount');
+          var monSel  = detailTr.querySelector('.mc-month');
+          var errEl   = detailTr.querySelector('.mc-err');
+          var name    = (nameInp.value || '').trim();
+          var amount  = parseFloat(amtInp.value);
+          errEl.style.display = 'none';
+          if (!name)               { errEl.textContent = 'Bitte einen Namen eingeben.'; errEl.style.display = 'block'; return; }
+          if (!amount || amount <= 0) { errEl.textContent = 'Bitte einen Betrag > 0 eingeben.'; errEl.style.display = 'block'; return; }
+          var y, mo;
+          if (monSel) { var parts = monSel.value.split('-'); y = parseInt(parts[0]); mo = parseInt(parts[1]); }
+          else        { y = months[months.length - 1].year; mo = months[months.length - 1].month; }
+          addBtn.disabled = true; addBtn.textContent = '…';
+          window.db.manualCosts.create(r.id, y, mo, name, amount)
+            .then(function () { load(); })
+            .catch(function (e) { errEl.textContent = 'Fehler: ' + e.message; errEl.style.display = 'block'; addBtn.disabled = false; addBtn.textContent = '+ Kosten'; });
+        });
+
         tr.after(detailTr);
       });
 

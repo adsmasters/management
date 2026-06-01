@@ -145,6 +145,21 @@
         )),
     },
 
+    manualCosts: {
+      forMonth: (year, month) =>
+        q(s => s.from('manual_costs').select('*').eq('year', year).eq('month', month)),
+      forClientMonth: (clientId, year, month) =>
+        q(s => s.from('manual_costs').select('*')
+          .eq('client_id', clientId).eq('year', year).eq('month', month)
+          .order('created_at')),
+      create: (clientId, year, month, name, amount) =>
+        q(s => s.from('manual_costs')
+          .insert({ client_id: clientId, year, month, name: name, amount: amount || 0 })
+          .select().single()),
+      delete: (id) =>
+        q(s => s.from('manual_costs').delete().eq('id', id)),
+    },
+
     mappings: {
       list: () =>
         q(s => s.from('client_revenue_mappings').select('*').order('lexoffice_name')),
