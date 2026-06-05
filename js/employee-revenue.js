@@ -61,6 +61,7 @@
   if (!scenario.prospects) scenario.prospects = []; // [{id,name,amEmpId,advEmpId,amBudget,advBudget,revenue,startMonth}]
 
   var DATA = null; // geladene Rohdaten
+  var COMP = null; // berechnete Maps (für Drilldown-Modal)
 
   function isFuture(year, m) {
     return year > ym.year || (year === ym.year && m > ym.month);
@@ -242,6 +243,14 @@
       });
     }
 
+    // Für Drilldown-Modal speichern
+    COMP = {
+      year: year, employees: employees, clients: clients,
+      entryByClientEmpMonth: entryByClientEmpMonth,
+      clientHoursMonth: clientHoursMonth,
+      clientRevMonth: clientRevMonth,
+    };
+
     render({
       year: year, employees: employees,
       empRev: empRev, empHours: empHours, utilMap: utilMap,
@@ -300,7 +309,7 @@
         if (metric === 'free') cls += v < 0 ? ' neg' : (v > 0 ? ' pos' : '');
         cells += '<td class="' + cls + '">' + (v === 0 ? '<span class="muted">–</span>' : fmtVal(v)) + '</td>';
       }
-      rows += '<tr><td class="emp">' + emp.name + ' <span class="role">' + window.getRoleShort(emp.role) + '</span></td>' +
+      rows += '<tr class="emp-row" data-emp="' + emp.id + '" title="Klick: Aufschlüsselung nach Kunde"><td class="emp">' + emp.name + ' <span class="role">' + window.getRoleShort(emp.role) + '</span></td>' +
         cells + '<td class="right tot">' + (metric === 'free' ? '' : fmtVal(rowSum)) + '</td></tr>';
     });
 
@@ -312,6 +321,102 @@
     }
 
     gridBody.innerHTML = rows;
+
+    gridBody.querySelectorAll('tr.emp-row').forEach(function (tr) {
+      tr.addEventListener('click', function () { openEmpModal(tr.getAttribute('data-emp')); });
+    });
+  }
+
+  // ── Drilldown-Modal: Aufschlüsselung je Kunde ─────────────────────────
+  var modalOv    = document.getElementById('empModal');
+  var modalTitle = document.getElementById('empModalTitle');
+  var modalSub   = document.getElementById('empModalSub');
+  var modalMonth = document.getElementById('empModalMonth');
+  var modalBody  = document.getElementById('empModalBody');
+  var modalEmpId = null;
+
+  document.getElementById('empModalClose').addEventListener('click', closeModal);
+  modalOv.addEventListener('click', function (e) { if (e.target === modalOv) closeModal(); });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') closeModal(); });
+  modalMonth.addEventListener('change', renderModalBody);
+  function closeModal() { modalOv.classList.remove('open'); }
+
+  function openEmpModal(empId) {
+    if (!COMP) return;
+    modalEmpId = empId;
+    var emp = COMP.employees.find(function (e) { return e.id === empId; });
+    modalTitle.textContent = (emp ? emp.name : '?') + ' – Aufschlüsselung nach Kunde';
+    modalSub.textContent = 'Umsatz anteilig: MA-Stunden ÷ Kunden-Stunden gesamt × Kunden-Umsatz';
+    // Monatsauswahl (nur Ist-Monate, da Forecast budgetbasiert ist)
+    var opts = '<option value="all">Ganzes Jahr (Ist)</option>';
+    for (var m = 1; m <= 12; m++) {
+      if (isFuture(COMP.year, m)) continue;
+      opts += '<option value="' + m + '">' + MONTHS[m - 1] + ' ' + COMP.year + '</option>';
+    }
+    modalMonth.innerHTML = opts;
+    modalMonth.value = 'all';
+    renderModalBody();
+    modalOv.classList.add('open');
+  }
+
+  function renderModalBody() {
+    var empId = modalEmpId;
+    var scope = modalMonth.value; // 'all' | monthNumber
+    var clientsById = {};
+    COMP.clients.forEach(function (c) { clientsById[c.id] = c; });
+
+    function monthsInScope() {
+      if (scope === 'all') {
+        var arr = []; for (var m = 1; m <= 12; m++) if (!isFuture(COMP.year, m)) arr.push(m); return arr;
+      }
+      return [parseInt(scope)];
+    }
+
+    var rows = [];
+    var totHrs = 0, totRev = 0;
+    Object.keys(COMP.entryByClientEmpMonth).forEach(function (cid) {
+      var hrs = 0, rev = 0, cTotH = 0, cRev = 0;
+      monthsInScope().forEach(function (m) {
+        var emps = (COMP.entryByClientEmpMonth[cid][m]) || {};
+        var h = emps[empId] || 0;
+        if (!h) return;
+        var totalH = (COMP.clientHoursMonth[cid] || {})[m] || 0;
+        var r = (COMP.clientRevMonth[cid] || {})[m] || 0;
+        hrs += h;
+        cTotH += totalH;
+        cRev += r;
+        if (totalH > 0) rev += r * (h / totalH);
+      });
+      if (hrs > 0) {
+        rows.push({ name: (clientsById[cid] || {}).name || '?', hrs: hrs, rev: rev, cTotH: cTotH, cRev: cRev });
+        totHrs += hrs; totRev += rev;
+      }
+    });
+    rows.sort(function (a, b) { return b.rev - a.rev || b.hrs - a.hrs; });
+
+    var single = scope !== 'all';
+    var html = '<div class="table-wrap"><table class="mini-table"><thead><tr>' +
+      '<th>Kunde</th><th class="right">MA-Std</th>' +
+      (single ? '<th class="right">Kunden-Std ges.</th><th class="right">Anteil</th><th class="right">Kunden-Umsatz</th>' : '') +
+      '<th class="right">MA-Umsatz</th></tr></thead><tbody>';
+
+    if (!rows.length) {
+      html += '<tr><td colspan="' + (single ? 6 : 3) + '" class="muted">Keine Stunden in diesem Zeitraum.</td></tr>';
+    } else {
+      rows.forEach(function (r) {
+        var share = (single && r.cTotH > 0) ? (r.hrs / r.cTotH * 100).toFixed(1) + ' %' : '';
+        html += '<tr><td>' + r.name + '</td>' +
+          '<td class="right">' + fmtH(r.hrs) + '</td>' +
+          (single ? '<td class="right">' + fmtH(r.cTotH) + '</td><td class="right">' + share + '</td><td class="right">' + fmtEur(r.cRev) + '</td>' : '') +
+          '<td class="right">' + fmtEur(r.rev) + '</td></tr>';
+      });
+      html += '<tr style="font-weight:700;border-top:2px solid var(--border)"><td>Gesamt</td>' +
+        '<td class="right">' + fmtH(totHrs) + '</td>' +
+        (single ? '<td></td><td></td><td></td>' : '') +
+        '<td class="right">' + fmtEur(totRev) + '</td></tr>';
+    }
+    html += '</tbody></table></div>';
+    modalBody.innerHTML = html;
   }
 
   // ── Szenario-Panel ────────────────────────────────────────────────────
