@@ -63,8 +63,9 @@
   var DATA = null; // geladene Rohdaten
   var COMP = null; // berechnete Maps (für Drilldown-Modal)
 
+  // "Prognose-Monat" = laufender + zukünftige Monate (Ist ist noch unvollständig)
   function isFuture(year, m) {
-    return year > ym.year || (year === ym.year && m > ym.month);
+    return year > ym.year || (year === ym.year && m >= ym.month);
   }
 
   // ── Daten laden ───────────────────────────────────────────────────────
@@ -182,66 +183,68 @@
     var utilMap = {};
     DATA.utilHours.forEach(function (u) { (utilMap[u.employee_id] = utilMap[u.employee_id] || {})[u.month] = u.hours || 0; });
 
-    // 3-Monats-Schnitt Kundenstunden je MA (für Forecast-Fallback)
-    var avgHrs = {};
-    employees.forEach(function (emp) {
+    // Abgeschlossene (Ist-)Monate für Durchschnitte
+    function completed(m) { return year < ym.year || (year === ym.year && m < ym.month); }
+    // Ø der letzten bis zu 3 abgeschlossenen Monate mit Wert
+    function avgRecent(getter) {
       var rec = [];
-      for (var fm = ym.month; fm >= 1 && rec.length < 3; fm--) {
-        var v = (empHours[emp.id] || {})[fm]; if (v > 0) rec.push(v);
+      for (var m = 12; m >= 1 && rec.length < 3; m--) {
+        if (!completed(m)) continue;
+        var v = getter(m);
+        if (v > 0) rec.push(v);
       }
-      if (rec.length) avgHrs[emp.id] = rec.reduce(function (a, b) { return a + b; }, 0) / rec.length;
-    });
-
-    // Ø Kundenumsatz je Kunde (letzte bis zu 3 Ist-Monate mit Umsatz)
-    var avgClientRev = {};
-    clients.forEach(function (c) {
-      var rec = [];
-      for (var fm = ym.month; fm >= 1 && rec.length < 3; fm--) {
-        var v = (clientRevMonth[c.id] || {})[fm]; if (v > 0) rec.push(v);
-      }
-      avgClientRev[c.id] = rec.length ? rec.reduce(function (a, b) { return a + b; }, 0) / rec.length : 0;
-    });
-
-    function clientActive(c, m) {
-      if (c.contract_start) {
-        var cs = new Date(c.contract_start);
-        if (cs.getUTCFullYear() > year || (cs.getUTCFullYear() === year && m < cs.getUTCMonth() + 1)) return false;
-      }
-      if (c.is_project && c.project_end) {
-        var pe = new Date(c.project_end);
-        if (year > pe.getUTCFullYear() || (year === pe.getUTCFullYear() && m > pe.getUTCMonth() + 1)) return false;
-      }
-      // Szenario: verloren ab Monat
-      var lost = scenario.lost[c.id];
-      if (lost && m >= lost) return false;
-      return true;
+      return rec.length ? rec.reduce(function (a, b) { return a + b; }, 0) / rec.length : 0;
+    }
+    function avgUtil(empId) {
+      return avgRecent(function (m) {
+        var u = (utilMap[empId] || {})[m];
+        return (u != null && u > 0) ? u : ((empHours[empId] || {})[m] || 0);
+      });
+    }
+    function avgEmpRev(empId) { return avgRecent(function (m) { return (empRev[empId] || {})[m] || 0; }); }
+    function avgEmpClientHrs(empId, cid) {
+      return avgRecent(function (m) { return (((entryByClientEmpMonth[cid] || {})[m]) || {})[empId] || 0; });
+    }
+    function avgEmpClientRev(empId, cid) {
+      return avgRecent(function (m) {
+        var h = (((entryByClientEmpMonth[cid] || {})[m]) || {})[empId] || 0;
+        var tot = (clientHoursMonth[cid] || {})[m] || 0;
+        var r = (clientRevMonth[cid] || {})[m] || 0;
+        return tot > 0 ? r * h / tot : 0;
+      });
     }
 
-    // Forecast je MA je Zukunftsmonat (Umsatz + Stunden) ----------------
+    // Forecast/Grundlast je MA je laufendem+zukünftigem Monat -----------
+    // Grundlast = Ø tatsächl. Stunden/Umsatz der letzten 3 Monate,
+    // ± Szenario (verlorene Kunden abziehen, Neukunden addieren).
     var fcRev = {}, fcHours = {};
-    function addFcRev(empId, m, v) { (fcRev[empId] = fcRev[empId] || {})[m] = ((fcRev[empId] || {})[m] || 0) + v; }
-    function addFcHrs(empId, m, v) { (fcHours[empId] = fcHours[empId] || {})[m] = ((fcHours[empId] || {})[m] || 0) + v; }
-
-    for (var fm2 = 1; fm2 <= 12; fm2++) {
-      if (!isFuture(year, fm2)) continue;
-      clients.forEach(function (c) {
-        if (!clientActive(c, fm2)) return;
-        var amB = c.am_budget || 0, advB = c.adv_budget || 0;
-        var totalB = amB + advB;
-        var rev = avgClientRev[c.id] || 0;
-        if (c.am_employee_id && amB) { addFcHrs(c.am_employee_id, fm2, amB); if (totalB) addFcRev(c.am_employee_id, fm2, rev * amB / totalB); }
-        if (c.adv_employee_id && advB) { addFcHrs(c.adv_employee_id, fm2, advB); if (totalB) addFcRev(c.adv_employee_id, fm2, rev * advB / totalB); }
-        // Falls kein Budget hinterlegt: Fallback über 3-Monats-Schnitt-Stunden (nur Stunden, kein Umsatz)
-      });
-      // Szenario: potenzielle Neukunden
-      scenario.prospects.forEach(function (p) {
-        if (fm2 < (p.startMonth || 1)) return;
-        var amB = +p.amBudget || 0, advB = +p.advBudget || 0, totalB = amB + advB, rev = +p.revenue || 0;
-        if (p.amEmpId && amB) { addFcHrs(p.amEmpId, fm2, amB); if (totalB) addFcRev(p.amEmpId, fm2, rev * amB / totalB); }
-        if (p.advEmpId && advB) { addFcHrs(p.advEmpId, fm2, advB); if (totalB) addFcRev(p.advEmpId, fm2, rev * advB / totalB); }
-        if (totalB === 0 && rev && p.amEmpId) addFcRev(p.amEmpId, fm2, rev); // Umsatz ohne Stundenangabe → AM
-      });
-    }
+    employees.forEach(function (emp) {
+      var baseH = avgUtil(emp.id);
+      var baseR = avgEmpRev(emp.id);
+      for (var m = 1; m <= 12; m++) {
+        if (!isFuture(year, m)) continue; // nur laufender + zukünftige Monate
+        var h = baseH, r = baseR;
+        // verlorene Kunden ab Verlustmonat → freigewordene Kapazität/Umsatz abziehen
+        clients.forEach(function (c) {
+          var lost = scenario.lost[c.id];
+          if (!lost || m < lost) return;
+          if (c.am_employee_id === emp.id || c.adv_employee_id === emp.id) {
+            h -= avgEmpClientHrs(emp.id, c.id);
+            r -= avgEmpClientRev(emp.id, c.id);
+          }
+        });
+        // potenzielle Neukunden ab Startmonat → zusätzliche Last/Umsatz
+        scenario.prospects.forEach(function (p) {
+          if (m < (p.startMonth || 1)) return;
+          var amB = +p.amBudget || 0, advB = +p.advBudget || 0, tot = amB + advB, rev = +p.revenue || 0;
+          if (p.amEmpId === emp.id) { h += amB; r += tot ? rev * amB / tot : (advB ? 0 : rev); }
+          if (p.advEmpId === emp.id) { h += advB; r += tot ? rev * advB / tot : 0; }
+        });
+        (fcHours[emp.id] = fcHours[emp.id] || {})[m] = Math.max(0, h);
+        (fcRev[emp.id] = fcRev[emp.id] || {})[m] = Math.max(0, r);
+      }
+    });
+    var avgHrs = {}; // (nicht mehr separat genutzt)
 
     // Für Drilldown-Modal speichern
     COMP = {
