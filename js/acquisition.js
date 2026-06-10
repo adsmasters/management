@@ -38,6 +38,9 @@
   var detailModalBody  = document.getElementById('detailModalBody');
   var detailModalClose = document.getElementById('detailModalClose');
 
+  var sortCol = null; // 'kosten' | 'umsatz' | 'roi'
+  var sortDir = 'desc';
+
   var editingId      = null;
   var deletingId     = null;
   var assigningCost  = null;
@@ -70,6 +73,43 @@
   function escHtml(str) {
     return (str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
+
+  // ── Sort ─────────────────────────────────────────────────────────────
+  var lastRenderArgs = null;
+
+  function updateSortIcons() {
+    ['kosten','umsatz','roi'].forEach(function(col) {
+      var el = document.getElementById('sort' + col.charAt(0).toUpperCase() + col.slice(1) + 'Icon');
+      if (!el) return;
+      if (sortCol === col) {
+        el.textContent = sortDir === 'desc' ? '↓' : '↑';
+        el.style.color = 'var(--primary)';
+      } else {
+        el.textContent = '↕';
+        el.style.color = 'var(--text-secondary)';
+      }
+    });
+  }
+
+  function bindSortHeader(id, col) {
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('click', function() {
+      if (sortCol === col) {
+        sortDir = sortDir === 'desc' ? 'asc' : 'desc';
+      } else {
+        sortCol = col;
+        sortDir = 'desc';
+      }
+      updateSortIcons();
+      if (lastRenderArgs) render(lastRenderArgs[0], lastRenderArgs[1], lastRenderArgs[2]);
+    });
+  }
+
+  bindSortHeader('sortKosten', 'kosten');
+  bindSortHeader('sortUmsatz', 'umsatz');
+  bindSortHeader('sortRoi',    'roi');
+  updateSortIcons();
 
   // ── Add/Edit Modal ────────────────────────────────────────────────────
   function openModal(entry) {
@@ -319,6 +359,7 @@
   }
 
   function render(costs, revenues, links) {
+    lastRenderArgs = [costs, revenues, links];
     allLinks = links;
 
     var revByContact = {};
@@ -363,8 +404,27 @@
       roiEl.className   = 'kpi-value';
     }
 
+    // Sort
+    var sorted = costs.slice();
+    if (sortCol) {
+      sorted.sort(function(a, b) {
+        var av, bv;
+        if (sortCol === 'kosten') {
+          av = a.amount || 0;
+          bv = b.amount || 0;
+        } else if (sortCol === 'umsatz') {
+          av = costRevenue(a.id);
+          bv = costRevenue(b.id);
+        } else { // roi
+          av = (a.amount > 0) ? costRevenue(a.id) / a.amount : -Infinity;
+          bv = (b.amount > 0) ? costRevenue(b.id) / b.amount : -Infinity;
+        }
+        return sortDir === 'desc' ? bv - av : av - bv;
+      });
+    }
+
     acqBody.innerHTML = '';
-    costs.forEach(function (cost) {
+    sorted.forEach(function (cost) {
       var linkedOriginal = linksByCostOriginal[cost.id] || [];
       var count  = linkedOriginal.length;
       var ltdRev = costRevenue(cost.id);
