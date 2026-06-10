@@ -136,7 +136,7 @@
         q(s => s.from('revenue').select('contact_name').order('contact_name'))
           .then(rows => [...new Set(rows.map(r => r.contact_name).filter(Boolean))].sort()),
       allRows: () =>
-        q(s => s.from('revenue').select('contact_name,total_amount')),
+        q(s => s.from('revenue').select('contact_name,total_amount').limit(100000)),
       clearMonth: (year, month) =>
         q(s => s.from('revenue').delete().eq('year', year).eq('month', month)),
       insertMany: (year, month, rows) =>
