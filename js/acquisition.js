@@ -417,11 +417,18 @@
                   header.querySelector('.contact-total').textContent = fmt(newTotal);
                   syncBtn.textContent = '✓';
                   setTimeout(function(){ syncBtn.textContent = '↺'; syncBtn.style.pointerEvents = ''; }, 2000);
+                  // Reload ALL revenue rows so the main table reflects any new/changed months
                   if (lastRenderArgs) {
-                    lastRenderArgs[1].forEach(function(row) {
-                      if (row.contact_name === name && row.year === y && row.month === m) row.total_amount = entry.amount;
+                    window.db.revenue.allRows().then(function(freshRevenues) {
+                      lastRenderArgs[1] = freshRevenues;
+                      render(lastRenderArgs[0], lastRenderArgs[1], lastRenderArgs[2]);
+                    }).catch(function(){
+                      // Fallback: update just the known row
+                      lastRenderArgs[1].forEach(function(row) {
+                        if (row.contact_name === name && row.year === y && row.month === m) row.total_amount = entry.amount;
+                      });
+                      render(lastRenderArgs[0], lastRenderArgs[1], lastRenderArgs[2]);
                     });
-                    render(lastRenderArgs[0], lastRenderArgs[1], lastRenderArgs[2]);
                   }
                 }).catch(function(e) {
                   syncBtn.textContent = '↺';
