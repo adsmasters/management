@@ -13,7 +13,14 @@ Deno.serve(async (req) => {
   try {
     const { lexofficeKey, year, month, excludeKeywords } = await req.json();
     if (!lexofficeKey) throw new Error('LexOffice API Key fehlt');
-    const excludeLower: string[] = (excludeKeywords || []).map((k: string) => k.toLowerCase().trim()).filter(Boolean);
+
+    // Hardcoded defaults: advertising pass-through invoices ("Media-Budget",
+    // "Ausgleich Media-Budget", "zweckgebundener Ausgleich") are forwarded to
+    // Amazon and are NOT agency revenue — always exclude them, regardless of
+    // what the user has configured in Settings. User keywords are added on top.
+    const DEFAULT_EXCLUDE = ['media-budget', 'mediabudget', 'zweckgebundener ausgleich'];
+    const userExclude: string[] = (excludeKeywords || []).map((k: string) => k.toLowerCase().trim()).filter(Boolean);
+    const excludeLower: string[] = [...new Set([...DEFAULT_EXCLUDE, ...userExclude])];
 
     const targetYear  = year as number;
     const targetMonth = month as number; // 1-based
