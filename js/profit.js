@@ -611,6 +611,88 @@
       });
   });
 
+  // ── Resync all stored months ─────────────────────────────────────────
+  var resyncAllBtn = document.getElementById('resyncAllBtn');
+
+  function doSyncMonths(months, btn, onDone) {
+    btn.disabled = true;
+    errorEl.innerHTML = '';
+    var supabaseUrl = localStorage.getItem('supabaseUrl') || 'https://lgrnmiszhhahfcmctmwo.supabase.co';
+    var supabaseKey = localStorage.getItem('supabaseKey') || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imxncm5taXN6aGhhaGZjbWN0bXdvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM2NjE2NDksImV4cCI6MjA4OTIzNzY0OX0.FDZRGMESves7XbAMs_oMLWmvnywMlVqe8p7f1kt06qk';
+    var origLabel = btn.textContent.trim();
+    var kw = (localStorage.getItem('revenueExcludeKeywords') || '').split('\n').map(function(k){return k.trim();}).filter(Boolean);
+    (function syncNext(i) {
+      if (i >= months.length) {
+        btn.textContent = '✓ Fertig';
+        setTimeout(function () { btn.textContent = origLabel; }, 3000);
+        btn.disabled = false;
+        if (onDone) onDone();
+        return;
+      }
+      var m = months[i];
+      var label = MONTHS_LABEL[m.month - 1] + ' ' + m.year;
+      btn.textContent = 'Sync ' + label + '… (' + (i + 1) + '/' + months.length + ')';
+      fetch(supabaseUrl + '/functions/v1/sync-lexoffice', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + supabaseKey, 'apikey': supabaseKey },
+        body: JSON.stringify({ lexofficeKey: localStorage.getItem('lexofficeKey'), year: m.year, month: m.month, excludeKeywords: kw }),
+      }).then(function (res) {
+        return res.json().then(function (data) {
+          if (data.error) {
+            if (data.error.indexOf('429') !== -1 || data.error.indexOf('Rate limit') !== -1) {
+              btn.textContent = 'Rate limit – warte 15s… (' + (i + 1) + '/' + months.length + ')';
+              setTimeout(function () { syncNext(i); }, 15000);
+              return;
+            }
+            throw new Error(data.error);
+          }
+          setTimeout(function () { syncNext(i + 1); }, 3000);
+        });
+      }).catch(function (e) {
+        showError('LexOffice Fehler (' + label + '): ' + e.message);
+        btn.textContent = origLabel;
+        btn.disabled = false;
+      });
+    })(0);
+  }
+
+  resyncAllBtn.addEventListener('click', function () {
+    if (!window.lexoffice.isConfigured()) {
+      showError('LexOffice nicht verbunden. Bitte zuerst in den <a href="settings.html">Einstellungen</a> den API Key eintragen.');
+      return;
+    }
+    // Load all distinct year/month combos already in revenue table, then sync all
+    resyncAllBtn.disabled = true;
+    resyncAllBtn.textContent = 'Lade Monate…';
+    window.db.revenue.forMonth && true; // just verify db exists
+    var sb = window.createSupabaseClient ? window.createSupabaseClient() : null;
+    // Use raw query via db helper
+    var supaUrl = localStorage.getItem('supabaseUrl') || 'https://lgrnmiszhhahfcmctmwo.supabase.co';
+    var supaKey = localStorage.getItem('supabaseKey') || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imxncm5taXN6aGhhaGZjbWN0bXdvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM2NjE2NDksImV4cCI6MjA4OTIzNzY0OX0.FDZRGMESves7XbAMs_oMLWmvnywMlVqe8p7f1kt06qk';
+    var client = supabase.createClient(supaUrl, supaKey);
+    client.from('revenue').select('year,month').order('year').order('month').limit(100000)
+      .then(function(res) {
+        if (res.error) throw res.error;
+        // Deduplicate year/month combos
+        var seen = {};
+        var months = [];
+        (res.data || []).forEach(function(r) {
+          var k = r.year + '-' + r.month;
+          if (!seen[k]) { seen[k] = true; months.push({ year: r.year, month: r.month }); }
+        });
+        if (months.length === 0) {
+          resyncAllBtn.textContent = 'Alle Monate neu syncen';
+          resyncAllBtn.disabled = false;
+          return;
+        }
+        doSyncMonths(months, resyncAllBtn, load);
+      }).catch(function(e) {
+        showError('Fehler beim Laden der Monate: ' + e.message);
+        resyncAllBtn.textContent = 'Alle Monate neu syncen';
+        resyncAllBtn.disabled = false;
+      });
+  });
+
   // ── LexOffice sync ───────────────────────────────────────────────────
   var lexSyncBtn = document.getElementById('lexSyncBtn');
 
@@ -628,61 +710,7 @@
     var toMonth   = tp.month;
     var months    = monthsInRange(fromYear, fromMonth, toYear, toMonth);
 
-    lexSyncBtn.disabled = true;
-    errorEl.innerHTML = '';
-
-    (function syncNext(i) {
-      if (i >= months.length) {
-        lexSyncBtn.textContent = '✓ LexOffice synchronisiert';
-        setTimeout(function () { lexSyncBtn.textContent = 'Von LexOffice sync'; }, 3000);
-        lexSyncBtn.disabled = false;
-        load();
-        return;
-      }
-      var m = months[i];
-      var label = MONTHS_LABEL[m.month - 1] + ' ' + m.year;
-      lexSyncBtn.textContent = 'Sync ' + label + '… (' + (i + 1) + '/' + months.length + ')';
-
-      var supabaseUrl = localStorage.getItem('supabaseUrl') || 'https://lgrnmiszhhahfcmctmwo.supabase.co';
-      var supabaseKey = localStorage.getItem('supabaseKey') || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imxncm5taXN6aGhhaGZjbWN0bXdvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM2NjE2NDksImV4cCI6MjA4OTIzNzY0OX0.FDZRGMESves7XbAMs_oMLWmvnywMlVqe8p7f1kt06qk';
-      console.log('[sync-lexoffice] POST →', supabaseUrl + '/functions/v1/sync-lexoffice', { year: m.year, month: m.month });
-      fetch(supabaseUrl + '/functions/v1/sync-lexoffice', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': 'Bearer ' + supabaseKey,
-          'apikey': supabaseKey,
-        },
-        body: JSON.stringify({
-          lexofficeKey: localStorage.getItem('lexofficeKey'),
-          year: m.year,
-          month: m.month,
-          excludeKeywords: (localStorage.getItem('revenueExcludeKeywords') || '').split('\n').map(function(k){return k.trim();}).filter(Boolean),
-        }),
-      }).then(function (res) {
-        console.log('[sync-lexoffice] HTTP', res.status);
-        return res.json().then(function (data) {
-          console.log('[sync-lexoffice] body', JSON.stringify(data));
-          if (data.error) {
-            // Retry once after 5s on rate limit
-            if (data.error.indexOf('429') !== -1 || data.error.indexOf('Rate limit') !== -1) {
-              lexSyncBtn.textContent = 'Rate limit – warte 15s… (' + (i + 1) + '/' + months.length + ')';
-              setTimeout(function () { syncNext(i); }, 15000);
-              return;
-            }
-            throw new Error(data.error);
-          }
-          if (!res.ok) throw new Error('HTTP ' + res.status);
-          // Pause between months to respect LexOffice rate limit
-          setTimeout(function () { syncNext(i + 1); }, 3000);
-        });
-      }).catch(function (e) {
-        console.error('[sync-lexoffice] error', e.message);
-        showError('LexOffice Fehler (' + label + '): ' + e.message);
-        lexSyncBtn.textContent = 'Von LexOffice sync';
-        lexSyncBtn.disabled = false;
-      });
-    })(0);
+    doSyncMonths(months, lexSyncBtn, load);
   });
 
   // ── Boot ──────────────────────────────────────────────────────────────
