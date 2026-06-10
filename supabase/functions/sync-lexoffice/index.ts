@@ -18,8 +18,10 @@ Deno.serve(async (req) => {
     const targetYear  = year as number;
     const targetMonth = month as number; // 1-based
 
-    // Wide window: 1st of prev month -> 15th of following month
-    const from = new Date(Date.UTC(targetYear, targetMonth - 2, 1)).toISOString().substring(0, 10);
+    // Wide window: 4 months back -> 15th of following month
+    // Must go back far enough to catch quarterly invoices (e.g. Q2 invoice dated April
+    // needs to appear when syncing May and June as well)
+    const from = new Date(Date.UTC(targetYear, targetMonth - 5, 1)).toISOString().substring(0, 10);
     const to   = new Date(Date.UTC(targetYear, targetMonth, 15)).toISOString().substring(0, 10);
 
     async function lexGet(path: string) {
