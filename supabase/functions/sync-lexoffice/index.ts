@@ -88,7 +88,7 @@ Deno.serve(async (req) => {
           if (excludeLower.length > 0 && lineItems.length > 0) {
             // Sum only line items whose description doesn't match any exclude keyword
             netAmount = lineItems.reduce((sum: number, item: any) => {
-              const desc = (item.description || item.name || '').toLowerCase();
+              const desc = ((item.name || '') + ' ' + (item.description || '')).toLowerCase();
               const excluded = excludeLower.some(kw => desc.includes(kw));
               if (excluded) return sum;
               // lineItemAmount is already the total net for this line (quantity already included)
