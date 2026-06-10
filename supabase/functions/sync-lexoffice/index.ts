@@ -65,12 +65,26 @@ Deno.serve(async (req) => {
         const invoice = await lexGet(`/invoices/${voucherId}`);
 
         // Determine month via Leistungsdatum (serviceDate), fallback to Rechnungsdatum
+        // For multi-month service periods, split amount evenly across months
         const sd = invoice.serviceDate;
         let belongs = false;
+        let monthDivisor = 1; // how many months to split across
         if (sd) {
-          const dateStr: string = sd.date || sd.startDate || sd.endDate || '';
-          if (dateStr) {
-            const d = new Date(dateStr);
+          const startStr: string = sd.date || sd.startDate || '';
+          const endStr: string = sd.endDate || '';
+          if (startStr && endStr && startStr !== endStr) {
+            // Multi-month range: check if targetYear/targetMonth falls within range
+            const start = new Date(startStr);
+            const end   = new Date(endStr);
+            if (!isNaN(start.getTime()) && !isNaN(end.getTime())) {
+              const startYM = start.getUTCFullYear() * 12 + start.getUTCMonth();
+              const endYM   = end.getUTCFullYear()   * 12 + end.getUTCMonth();
+              const targetYM = targetYear * 12 + (targetMonth - 1);
+              belongs = targetYM >= startYM && targetYM <= endYM;
+              monthDivisor = endYM - startYM + 1;
+            }
+          } else if (startStr) {
+            const d = new Date(startStr);
             if (!isNaN(d.getTime())) {
               belongs = d.getUTCFullYear() === targetYear && d.getUTCMonth() + 1 === targetMonth;
             }
@@ -119,13 +133,17 @@ Deno.serve(async (req) => {
             // Fallback: estimate net from gross (same as error fallback)
             netAmount = Math.round((v.totalAmount || 0) / 1.19 * 100) / 100;
           }
-          if (netAmount > 0) {
-            map[contactName] = (map[contactName] || 0) + netAmount;
+          // Split across months if multi-month service period
+          const netAmountForMonth = monthDivisor > 1 ? Math.round(netAmount / monthDivisor * 100) / 100 : netAmount;
+          if (netAmountForMonth > 0) {
+            map[contactName] = (map[contactName] || 0) + netAmountForMonth;
           }
           debugRows.push({
             contact: contactName,
             gross: v.totalAmount,
-            net: netAmount,
+            net: netAmountForMonth,
+            netTotal: netAmount,
+            monthDivisor,
             usedNet,
             title: invoiceTitle,
           });
