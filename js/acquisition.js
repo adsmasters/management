@@ -378,7 +378,7 @@
               syncBtn.addEventListener('mouseleave', function(){ syncBtn.style.color='var(--text-secondary)'; });
               syncBtn.addEventListener('click', function(e) {
                 e.stopPropagation();
-                if (!window.lexoffice || !window.lexoffice.isConfigured()) { alert('LexOffice nicht verbunden.'); return; }
+                if (!localStorage.getItem('lexofficeKey')) { alert('LexOffice API Key fehlt. Bitte in den Einstellungen hinterlegen.'); return; }
                 syncBtn.textContent = '…';
                 syncBtn.style.pointerEvents = 'none';
                 var supaUrl = localStorage.getItem('supabaseUrl') || 'https://lgrnmiszhhahfcmctmwo.supabase.co';
