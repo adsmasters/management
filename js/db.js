@@ -142,6 +142,10 @@
           .in('contact_name', contactNames).order('year').order('month').limit(10000)),
       updateAmount: (id, total_amount) =>
         q(s => s.from('revenue').update({ total_amount }).eq('id', id).select().single()),
+      insertRow: (year, month, contactName, amount) =>
+        q(s => s.from('revenue')
+          .insert({ year, month, contact_name: contactName, total_amount: amount })
+          .select().single()),
       clearMonth: (year, month) =>
         q(s => s.from('revenue').delete().eq('year', year).eq('month', month)),
       insertMany: (year, month, rows) =>

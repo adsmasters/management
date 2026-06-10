@@ -450,12 +450,18 @@
                 cancelSpan.title = 'Abbrechen';
                 cancelSpan.style.cssText = 'cursor:pointer;font-size:13px;color:var(--danger);padding:0 2px;font-weight:700';
 
+                var splitBtn = document.createElement('button');
+                splitBtn.textContent = '÷ Aufteilen';
+                splitBtn.title = 'Betrag auf mehrere Monate verteilen (z.B. Quartalsrechnung)';
+                splitBtn.style.cssText = 'background:none;border:1px solid var(--border);cursor:pointer;padding:1px 7px;font-size:10px;color:var(--text-secondary);border-radius:3px;line-height:1.5;white-space:nowrap;font-family:inherit';
+
                 var editWrap = document.createElement('span');
                 editWrap.style.cssText = 'display:inline-flex;align-items:center;gap:3px;background:var(--surface-hover,#f1f5f9);border-radius:4px;padding:1px 4px';
                 editWrap.appendChild(document.createTextNode(label + ' · '));
                 editWrap.appendChild(input);
                 editWrap.appendChild(saveSpan);
                 editWrap.appendChild(cancelSpan);
+                editWrap.appendChild(splitBtn);
 
                 tag.replaceWith(editWrap);
                 input.focus();
@@ -468,13 +474,10 @@
                   saveSpan.style.pointerEvents = 'none';
                   window.db.revenue.updateAmount(entry.id, newVal).then(function () {
                     entry.amount = newVal;
-                    // Recalculate contact total
                     var newTotal = Object.values(months).reduce(function(s,v){return s+(v.amount||0);},0);
                     header.querySelector('.contact-total').textContent = fmt(newTotal);
-                    // Rebuild tag
                     tag.textContent = label + ' · ' + fmt(newVal);
                     editWrap.replaceWith(tag);
-                    // Trigger re-render of main table (revenue changed)
                     if (lastRenderArgs) {
                       lastRenderArgs[1].forEach(function(row) {
                         if (row.contact_name === name && row.year === y && row.month === m) {
@@ -495,6 +498,68 @@
                 input.addEventListener('keydown', function(e) {
                   if (e.key === 'Enter') doSave();
                   if (e.key === 'Escape') editWrap.replaceWith(tag);
+                });
+
+                splitBtn.addEventListener('click', function(e) {
+                  e.stopPropagation();
+                  var total = entry.amount;
+                  var numIn = document.createElement('input');
+                  numIn.type = 'number'; numIn.min = '2'; numIn.max = '12'; numIn.value = '3';
+                  numIn.style.cssText = 'font-size:11px;width:36px;padding:1px 4px;border:1px solid var(--primary);border-radius:4px;text-align:center;font-family:inherit';
+                  var okSpan = document.createElement('span');
+                  okSpan.textContent = '✓ OK';
+                  okSpan.style.cssText = 'cursor:pointer;font-size:11px;color:var(--success);padding:0 5px;font-weight:700;white-space:nowrap';
+                  var xSpan = document.createElement('span');
+                  xSpan.textContent = '✕';
+                  xSpan.style.cssText = 'cursor:pointer;font-size:13px;color:var(--danger);padding:0 2px;font-weight:700';
+                  editWrap.innerHTML = '';
+                  editWrap.appendChild(document.createTextNode(label + ' ' + fmt(total) + ' ÷ '));
+                  editWrap.appendChild(numIn);
+                  editWrap.appendChild(document.createTextNode(' Monate '));
+                  editWrap.appendChild(okSpan);
+                  editWrap.appendChild(xSpan);
+                  numIn.focus(); numIn.select();
+                  xSpan.addEventListener('click', function() { editWrap.replaceWith(tag); });
+                  function doSplit() {
+                    var n = parseInt(numIn.value);
+                    if (!n || n < 2 || n > 12) { numIn.focus(); return; }
+                    okSpan.textContent = '…'; okSpan.style.pointerEvents = 'none';
+                    var perMonth = parseFloat((total / n).toFixed(2));
+                    var lastAmt  = parseFloat((total - perMonth * (n - 1)).toFixed(2));
+                    var mList = [];
+                    var iy = y, im = m;
+                    for (var i = 0; i < n; i++) {
+                      mList.push({ year: iy, month: im, amount: (i === n - 1 ? lastAmt : perMonth) });
+                      im++; if (im > 12) { im = 1; iy++; }
+                    }
+                    var promises = [window.db.revenue.updateAmount(entry.id, mList[0].amount)];
+                    for (var j = 1; j < n; j++) {
+                      promises.push(window.db.revenue.insertRow(mList[j].year, mList[j].month, name, mList[j].amount));
+                    }
+                    Promise.all(promises).then(function(results) {
+                      mList.forEach(function(ml, idx) {
+                        var mk = ml.year + '-' + String(ml.month).padStart(2, '0');
+                        months[mk] = { id: idx === 0 ? entry.id : (results[idx] && results[idx].id), amount: ml.amount, year: ml.year, month: ml.month };
+                        if (lastRenderArgs) {
+                          var found = false;
+                          lastRenderArgs[1].forEach(function(row) {
+                            if (row.contact_name === name && row.year === ml.year && row.month === ml.month) { row.total_amount = ml.amount; found = true; }
+                          });
+                          if (!found) lastRenderArgs[1].push({ contact_name: name, year: ml.year, month: ml.month, total_amount: ml.amount });
+                        }
+                      });
+                      renderDetail();
+                      if (lastRenderArgs) render(lastRenderArgs[0], lastRenderArgs[1], lastRenderArgs[2]);
+                    }).catch(function(e2) {
+                      alert('Fehler beim Aufteilen: ' + e2.message);
+                      editWrap.replaceWith(tag);
+                    });
+                  }
+                  okSpan.addEventListener('click', doSplit);
+                  numIn.addEventListener('keydown', function(e2) {
+                    if (e2.key === 'Enter') doSplit();
+                    if (e2.key === 'Escape') editWrap.replaceWith(tag);
+                  });
                 });
               });
 
