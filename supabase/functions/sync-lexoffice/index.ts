@@ -11,8 +11,9 @@ Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
 
   try {
-    const { lexofficeKey, year, month } = await req.json();
+    const { lexofficeKey, year, month, excludeKeywords } = await req.json();
     if (!lexofficeKey) throw new Error('LexOffice API Key fehlt');
+    const excludeLower: string[] = (excludeKeywords || []).map((k: string) => k.toLowerCase().trim()).filter(Boolean);
 
     const targetYear  = year as number;
     const targetMonth = month as number; // 1-based
@@ -80,18 +81,31 @@ Deno.serve(async (req) => {
         }
 
         if (belongs) {
-          const tp = invoice.totalPrice || {};
-          const netAmount: number = Number(
-            tp.totalNetAmount ?? tp.netAmount ?? tp.net ?? v.totalAmount
-          ) || 0;
-          usedNet = tp.totalNetAmount != null;
-          map[contactName] = (map[contactName] || 0) + netAmount;
+          let netAmount: number;
+          const lineItems: any[] = invoice.lineItems || [];
+          if (excludeLower.length > 0 && lineItems.length > 0) {
+            // Sum only line items whose description doesn't match any exclude keyword
+            netAmount = lineItems.reduce((sum: number, item: any) => {
+              const desc = (item.description || item.name || '').toLowerCase();
+              const excluded = excludeLower.some(kw => desc.includes(kw));
+              if (excluded) return sum;
+              const lineNet = Number(item.lineItemAmount ?? item.unitPrice?.netAmount ?? 0) *
+                              Number(item.quantity ?? 1);
+              return sum + (isNaN(lineNet) ? 0 : lineNet);
+            }, 0);
+          } else {
+            const tp = invoice.totalPrice || {};
+            netAmount = Number(tp.totalNetAmount ?? tp.netAmount ?? tp.net ?? v.totalAmount) || 0;
+            usedNet = tp.totalNetAmount != null;
+          }
+          if (netAmount > 0) {
+            map[contactName] = (map[contactName] || 0) + netAmount;
+          }
           debugRows.push({
             contact: contactName,
             gross: v.totalAmount,
             net: netAmount,
             usedNet,
-            totalPrice: tp,
           });
         }
       } catch (err: any) {

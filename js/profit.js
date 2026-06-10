@@ -657,6 +657,7 @@
           lexofficeKey: localStorage.getItem('lexofficeKey'),
           year: m.year,
           month: m.month,
+          excludeKeywords: (localStorage.getItem('revenueExcludeKeywords') || '').split(',').map(function(k){return k.trim();}).filter(Boolean),
         }),
       }).then(function (res) {
         console.log('[sync-lexoffice] HTTP', res.status);
