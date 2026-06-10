@@ -91,8 +91,14 @@ Deno.serve(async (req) => {
               const desc = (item.description || item.name || '').toLowerCase();
               const excluded = excludeLower.some(kw => desc.includes(kw));
               if (excluded) return sum;
-              const lineNet = Number(item.lineItemAmount ?? item.unitPrice?.netAmount ?? 0) *
-                              Number(item.quantity ?? 1);
+              // lineItemAmount is already the total net for this line (quantity already included)
+              // unitPrice.netAmount is the per-unit net price → multiply by quantity
+              let lineNet: number;
+              if (item.lineItemAmount != null) {
+                lineNet = Number(item.lineItemAmount);
+              } else {
+                lineNet = Number(item.unitPrice?.netAmount ?? 0) * Number(item.quantity ?? 1);
+              }
               return sum + (isNaN(lineNet) ? 0 : lineNet);
             }, 0);
           } else if (tp.totalNetAmount != null) {
