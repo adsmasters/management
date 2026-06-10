@@ -104,12 +104,16 @@ Deno.serve(async (req) => {
         // look for a quarter pattern like "Q2 2026" in title or line items.
         // This reliably handles quarterly management-fee invoices.
         //
-        // SAFETY: media-budget invoices that also contain Q-patterns are handled
-        // correctly because:
-        //   - Monthly ones (April/May) have no Q-pattern → fallback never fires
-        //   - Quarterly Q1 (title "Rechnung", line item contains "media-budget"):
-        //       → if Q-pattern marks them belongs=true, the exclude check inside
-        //         if(belongs) will set netAmount=0 via line-item exclusion → not added
+        // IMPORTANT: when Q-pattern is found, belongs is ALWAYS overridden based on
+        // the Q-range — not voucherDate. This prevents e.g. a December invoice for
+        // "Q1 2026" from being counted in December (voucherDate match) instead of
+        // being split correctly across January–March 2026.
+        //
+        // SAFETY for media-budget invoices that also contain Q-patterns:
+        //   - Monthly ones (April/May, title "Ausgleich Media-Budget") → excluded
+        //     by invoice-title exclude check inside if(belongs) → continue
+        //   - Quarterly Q1 (title "Rechnung", line item "Media-Budget Q1 2026") →
+        //     line-item exclusion sets netAmount=0 → not added to map
         if (monthDivisor === 1) {
           const allTitleText = [
             invoiceTitle,
@@ -123,11 +127,9 @@ Deno.serve(async (req) => {
             const qEndMonth   = qStartMonth + 2;    // Q1→3, Q2→6, Q3→9, Q4→12
             const startYM2 = y * 12 + (qStartMonth - 1);
             const endYM2   = y * 12 + (qEndMonth   - 1);
-            const newBelongs = targetYM >= startYM2 && targetYM <= endYM2;
-            if (newBelongs) {
-              belongs      = true;
-              monthDivisor = 3;
-            }
+            // Always override belongs from Q-range (never from voucherDate for quarterly invoices)
+            belongs      = targetYM >= startYM2 && targetYM <= endYM2;
+            monthDivisor = 3;
           }
         }
 
