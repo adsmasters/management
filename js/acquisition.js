@@ -324,45 +324,142 @@
     }
 
     window.db.revenue.forContacts(linkedContactNames).then(function (rows) {
-      // Group by contact → by year/month
+      // rows include id now
+      // Group by contact → by monthKey → {id, amount}
       var byContact = {};
       linkedContactNames.forEach(function (n) { byContact[n] = {}; });
       rows.forEach(function (r) {
         var name = r.contact_name;
         if (!byContact[name]) byContact[name] = {};
         var key = r.year + '-' + String(r.month).padStart(2, '0');
-        byContact[name][key] = (byContact[name][key] || 0) + (r.total_amount || 0);
+        // keep the row id for editing
+        byContact[name][key] = { id: r.id, amount: (r.total_amount || 0), year: r.year, month: r.month };
       });
 
-      var html = '<div style="overflow-y:auto;max-height:520px">';
-      linkedContactNames.slice().sort(function (a, b) { return a.localeCompare(b, 'de'); }).forEach(function (name) {
-        var months = byContact[name] || {};
-        var total  = Object.values(months).reduce(function (s, v) { return s + v; }, 0);
-        var sortedMonths = Object.keys(months).sort();
+      function renderDetail() {
+        var wrap = document.createElement('div');
+        wrap.style.cssText = 'overflow-y:auto;max-height:520px';
 
-        html += '<div style="border-bottom:1px solid var(--border);padding:14px 20px">';
-        html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:' + (sortedMonths.length ? '8px' : '0') + '">';
-        html += '<span style="font-weight:600;font-size:14px">' + escHtml(name) + '</span>';
-        html += '<span style="font-weight:700;font-size:14px;font-variant-numeric:tabular-nums">' + fmt(total) + '</span>';
-        html += '</div>';
+        linkedContactNames.slice().sort(function (a, b) { return a.localeCompare(b, 'de'); }).forEach(function (name) {
+          var months = byContact[name] || {};
+          var total  = Object.values(months).reduce(function (s, v) { return s + (v.amount || 0); }, 0);
+          var sortedMonths = Object.keys(months).sort();
 
-        if (sortedMonths.length) {
-          html += '<div style="display:flex;flex-wrap:wrap;gap:4px">';
-          sortedMonths.forEach(function (mk) {
-            var parts = mk.split('-');
-            var y = parseInt(parts[0]), m = parseInt(parts[1]);
-            var label = MONTHS_LABEL[m - 1] + ' ' + y;
-            html += '<span style="font-size:11px;background:var(--surface-hover,#f1f5f9);border:1px solid var(--border);border-radius:4px;padding:2px 7px;font-variant-numeric:tabular-nums">'
-              + escHtml(label) + ' · ' + fmt(months[mk]) + '</span>';
-          });
-          html += '</div>';
-        } else {
-          html += '<span style="font-size:12px;color:var(--text-secondary)">Kein Umsatz in importierten Monaten</span>';
-        }
-        html += '</div>';
-      });
-      html += '</div>';
-      detailModalBody.innerHTML = html;
+          var section = document.createElement('div');
+          section.style.cssText = 'border-bottom:1px solid var(--border);padding:14px 20px';
+
+          var header = document.createElement('div');
+          header.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:' + (sortedMonths.length ? '8px' : '0');
+          header.innerHTML =
+            '<span style="font-weight:600;font-size:14px">' + escHtml(name) + '</span>' +
+            '<span class="contact-total" style="font-weight:700;font-size:14px;font-variant-numeric:tabular-nums">' + fmt(total) + '</span>';
+          section.appendChild(header);
+
+          if (sortedMonths.length) {
+            var tagsWrap = document.createElement('div');
+            tagsWrap.style.cssText = 'display:flex;flex-wrap:wrap;gap:4px';
+
+            sortedMonths.forEach(function (mk) {
+              var entry = months[mk];
+              var y = entry.year, m = entry.month;
+              var label = MONTHS_LABEL[m - 1] + ' ' + y;
+
+              var tag = document.createElement('span');
+              tag.title = 'Klicken zum Bearbeiten';
+              tag.style.cssText = 'font-size:11px;background:var(--surface-hover,#f1f5f9);border:1px solid var(--border);border-radius:4px;padding:2px 7px;font-variant-numeric:tabular-nums;cursor:pointer;transition:border-color .15s';
+              tag.textContent = label + ' · ' + fmt(entry.amount);
+
+              tag.addEventListener('mouseenter', function() { tag.style.borderColor = 'var(--primary)'; });
+              tag.addEventListener('mouseleave', function() { tag.style.borderColor = 'var(--border)'; });
+
+              tag.addEventListener('click', function () {
+                // Replace tag with inline edit
+                var input = document.createElement('input');
+                input.type = 'number';
+                input.step = '0.01';
+                input.value = entry.amount;
+                input.style.cssText = 'font-size:11px;width:120px;padding:1px 6px;border:1px solid var(--primary);border-radius:4px;font-variant-numeric:tabular-nums';
+
+                var saveSpan = document.createElement('span');
+                saveSpan.textContent = '✓';
+                saveSpan.title = 'Speichern';
+                saveSpan.style.cssText = 'cursor:pointer;font-size:13px;color:var(--success);padding:0 4px;font-weight:700';
+
+                var cancelSpan = document.createElement('span');
+                cancelSpan.textContent = '✕';
+                cancelSpan.title = 'Abbrechen';
+                cancelSpan.style.cssText = 'cursor:pointer;font-size:13px;color:var(--danger);padding:0 2px;font-weight:700';
+
+                var editWrap = document.createElement('span');
+                editWrap.style.cssText = 'display:inline-flex;align-items:center;gap:3px;background:var(--surface-hover,#f1f5f9);border-radius:4px;padding:1px 4px';
+                editWrap.appendChild(document.createTextNode(label + ' · '));
+                editWrap.appendChild(input);
+                editWrap.appendChild(saveSpan);
+                editWrap.appendChild(cancelSpan);
+
+                tag.replaceWith(editWrap);
+                input.focus();
+                input.select();
+
+                function doSave() {
+                  var newVal = parseFloat(input.value);
+                  if (isNaN(newVal) || newVal < 0) { input.focus(); return; }
+                  saveSpan.textContent = '…';
+                  saveSpan.style.pointerEvents = 'none';
+                  window.db.revenue.updateAmount(entry.id, newVal).then(function () {
+                    entry.amount = newVal;
+                    // Recalculate contact total
+                    var newTotal = Object.values(months).reduce(function(s,v){return s+(v.amount||0);},0);
+                    header.querySelector('.contact-total').textContent = fmt(newTotal);
+                    // Rebuild tag
+                    tag.textContent = label + ' · ' + fmt(newVal);
+                    editWrap.replaceWith(tag);
+                    // Trigger re-render of main table (revenue changed)
+                    if (lastRenderArgs) {
+                      lastRenderArgs[1].forEach(function(row) {
+                        if (row.contact_name === name && row.year === y && row.month === m) {
+                          row.total_amount = newVal;
+                        }
+                      });
+                      render(lastRenderArgs[0], lastRenderArgs[1], lastRenderArgs[2]);
+                    }
+                  }).catch(function(e) {
+                    saveSpan.textContent = '✓';
+                    saveSpan.style.pointerEvents = '';
+                    alert('Fehler: ' + e.message);
+                  });
+                }
+
+                saveSpan.addEventListener('click', doSave);
+                cancelSpan.addEventListener('click', function () { editWrap.replaceWith(tag); });
+                input.addEventListener('keydown', function(e) {
+                  if (e.key === 'Enter') doSave();
+                  if (e.key === 'Escape') editWrap.replaceWith(tag);
+                });
+              });
+
+              tagsWrap.appendChild(tag);
+            });
+            section.appendChild(tagsWrap);
+
+            var hint = document.createElement('div');
+            hint.style.cssText = 'margin-top:5px;font-size:10px;color:var(--text-secondary)';
+            hint.textContent = '✏️ Auf einen Monatswert klicken zum Korrigieren';
+            section.appendChild(hint);
+          } else {
+            var empty = document.createElement('span');
+            empty.style.cssText = 'font-size:12px;color:var(--text-secondary)';
+            empty.textContent = 'Kein Umsatz in importierten Monaten';
+            section.appendChild(empty);
+          }
+
+          wrap.appendChild(section);
+        });
+        detailModalBody.innerHTML = '';
+        detailModalBody.appendChild(wrap);
+      }
+
+      renderDetail();
     }).catch(function (e) {
       detailModalBody.innerHTML = '<div style="padding:20px;color:var(--danger)">Fehler: ' + escHtml(e.message) + '</div>';
     });

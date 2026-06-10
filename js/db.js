@@ -138,8 +138,10 @@
       allRows: () =>
         q(s => s.from('revenue').select('contact_name,total_amount').limit(100000)),
       forContacts: (contactNames) =>
-        q(s => s.from('revenue').select('contact_name,year,month,total_amount')
+        q(s => s.from('revenue').select('id,contact_name,year,month,total_amount')
           .in('contact_name', contactNames).order('year').order('month').limit(10000)),
+      updateAmount: (id, total_amount) =>
+        q(s => s.from('revenue').update({ total_amount }).eq('id', id).select().single()),
       clearMonth: (year, month) =>
         q(s => s.from('revenue').delete().eq('year', year).eq('month', month)),
       insertMany: (year, month, rows) =>
