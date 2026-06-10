@@ -540,12 +540,16 @@
     var byType = {};
     costs.forEach(function(cost) {
       var t = cost.source_type || 'sonstige';
-      if (!byType[t]) byType[t] = { costs: 0, revenue: 0, clients: 0, count: 0 };
+      if (!byType[t]) byType[t] = { costs: 0, revenue: 0, clients: 0, count: 0, entries: [] };
       byType[t].costs  += (cost.amount || 0);
       byType[t].count  += 1;
       var linked = linksByCostNorm[cost.id] || [];
+      var linkedOrig = linksByCostOriginal[cost.id] || [];
       byType[t].clients += linked.length;
-      linked.forEach(function(c) { byType[t].revenue += revByContact[c] || 0; });
+      var entryRevenue = 0;
+      linked.forEach(function(c) { entryRevenue += revByContact[c] || 0; });
+      byType[t].revenue += entryRevenue;
+      byType[t].entries.push({ cost: cost, linkedNames: linkedOrig, revenue: entryRevenue });
     });
 
     // Sort by revenue desc
@@ -566,20 +570,73 @@
       var color = TYPE_COLORS[t] || '#94a3b8';
       var roi   = d.costs > 0 ? (d.revenue / d.costs).toFixed(1) + '× ROI' : (d.revenue > 0 ? fmt(d.revenue) : '—');
       var roiCls = d.costs > 0 && d.revenue >= d.costs ? 'roi-pos' : (d.costs > 0 ? 'roi-neg' : '');
+
       var card = document.createElement('div');
       card.className = 'kpi-card';
       card.style.borderTop = '3px solid ' + color;
+
+      // Sort entries by costs desc
+      var sortedEntries = d.entries.slice().sort(function(a, b) { return (b.cost.amount || 0) - (a.cost.amount || 0); });
+
+      // Build activities HTML
+      var activitiesHtml = '<div style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px;display:flex;flex-direction:column;gap:6px">';
+      sortedEntries.forEach(function(entry) {
+        var c = entry.cost;
+        var entryRoi = c.amount > 0 ? (entry.revenue / c.amount).toFixed(1) + '× ROI' : '—';
+        var entryRoiCls = c.amount > 0 && entry.revenue >= c.amount ? 'roi-pos' : (c.amount > 0 ? 'roi-neg' : '');
+        var clientsHtml = '';
+        if (entry.linkedNames.length > 0) {
+          clientsHtml = '<div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:3px">';
+          entry.linkedNames.slice().sort(function(a,b){return a.localeCompare(b,'de');}).forEach(function(n) {
+            clientsHtml += '<span style="font-size:11px;background:' + color + '22;border:1px solid ' + color + '44;border-radius:3px;padding:1px 6px;color:var(--text)">' + escHtml(n) + '</span>';
+          });
+          clientsHtml += '</div>';
+        }
+        activitiesHtml +=
+          '<div style="background:var(--surface-hover,#f8fafc);border:1px solid var(--border);border-radius:6px;padding:8px 10px">' +
+            '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:6px">' +
+              '<span style="font-size:13px;font-weight:600;flex:1;min-width:0">' + escHtml(c.source_name) + '</span>' +
+              '<span style="font-size:12px;font-variant-numeric:tabular-nums;white-space:nowrap;color:var(--text-secondary)">' + fmt(c.amount || 0) + '</span>' +
+              (c.amount > 0 ? '<span style="font-size:12px;font-weight:600;white-space:nowrap" class="' + entryRoiCls + '">' + entryRoi + '</span>' : '') +
+            '</div>' +
+            (entry.linkedNames.length > 0 ? clientsHtml : '<div style="margin-top:3px;font-size:11px;color:var(--text-secondary)">Keine Kunden zugeordnet</div>') +
+          '</div>';
+      });
+      activitiesHtml += '</div>';
+
       card.innerHTML =
         '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">' +
           '<span style="font-size:13px;font-weight:700;color:' + color + '">' + escHtml(label) + '</span>' +
-          '<span style="font-size:11px;color:var(--text-secondary)">' + d.count + ' Aktivität' + (d.count !== 1 ? 'en' : '') + '</span>' +
+          '<div style="display:flex;align-items:center;gap:8px">' +
+            '<span style="font-size:11px;color:var(--text-secondary)">' + d.count + ' Aktivität' + (d.count !== 1 ? 'en' : '') + '</span>' +
+            '<button class="type-toggle-btn" style="background:none;border:1px solid var(--border);border-radius:4px;cursor:pointer;padding:2px 7px;font-size:12px;color:var(--text-secondary);display:flex;align-items:center;gap:3px">Details <span class="toggle-icon">▼</span></button>' +
+          '</div>' +
         '</div>' +
         '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">' +
           '<div><div style="font-size:11px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.04em">Kosten</div><div style="font-size:16px;font-weight:700">' + fmt(d.costs) + '</div></div>' +
           '<div><div style="font-size:11px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.04em">Umsatz</div><div style="font-size:16px;font-weight:700">' + fmt(d.revenue) + '</div></div>' +
           '<div><div style="font-size:11px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.04em">Kunden</div><div style="font-size:16px;font-weight:700">' + d.clients + '</div></div>' +
           '<div><div style="font-size:11px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.04em">ROI</div><div style="font-size:16px;font-weight:700" class="' + roiCls + '">' + roi + '</div></div>' +
-        '</div>';
+        '</div>' +
+        '<div class="type-activities hidden">' + activitiesHtml + '</div>';
+
+      // Toggle expand/collapse
+      var toggleBtn = card.querySelector('.type-toggle-btn');
+      var activitiesEl = card.querySelector('.type-activities');
+      var toggleIcon = card.querySelector('.toggle-icon');
+      toggleBtn.addEventListener('click', function() {
+        var isHidden = activitiesEl.classList.contains('hidden');
+        if (isHidden) {
+          activitiesEl.classList.remove('hidden');
+          toggleIcon.textContent = '▲';
+          toggleBtn.style.color = color;
+        } else {
+          activitiesEl.classList.add('hidden');
+          toggleIcon.textContent = '▼';
+          toggleBtn.style.color = 'var(--text-secondary)';
+        }
+      });
+
       typeCards.appendChild(card);
     });
 
