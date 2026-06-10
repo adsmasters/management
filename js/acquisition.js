@@ -365,14 +365,62 @@
               var label = MONTHS_LABEL[m - 1] + ' ' + y;
 
               var tag = document.createElement('span');
-              tag.title = 'Klicken zum Bearbeiten';
-              tag.style.cssText = 'font-size:11px;background:var(--surface-hover,#f1f5f9);border:1px solid var(--border);border-radius:4px;padding:2px 7px;font-variant-numeric:tabular-nums;cursor:pointer;transition:border-color .15s';
-              tag.textContent = label + ' · ' + fmt(entry.amount);
+              tag.style.cssText = 'display:inline-flex;align-items:center;gap:4px;font-size:11px;background:var(--surface-hover,#f1f5f9);border:1px solid var(--border);border-radius:4px;padding:2px 4px 2px 7px;font-variant-numeric:tabular-nums';
+              var tagText = document.createElement('span');
+              tagText.style.cssText = 'cursor:pointer';
+              tagText.title = 'Klicken zum Bearbeiten';
+              tagText.textContent = label + ' · ' + fmt(entry.amount);
+              var syncBtn = document.createElement('button');
+              syncBtn.title = 'Diesen Monat neu von LexOffice laden';
+              syncBtn.style.cssText = 'background:none;border:none;cursor:pointer;padding:1px 3px;font-size:10px;color:var(--text-secondary);line-height:1;border-radius:3px';
+              syncBtn.textContent = '↺';
+              syncBtn.addEventListener('mouseenter', function(){ syncBtn.style.color='var(--primary)'; });
+              syncBtn.addEventListener('mouseleave', function(){ syncBtn.style.color='var(--text-secondary)'; });
+              syncBtn.addEventListener('click', function(e) {
+                e.stopPropagation();
+                if (!window.lexoffice || !window.lexoffice.isConfigured()) { alert('LexOffice nicht verbunden.'); return; }
+                syncBtn.textContent = '…';
+                syncBtn.style.pointerEvents = 'none';
+                var supaUrl = localStorage.getItem('supabaseUrl') || 'https://lgrnmiszhhahfcmctmwo.supabase.co';
+                var supaKey = localStorage.getItem('supabaseKey') || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imxncm5taXN6aGhhaGZjbWN0bXdvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM2NjE2NDksImV4cCI6MjA4OTIzNzY0OX0.FDZRGMESves7XbAMs_oMLWmvnywMlVqe8p7f1kt06qk';
+                var kw = (localStorage.getItem('revenueExcludeKeywords') || '').split('\n').map(function(k){return k.trim();}).filter(Boolean);
+                fetch(supaUrl + '/functions/v1/sync-lexoffice', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + supaKey, 'apikey': supaKey },
+                  body: JSON.stringify({ lexofficeKey: localStorage.getItem('lexofficeKey'), year: y, month: m, excludeKeywords: kw }),
+                }).then(function(res){ return res.json(); }).then(function(data) {
+                  if (data.error) throw new Error(data.error);
+                  // Reload just this month's revenue for this contact
+                  return window.db.revenue.forContacts([name]);
+                }).then(function(rows) {
+                  // Update entry amount from fresh data
+                  rows.forEach(function(r) {
+                    if (r.year === y && r.month === m && r.contact_name === name) {
+                      entry.id = r.id;
+                      entry.amount = r.total_amount || 0;
+                    }
+                  });
+                  tagText.textContent = label + ' · ' + fmt(entry.amount);
+                  var newTotal = Object.values(months).reduce(function(s,v){return s+(v.amount||0);},0);
+                  header.querySelector('.contact-total').textContent = fmt(newTotal);
+                  syncBtn.textContent = '✓';
+                  setTimeout(function(){ syncBtn.textContent = '↺'; syncBtn.style.pointerEvents = ''; }, 2000);
+                  if (lastRenderArgs) {
+                    lastRenderArgs[1].forEach(function(row) {
+                      if (row.contact_name === name && row.year === y && row.month === m) row.total_amount = entry.amount;
+                    });
+                    render(lastRenderArgs[0], lastRenderArgs[1], lastRenderArgs[2]);
+                  }
+                }).catch(function(e) {
+                  syncBtn.textContent = '↺';
+                  syncBtn.style.pointerEvents = '';
+                  alert('Sync-Fehler: ' + e.message);
+                });
+              });
+              tag.appendChild(tagText);
+              tag.appendChild(syncBtn);
 
-              tag.addEventListener('mouseenter', function() { tag.style.borderColor = 'var(--primary)'; });
-              tag.addEventListener('mouseleave', function() { tag.style.borderColor = 'var(--border)'; });
-
-              tag.addEventListener('click', function () {
+              tagText.addEventListener('click', function () {
                 // Replace tag with inline edit
                 var input = document.createElement('input');
                 input.type = 'number';
