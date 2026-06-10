@@ -82,7 +82,9 @@ Deno.serve(async (req) => {
 
         if (belongs) {
           let netAmount: number;
+          const tp = invoice.totalPrice || {};
           const lineItems: any[] = invoice.lineItems || [];
+
           if (excludeLower.length > 0 && lineItems.length > 0) {
             // Sum only line items whose description doesn't match any exclude keyword
             netAmount = lineItems.reduce((sum: number, item: any) => {
@@ -93,10 +95,13 @@ Deno.serve(async (req) => {
                               Number(item.quantity ?? 1);
               return sum + (isNaN(lineNet) ? 0 : lineNet);
             }, 0);
+          } else if (tp.totalNetAmount != null) {
+            // Prefer totalNetAmount — the only reliable net field in LexOffice API
+            netAmount = Number(tp.totalNetAmount);
+            usedNet = true;
           } else {
-            const tp = invoice.totalPrice || {};
-            netAmount = Number(tp.totalNetAmount ?? tp.netAmount ?? tp.net ?? v.totalAmount) || 0;
-            usedNet = tp.totalNetAmount != null;
+            // Fallback: estimate net from gross (same as error fallback)
+            netAmount = Math.round((v.totalAmount || 0) / 1.19 * 100) / 100;
           }
           if (netAmount > 0) {
             map[contactName] = (map[contactName] || 0) + netAmount;
