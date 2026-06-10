@@ -11,8 +11,9 @@ Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
 
   try {
-    const { lexofficeKey, year, month, excludeKeywords } = await req.json();
+    const { lexofficeKey, year, month, excludeKeywords, debugContact, dryRun } = await req.json();
     if (!lexofficeKey) throw new Error('LexOffice API Key fehlt');
+    const debugContactLower: string = (debugContact || '').toLowerCase().trim();
 
     // Hardcoded defaults: advertising pass-through invoices ("Media-Budget",
     // "Ausgleich Media-Budget", "zweckgebundener Ausgleich") are forwarded to
@@ -25,21 +26,34 @@ Deno.serve(async (req) => {
     const targetYear  = year as number;
     const targetMonth = month as number; // 1-based
 
-    // Wide window: 4 months back -> 15th of following month
-    // Must go back far enough to catch quarterly invoices (e.g. Q2 invoice dated April
-    // needs to appear when syncing May and June as well)
-    const from = new Date(Date.UTC(targetYear, targetMonth - 5, 1)).toISOString().substring(0, 10);
+    // Window: 3 months back -> 15th of following month.
+    // Wide enough to catch quarterly invoices (dated at/near the start of their
+    // quarter), but trimmed to keep the per-invoice fetch count (and thus runtime)
+    // low so the function doesn't hit the execution timeout.
+    const from = new Date(Date.UTC(targetYear, targetMonth - 4, 1)).toISOString().substring(0, 10);
     const to   = new Date(Date.UTC(targetYear, targetMonth, 15)).toISOString().substring(0, 10);
 
+    // Robust GET with retry on rate-limit (429) and transient server errors (5xx).
+    // LexOffice allows ~2 requests/sec — on 429 we back off and retry instead of
+    // failing, because a failed invoice fetch must NEVER fall through to a blind
+    // estimate (that bypasses exclusion and lets pass-through invoices count).
     async function lexGet(path: string) {
-      const res = await fetch('https://api.lexoffice.io/v1' + path, {
-        headers: { 'Authorization': `Bearer ${lexofficeKey}`, 'Accept': 'application/json' },
-      });
-      if (!res.ok) {
+      let lastErr = '';
+      for (let attempt = 0; attempt < 6; attempt++) {
+        const res = await fetch('https://api.lexoffice.io/v1' + path, {
+          headers: { 'Authorization': `Bearer ${lexofficeKey}`, 'Accept': 'application/json' },
+        });
+        if (res.ok) return res.json();
         const txt = await res.text();
-        throw new Error(`LexOffice ${res.status}: ${txt}`);
+        lastErr = `LexOffice ${res.status}: ${txt}`;
+        if (res.status === 429 || res.status >= 500) {
+          // exponential backoff: 1s, 2s, 4s, 8s, 16s
+          await sleep(1000 * Math.pow(2, attempt));
+          continue;
+        }
+        throw new Error(lastErr); // non-retryable (4xx other than 429)
       }
-      return res.json();
+      throw new Error(lastErr + ' (after retries)');
     }
 
     // Fetch all voucher pages
@@ -58,13 +72,18 @@ Deno.serve(async (req) => {
 
     const map: Record<string, number> = {};
     const debugRows: any[] = [];
+    let syncIncomplete = false; // true if any invoice detail couldn't be fetched
 
     for (let i = 0; i < allVouchers.length; i++) {
       const v = allVouchers[i];
-      if (i > 0 && i % 4 === 0) await sleep(800);
+      // Throttle between invoice fetches. ~400ms keeps runtime down; the 429
+      // retry/backoff in lexGet absorbs the occasional rate-limit hit.
+      if (i > 0) await sleep(400);
 
       const contactName = (v.contactName || '').trim();
       if (!contactName) continue;
+      // Debug mode: only process one contact to keep API calls low
+      if (debugContactLower && !contactName.toLowerCase().includes(debugContactLower)) continue;
 
       let usedNet = false;
       let fetchError = '';
@@ -149,7 +168,7 @@ Deno.serve(async (req) => {
           const invoiceExcluded = excludeLower.length > 0 && excludeLower.some(kw => invoiceText.includes(kw));
 
           if (invoiceExcluded) {
-            debugRows.push({ contact: contactName, gross: v.totalAmount, net: 0, usedNet: false, excluded: 'invoice-title', title: invoiceTitle });
+            debugRows.push({ contact: contactName, voucherDate: v.voucherDate, serviceDate: sd, belongs, monthDivisor, gross: v.totalAmount, net: 0, usedNet: false, excluded: 'invoice-title', title: invoiceTitle, lineItems: lineItems.map((it:any)=>it.name) });
             continue;
           }
 
@@ -184,30 +203,48 @@ Deno.serve(async (req) => {
           }
           debugRows.push({
             contact: contactName,
+            voucherDate: v.voucherDate,
+            serviceDate: sd,
+            belongs,
             gross: v.totalAmount,
             net: netAmountForMonth,
             netTotal: netAmount,
             monthDivisor,
             usedNet,
             title: invoiceTitle,
+            lineItems: lineItems.map((it:any)=>it.name),
+          });
+        } else if (debugContactLower) {
+          // In debug mode, record invoices that did NOT belong to the target month
+          debugRows.push({
+            contact: contactName,
+            voucherDate: v.voucherDate,
+            serviceDate: sd,
+            belongs: false,
+            monthDivisor,
+            gross: v.totalAmount,
+            title: invoiceTitle,
+            lineItems: lineItems.map((it:any)=>it.name),
+            note: 'not-in-target-month',
           });
         }
       } catch (err: any) {
         fetchError = err?.message || 'unknown';
-        // Fallback: voucherDate + net estimate (gross / 1.19)
-        const vd = new Date(v.voucherDate || '');
-        if (vd.getUTCFullYear() === targetYear && vd.getUTCMonth() + 1 === targetMonth) {
-          const netFallback = Math.round((v.totalAmount || 0) / 1.19 * 100) / 100;
-          map[contactName] = (map[contactName] || 0) + netFallback;
-          debugRows.push({
-            contact: contactName,
-            gross: v.totalAmount,
-            net: netFallback,
-            usedNet: false,
-            fetchError,
-            fallback: 'gross/1.19',
-          });
-        }
+        // NO blind fallback. We cannot fetch the invoice detail, so we cannot
+        // check its title/line items for exclusion (the voucherlist has no title).
+        // Adding gross/1.19 here would let pass-through "Media-Budget" invoices
+        // count as revenue — exactly the bug that produced Red Bull's 21.090,72 €.
+        // Instead: skip the invoice, record the failure, and mark the whole sync
+        // as incomplete so the caller knows to retry rather than trust the result.
+        syncIncomplete = true;
+        debugRows.push({
+          contact: contactName,
+          voucherDate: v.voucherDate,
+          gross: v.totalAmount,
+          net: 0,
+          skipped: true,
+          fetchError,
+        });
       }
     }
 
@@ -218,6 +255,23 @@ Deno.serve(async (req) => {
       total_amount,
       voucher_id: `agg_${targetYear}_${targetMonth}_${contact_name.toLowerCase().replace(/[^a-z0-9]/g, '_').substring(0, 40)}`,
     }));
+
+    // dryRun: inspect classification without touching the revenue table
+    if (dryRun) {
+      return new Response(
+        JSON.stringify({ ok: true, dryRun: true, syncIncomplete, wouldWrite: rows, debug: debugRows }),
+        { headers: { ...CORS, 'Content-Type': 'application/json' } }
+      );
+    }
+
+    // Never overwrite a month with incomplete data: if any invoice couldn't be
+    // fetched (rate limit etc.), keep the existing rows and tell the caller to retry.
+    if (syncIncomplete) {
+      return new Response(
+        JSON.stringify({ error: 'Sync unvollständig (LexOffice Rate-Limit) – Monat NICHT überschrieben. Bitte erneut syncen.', syncIncomplete: true, debug: debugRows }),
+        { headers: { ...CORS, 'Content-Type': 'application/json' } }
+      );
+    }
 
     const sb = createClient(
       Deno.env.get('SUPABASE_URL')!,
