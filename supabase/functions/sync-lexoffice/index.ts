@@ -66,7 +66,11 @@ Deno.serve(async (req) => {
         const voucherId = v.id || v.voucherId;
         const invoice = await lexGet(`/invoices/${voucherId}`);
 
-        // Determine which month(s) this invoice belongs to + how to split it
+        // Extract title and line items early – needed for Q-pattern inference below
+        const invoiceTitle = invoice.title || invoice.introduction || '';
+        const lineItems: any[] = invoice.lineItems || [];
+
+        // ── Determine which month(s) this invoice belongs to + split factor ──
         const sd = invoice.serviceDate;
         let belongs = false;
         let monthDivisor = 1;
@@ -95,13 +99,43 @@ Deno.serve(async (req) => {
           belongs = vd.getUTCFullYear() === targetYear && vd.getUTCMonth() + 1 === targetMonth;
         }
 
+        // ── Q-pattern fallback ────────────────────────────────────────────────
+        // When serviceDate doesn't provide a multi-month range (monthDivisor === 1),
+        // look for a quarter pattern like "Q2 2026" in title or line items.
+        // This reliably handles quarterly management-fee invoices.
+        //
+        // SAFETY: media-budget invoices that also contain Q-patterns are handled
+        // correctly because:
+        //   - Monthly ones (April/May) have no Q-pattern → fallback never fires
+        //   - Quarterly Q1 (title "Rechnung", line item contains "media-budget"):
+        //       → if Q-pattern marks them belongs=true, the exclude check inside
+        //         if(belongs) will set netAmount=0 via line-item exclusion → not added
+        if (monthDivisor === 1) {
+          const allTitleText = [
+            invoiceTitle,
+            ...lineItems.map((it: any) => (it.name || '') + ' ' + (it.description || '')),
+          ].join(' ');
+          const qm = allTitleText.match(/\bQ([1-4])\s*(\d{4})\b/i);
+          if (qm) {
+            const q  = parseInt(qm[1]);
+            const y  = parseInt(qm[2]);
+            const qStartMonth = (q - 1) * 3 + 1;   // Q1→1, Q2→4, Q3→7, Q4→10
+            const qEndMonth   = qStartMonth + 2;    // Q1→3, Q2→6, Q3→9, Q4→12
+            const startYM2 = y * 12 + (qStartMonth - 1);
+            const endYM2   = y * 12 + (qEndMonth   - 1);
+            const newBelongs = targetYM >= startYM2 && targetYM <= endYM2;
+            if (newBelongs) {
+              belongs      = true;
+              monthDivisor = 3;
+            }
+          }
+        }
+
         if (belongs) {
           let netAmount: number;
           const tp = invoice.totalPrice || {};
-          const lineItems: any[] = invoice.lineItems || [];
 
           // Check if the entire invoice should be excluded (title/introduction matches keyword)
-          const invoiceTitle = invoice.title || invoice.introduction || '';
           const invoiceText = [invoiceTitle, invoice.remark || ''].join(' ').toLowerCase();
           const invoiceExcluded = excludeLower.length > 0 && excludeLower.some(kw => invoiceText.includes(kw));
 
