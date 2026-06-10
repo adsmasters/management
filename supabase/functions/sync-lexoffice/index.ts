@@ -86,16 +86,12 @@ Deno.serve(async (req) => {
           const lineItems: any[] = invoice.lineItems || [];
 
           // Check if the entire invoice should be excluded (title/introduction matches keyword)
-          const invoiceText = [
-            invoice.title || '',
-            invoice.introduction || '',
-            invoice.remark || '',
-          ].join(' ').toLowerCase();
+          const invoiceTitle = invoice.title || invoice.introduction || '';
+          const invoiceText = [invoiceTitle, invoice.remark || ''].join(' ').toLowerCase();
           const invoiceExcluded = excludeLower.length > 0 && excludeLower.some(kw => invoiceText.includes(kw));
 
           if (invoiceExcluded) {
-            // Skip entire invoice
-            debugRows.push({ contact: contactName, gross: v.totalAmount, net: 0, usedNet: false, excluded: 'invoice-title' });
+            debugRows.push({ contact: contactName, gross: v.totalAmount, net: 0, usedNet: false, excluded: 'invoice-title', title: invoiceTitle });
             continue;
           }
 
@@ -131,6 +127,7 @@ Deno.serve(async (req) => {
             gross: v.totalAmount,
             net: netAmount,
             usedNet,
+            title: invoiceTitle,
           });
         }
       } catch (err: any) {

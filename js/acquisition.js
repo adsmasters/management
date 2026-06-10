@@ -390,10 +390,22 @@
                   body: JSON.stringify({ lexofficeKey: localStorage.getItem('lexofficeKey'), year: y, month: m, excludeKeywords: kw }),
                 }).then(function(res){ return res.json(); }).then(function(data) {
                   if (data.error) throw new Error(data.error);
+                  // Show debug: which invoices were found for this contact
+                  var contactDebug = (data.debug || []).filter(function(d){ return (d.contact||'').toLowerCase() === name.toLowerCase(); });
+                  if (contactDebug.length > 0) {
+                    var debugLines = contactDebug.map(function(d) {
+                      var line = (d.excluded ? '🚫 AUSGESCHLOSSEN' : '✅ GEZÄHLT') + ': Brutto ' + (d.gross||0) + ' → Netto ' + (d.net||0);
+                      if (d.excluded) line += ' (' + (d.excluded) + ')';
+                      return line;
+                    }).join('\n');
+                    console.log('[Sync Debug] ' + name + ' ' + label + ':\n' + debugLines);
+                    if (contactDebug.length > 1 || contactDebug.some(function(d){ return !d.excluded && d.net > 4000; })) {
+                      alert('Rechnungen für ' + name + ' im ' + label + ':\n\n' + debugLines + '\n\nBitte prüfe die nicht ausgeschlossene(n) Rechnung(en) in LexOffice und teile mir den Rechnungstitel mit.');
+                    }
+                  }
                   // Reload just this month's revenue for this contact
                   return window.db.revenue.forContacts([name]);
                 }).then(function(rows) {
-                  // Update entry amount from fresh data
                   rows.forEach(function(r) {
                     if (r.year === y && r.month === m && r.contact_name === name) {
                       entry.id = r.id;
