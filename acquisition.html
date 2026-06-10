@@ -83,7 +83,7 @@
               <th class="right" style="min-width:80px">Kunden</th>
               <th class="right" style="min-width:150px">Umsatz (LTD)</th>
               <th style="min-width:100px">ROI</th>
-              <th class="center" style="min-width:130px">Aktionen</th>
+              <th class="center" style="min-width:200px">Aktionen</th>
             </tr>
           </thead>
           <tbody id="acqBody"></tbody>
@@ -143,6 +143,28 @@
     <div class="modal-footer">
       <button class="btn btn-secondary" id="acqModalCancel">Abbrechen</button>
       <button class="btn btn-primary"   id="acqModalSave">Speichern</button>
+    </div>
+  </div>
+</div>
+
+<!-- Assign Clients Modal -->
+<div id="assignModal" class="modal-overlay hidden">
+  <div class="modal" style="max-width:520px">
+    <div class="modal-header">
+      <h3>Kunden zuordnen – <span id="assignModalSource"></span></h3>
+      <button class="modal-close" id="assignModalClose">✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="color:var(--text-secondary);font-size:13px;margin-bottom:12px">
+        Wähle alle Kunden, die über diese Quelle gewonnen wurden. Die Auswahl wird direkt gespeichert.
+      </p>
+      <input type="text" id="assignSearch" placeholder="Kunden suchen…" autocomplete="off"
+        style="width:100%;margin-bottom:12px;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:14px;background:var(--surface)">
+      <div id="assignClientList" style="max-height:340px;overflow-y:auto;display:flex;flex-direction:column;gap:4px"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" id="assignModalCancel">Abbrechen</button>
+      <button class="btn btn-primary"   id="assignModalSave">Speichern</button>
     </div>
   </div>
 </div>

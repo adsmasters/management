@@ -27,6 +27,16 @@
 
   var editingId   = null;
   var deletingId  = null;
+  var assigningCost = null;
+  var allClients    = [];
+
+  var assignModal       = document.getElementById('assignModal');
+  var assignModalSource = document.getElementById('assignModalSource');
+  var assignSearch      = document.getElementById('assignSearch');
+  var assignClientList  = document.getElementById('assignClientList');
+  var assignModalClose  = document.getElementById('assignModalClose');
+  var assignModalCancel = document.getElementById('assignModalCancel');
+  var assignModalSave   = document.getElementById('assignModalSave');
 
   var TYPE_LABELS = {
     'messe':           'Messe',
@@ -138,8 +148,85 @@
       });
   });
 
+  // ── Assign clients modal ──────────────────────────────────────────────
+  function openAssignModal(cost) {
+    assigningCost = cost;
+    assignModalSource.textContent = cost.source_name;
+    assignSearch.value = '';
+    renderAssignList('');
+    assignModal.classList.remove('hidden');
+    assignSearch.focus();
+  }
+
+  function closeAssignModal() {
+    assignModal.classList.add('hidden');
+    assigningCost = null;
+  }
+
+  function renderAssignList(filter) {
+    var f = filter.trim().toLowerCase();
+    assignClientList.innerHTML = '';
+    var sorted = allClients.slice().sort(function (a, b) {
+      return (a.name || '').localeCompare(b.name || '', 'de');
+    });
+    sorted.forEach(function (c) {
+      if (f && (c.name || '').toLowerCase().indexOf(f) === -1) return;
+      var checked = norm(c.source || '') === norm(assigningCost.source_name);
+      var row = document.createElement('label');
+      row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:6px;cursor:pointer;background:var(--surface);border:1px solid var(--border);user-select:none';
+      row.innerHTML =
+        '<input type="checkbox" data-id="' + c.id + '" ' + (checked ? 'checked' : '') + ' style="width:16px;height:16px;cursor:pointer;accent-color:var(--primary)">' +
+        '<span style="font-size:14px;font-weight:500">' + escHtml(c.name) + '</span>' +
+        (c.source && norm(c.source) !== norm(assigningCost.source_name)
+          ? '<span style="margin-left:auto;font-size:11px;background:#fef3c7;color:#92400e;border:1px solid #fde68a;border-radius:4px;padding:1px 6px">' + escHtml(c.source) + '</span>'
+          : '');
+      assignClientList.appendChild(row);
+    });
+  }
+
+  assignSearch.addEventListener('input', function () {
+    renderAssignList(assignSearch.value);
+  });
+
+  assignModalClose.addEventListener('click',  closeAssignModal);
+  assignModalCancel.addEventListener('click', closeAssignModal);
+  assignModal.addEventListener('click', function (e) { if (e.target === assignModal) closeAssignModal(); });
+
+  assignModalSave.addEventListener('click', function () {
+    if (!assigningCost) return;
+    var sourceName = assigningCost.source_name;
+    var checkboxes = assignClientList.querySelectorAll('input[type=checkbox]');
+    var updates = [];
+
+    checkboxes.forEach(function (cb) {
+      var clientId = cb.getAttribute('data-id');
+      var client   = allClients.find(function (c) { return c.id == clientId; });
+      if (!client) return;
+      var isChecked     = cb.checked;
+      var alreadyLinked = norm(client.source || '') === norm(sourceName);
+      var linkedElsewhere = client.source && norm(client.source) !== norm(sourceName);
+
+      if (isChecked && !alreadyLinked) {
+        updates.push(window.db.clients.update(clientId, { source: sourceName }));
+      } else if (!isChecked && alreadyLinked) {
+        updates.push(window.db.clients.update(clientId, { source: null }));
+      }
+    });
+
+    assignModalSave.disabled    = true;
+    assignModalSave.textContent = 'Speichern…';
+
+    Promise.all(updates)
+      .then(function () { closeAssignModal(); loadData(); })
+      .catch(function (e) { showError('Fehler: ' + e.message); closeAssignModal(); })
+      .finally(function () {
+        assignModalSave.disabled    = false;
+        assignModalSave.textContent = 'Speichern';
+      });
+  });
+
   document.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape') { closeModal(); closeDeleteModal(); }
+    if (e.key === 'Escape') { closeModal(); closeDeleteModal(); closeAssignModal(); }
   });
 
   // ── Load data ─────────────────────────────────────────────────────────
@@ -162,6 +249,7 @@
       var mappings = results[3];
 
       loadingEl.classList.add('hidden');
+      allClients = clients;
 
       if (costs.length === 0) {
         emptyState.classList.remove('hidden');
@@ -267,6 +355,9 @@
         '<td class="right" style="font-variant-numeric:tabular-nums">' + fmt(ltdRev) + '</td>' +
         '<td>' + roiHtml + '</td>' +
         '<td class="center"><div style="display:flex;gap:6px;justify-content:center">' +
+          '<button class="btn btn-ghost btn-sm assign-btn" title="Kunden zuordnen">' +
+            '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>' +
+            ' Kunden</button>' +
           '<button class="btn btn-ghost btn-sm edit-btn">' +
             '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>' +
             ' Bearbeiten</button>' +
@@ -275,6 +366,7 @@
             ' Löschen</button>' +
         '</div></td>';
 
+      tr.querySelector('.assign-btn').addEventListener('click',  function () { openAssignModal(cost); });
       tr.querySelector('.edit-btn').addEventListener('click',   function () { openModal(cost); });
       tr.querySelector('.delete-btn').addEventListener('click', function () { openDeleteModal(cost); });
       acqBody.appendChild(tr);
