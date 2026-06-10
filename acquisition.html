@@ -58,9 +58,17 @@
 
   <div id="content" class="hidden">
 
-    <div style="display:flex;gap:8px;margin-bottom:16px">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
       <button id="viewAll"  class="btn btn-primary btn-sm">Alle Einträge</button>
       <button id="viewType" class="btn btn-secondary btn-sm">Nach Typ</button>
+      <div style="width:1px;height:24px;background:var(--border);margin:0 4px"></div>
+      <div style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-secondary)">
+        <span>Zeitraum:</span>
+        <input type="date" id="filterFrom" style="padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;background:var(--surface);color:var(--text)">
+        <span>–</span>
+        <input type="date" id="filterTo" style="padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;background:var(--surface);color:var(--text)">
+        <button id="filterReset" class="btn btn-ghost btn-sm" style="padding:3px 8px;font-size:12px">Zurücksetzen</button>
+      </div>
     </div>
 
     <div class="summary-strip">

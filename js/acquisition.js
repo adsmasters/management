@@ -74,6 +74,36 @@
     return (str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
 
+  // ── Date filter ──────────────────────────────────────────────────────
+  var filterFrom  = document.getElementById('filterFrom');
+  var filterTo    = document.getElementById('filterTo');
+  var filterReset = document.getElementById('filterReset');
+
+  function applyDateFilter(costs) {
+    var from = filterFrom.value;
+    var to   = filterTo.value;
+    if (!from && !to) return costs;
+    return costs.filter(function(c) {
+      var d = c.cost_date || '';
+      if (!d) return true; // no date → always show
+      if (from && d < from) return false;
+      if (to   && d > to)   return false;
+      return true;
+    });
+  }
+
+  function onFilterChange() {
+    if (lastRenderArgs) render(lastRenderArgs[0], lastRenderArgs[1], lastRenderArgs[2]);
+  }
+
+  filterFrom.addEventListener('change', onFilterChange);
+  filterTo.addEventListener('change',   onFilterChange);
+  filterReset.addEventListener('click', function() {
+    filterFrom.value = '';
+    filterTo.value   = '';
+    onFilterChange();
+  });
+
   // ── View toggle ──────────────────────────────────────────────────────
   var currentView = 'all';
   var viewAllBtn   = document.getElementById('viewAll');
@@ -412,7 +442,7 @@
 
     var totalCosts  = 0;
     var totalRevAcq = 0;
-    costs.forEach(function (cost) {
+    applyDateFilter(costs).forEach(function (cost) {
       totalCosts  += (cost.amount || 0);
       totalRevAcq += costRevenue(cost.id);
     });
@@ -429,8 +459,8 @@
       roiEl.className   = 'kpi-value';
     }
 
-    // Sort
-    var sorted = costs.slice();
+    // Filter + Sort
+    var sorted = applyDateFilter(costs);
     if (sortCol) {
       sorted.sort(function(a, b) {
         var av, bv;
@@ -499,7 +529,7 @@
       acqBody.appendChild(tr);
     });
 
-    renderTypeView(costs, linksByCostNorm, linksByCostOriginal, revByContact);
+    renderTypeView(applyDateFilter(costs), linksByCostNorm, linksByCostOriginal, revByContact);
   }
 
   function renderTypeView(costs, linksByCostNorm, linksByCostOriginal, revByContact) {
