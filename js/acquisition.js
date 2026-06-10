@@ -27,8 +27,10 @@
 
   var editingId   = null;
   var deletingId  = null;
-  var assigningCost = null;
-  var allClients    = [];
+  var assigningCost  = null;
+  var assigningLinks = []; // norm(contact_name) of current links
+  var allClients     = []; // sorted contact_name strings from revenue
+  var allLinks       = []; // all acquisition_contact_links rows
 
   var assignModal       = document.getElementById('assignModal');
   var assignModalSource = document.getElementById('assignModalSource');
@@ -151,6 +153,9 @@
   // ── Assign clients modal ──────────────────────────────────────────────
   function openAssignModal(cost) {
     assigningCost = cost;
+    assigningLinks = allLinks
+      .filter(function (l) { return l.acquisition_cost_id === cost.id; })
+      .map(function (l) { return norm(l.contact_name); });
     assignModalSource.textContent = cost.source_name;
     assignSearch.value = '';
     renderAssignList('');
@@ -166,20 +171,14 @@
   function renderAssignList(filter) {
     var f = filter.trim().toLowerCase();
     assignClientList.innerHTML = '';
-    var sorted = allClients.slice().sort(function (a, b) {
-      return (a.name || '').localeCompare(b.name || '', 'de');
-    });
-    sorted.forEach(function (c) {
-      if (f && (c.name || '').toLowerCase().indexOf(f) === -1) return;
-      var checked = norm(c.source || '') === norm(assigningCost.source_name);
+    allClients.forEach(function (contactName) {
+      if (f && contactName.toLowerCase().indexOf(f) === -1) return;
+      var checked = assigningLinks.indexOf(norm(contactName)) !== -1;
       var row = document.createElement('label');
       row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:6px;cursor:pointer;background:var(--surface);border:1px solid var(--border);user-select:none';
       row.innerHTML =
-        '<input type="checkbox" data-id="' + c.id + '" ' + (checked ? 'checked' : '') + ' style="width:16px;height:16px;cursor:pointer;accent-color:var(--primary)">' +
-        '<span style="font-size:14px;font-weight:500">' + escHtml(c.name) + '</span>' +
-        (c.source && norm(c.source) !== norm(assigningCost.source_name)
-          ? '<span style="margin-left:auto;font-size:11px;background:#fef3c7;color:#92400e;border:1px solid #fde68a;border-radius:4px;padding:1px 6px">' + escHtml(c.source) + '</span>'
-          : '');
+        '<input type="checkbox" data-name="' + escHtml(contactName) + '" ' + (checked ? 'checked' : '') + ' style="width:16px;height:16px;cursor:pointer;accent-color:var(--primary)">' +
+        '<span style="font-size:14px;font-weight:500">' + escHtml(contactName) + '</span>';
       assignClientList.appendChild(row);
     });
   }
@@ -194,22 +193,19 @@
 
   assignModalSave.addEventListener('click', function () {
     if (!assigningCost) return;
-    var sourceName = assigningCost.source_name;
+    var costId     = assigningCost.id;
     var checkboxes = assignClientList.querySelectorAll('input[type=checkbox]');
-    var updates = [];
+    var updates    = [];
 
     checkboxes.forEach(function (cb) {
-      var clientId = cb.getAttribute('data-id');
-      var client   = allClients.find(function (c) { return c.id == clientId; });
-      if (!client) return;
+      var contactName   = cb.getAttribute('data-name');
       var isChecked     = cb.checked;
-      var alreadyLinked = norm(client.source || '') === norm(sourceName);
-      var linkedElsewhere = client.source && norm(client.source) !== norm(sourceName);
+      var alreadyLinked = assigningLinks.indexOf(norm(contactName)) !== -1;
 
       if (isChecked && !alreadyLinked) {
-        updates.push(window.db.clients.update(clientId, { source: sourceName }));
+        updates.push(window.db.acquisitionContactLinks.create(costId, contactName));
       } else if (!isChecked && alreadyLinked) {
-        updates.push(window.db.clients.update(clientId, { source: null }));
+        updates.push(window.db.acquisitionContactLinks.delete(costId, contactName));
       }
     });
 
@@ -238,18 +234,24 @@
 
     Promise.all([
       window.db.acquisitionCosts.list(),
-      window.db.clients.list(),
       window.db.revenue.allRows(),
-      window.db.mappings.list(),
+      window.db.acquisitionContactLinks.listAll(),
     ])
     .then(function (results) {
       var costs    = results[0];
-      var clients  = results[1];
-      var revenues = results[2];
-      var mappings = results[3];
+      var revenues = results[1];
+      var links    = results[2];
 
       loadingEl.classList.add('hidden');
-      allClients = clients;
+
+      // Build sorted unique contact names from revenue
+      var contactSet = {};
+      revenues.forEach(function (r) {
+        if (r.contact_name) contactSet[r.contact_name] = true;
+      });
+      allClients = Object.keys(contactSet).sort(function (a, b) {
+        return a.localeCompare(b, 'de');
+      });
 
       if (costs.length === 0) {
         emptyState.classList.remove('hidden');
@@ -257,7 +259,7 @@
       }
 
       contentEl.classList.remove('hidden');
-      render(costs, clients, revenues, mappings);
+      render(costs, revenues, links);
     })
     .catch(function (e) {
       loadingEl.classList.add('hidden');
@@ -267,24 +269,8 @@
     });
   }
 
-  function render(costs, clients, revenues, mappings) {
-    // Build source → clients lookup (by client.source field)
-    // e.g. client.source = "OMR 2025" matches acquisition cost source_name = "OMR 2025"
-    var clientsBySource = {}; // norm(source_name) → [client, ...]
-    clients.forEach(function (c) {
-      if (!c.source) return;
-      var key = norm(c.source);
-      if (!clientsBySource[key]) clientsBySource[key] = [];
-      clientsBySource[key].push(c);
-    });
-
-    // Build revenue map: clientId → total LTD revenue
-    // Use mappings to link contact_name → client_id, then sum revenue
-    var mappingsByClient = {}; // clientId → [lexoffice_name, ...]
-    mappings.forEach(function (m) {
-      if (!mappingsByClient[m.client_id]) mappingsByClient[m.client_id] = [];
-      mappingsByClient[m.client_id].push(m.lexoffice_name);
-    });
+  function render(costs, revenues, links) {
+    allLinks = links;
 
     // revenue per lexoffice contact_name (normalized)
     var revByContact = {};
@@ -293,24 +279,26 @@
       revByContact[key] = (revByContact[key] || 0) + (row.total_amount || 0);
     });
 
-    function clientRevenue(client) {
-      var mapped = mappingsByClient[client.id];
-      if (mapped && mapped.length > 0) {
-        var total = 0;
-        mapped.forEach(function (n) { total += revByContact[norm(n)] || 0; });
-        return total;
-      }
-      return revByContact[norm(client.lexoffice_name || client.name)] || 0;
+    // links per cost id: costId → [norm(contact_name), ...]
+    var linksByCost = {};
+    links.forEach(function (l) {
+      if (!linksByCost[l.acquisition_cost_id]) linksByCost[l.acquisition_cost_id] = [];
+      linksByCost[l.acquisition_cost_id].push(norm(l.contact_name));
+    });
+
+    function costRevenue(costId) {
+      var contacts = linksByCost[costId] || [];
+      var total = 0;
+      contacts.forEach(function (c) { total += revByContact[c] || 0; });
+      return total;
     }
 
     // KPIs
-    var totalCosts   = 0;
-    var totalRevAcq  = 0;
+    var totalCosts  = 0;
+    var totalRevAcq = 0;
     costs.forEach(function (cost) {
-      totalCosts += (cost.amount || 0);
-      var key     = norm(cost.source_name);
-      var linked  = clientsBySource[key] || [];
-      linked.forEach(function (c) { totalRevAcq += clientRevenue(c); });
+      totalCosts  += (cost.amount || 0);
+      totalRevAcq += costRevenue(cost.id);
     });
 
     document.getElementById('kpiCosts').textContent   = fmt(totalCosts);
@@ -318,8 +306,8 @@
     var roiEl = document.getElementById('kpiRoi');
     if (totalCosts > 0) {
       var mult = totalRevAcq / totalCosts;
-      roiEl.textContent  = mult.toFixed(1) + '× ROI';
-      roiEl.className    = 'kpi-value ' + (mult >= 1 ? 'roi-pos' : 'roi-neg');
+      roiEl.textContent = mult.toFixed(1) + '× ROI';
+      roiEl.className   = 'kpi-value ' + (mult >= 1 ? 'roi-pos' : 'roi-neg');
     } else {
       roiEl.textContent = '—';
       roiEl.className   = 'kpi-value';
@@ -328,16 +316,14 @@
     // Table rows
     acqBody.innerHTML = '';
     costs.forEach(function (cost) {
-      var key     = norm(cost.source_name);
-      var linked  = clientsBySource[key] || [];
-      var ltdRev  = 0;
-      linked.forEach(function (c) { ltdRev += clientRevenue(c); });
+      var linked = linksByCost[cost.id] || [];
+      var ltdRev = costRevenue(cost.id);
 
       var roiHtml;
       if (cost.amount > 0) {
-        var mult  = ltdRev / cost.amount;
-        var cls   = mult >= 1 ? 'roi-pos' : 'roi-neg';
-        roiHtml   = '<span class="' + cls + '">' + mult.toFixed(1) + '× ROI</span>';
+        var mult = ltdRev / cost.amount;
+        var cls  = mult >= 1 ? 'roi-pos' : 'roi-neg';
+        roiHtml  = '<span class="' + cls + '">' + mult.toFixed(1) + '× ROI</span>';
       } else {
         roiHtml = '<span style="color:var(--text-secondary)">—</span>';
       }
@@ -367,8 +353,8 @@
         '</div></td>';
 
       tr.querySelector('.assign-btn').addEventListener('click',  function () { openAssignModal(cost); });
-      tr.querySelector('.edit-btn').addEventListener('click',   function () { openModal(cost); });
-      tr.querySelector('.delete-btn').addEventListener('click', function () { openDeleteModal(cost); });
+      tr.querySelector('.edit-btn').addEventListener('click',    function () { openModal(cost); });
+      tr.querySelector('.delete-btn').addEventListener('click',  function () { openDeleteModal(cost); });
       acqBody.appendChild(tr);
     });
   }

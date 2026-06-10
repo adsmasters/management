@@ -199,6 +199,20 @@
         q(s => s.from('acquisition_costs').delete().eq('id', id)),
     },
 
+    acquisitionContactLinks: {
+      listForCost: (costId) =>
+        q(s => s.from('acquisition_contact_links').select('*').eq('acquisition_cost_id', costId)),
+      listAll: () =>
+        q(s => s.from('acquisition_contact_links').select('*')),
+      create: (costId, contactName) =>
+        q(s => s.from('acquisition_contact_links')
+          .insert({ acquisition_cost_id: costId, contact_name: contactName })
+          .select().single()),
+      delete: (costId, contactName) =>
+        q(s => s.from('acquisition_contact_links')
+          .delete().eq('acquisition_cost_id', costId).eq('contact_name', contactName)),
+    },
+
     entries: {
       // All entries for a month across all clients (includes employee data)
       forMonth: (year, month) =>
