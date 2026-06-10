@@ -66,23 +66,40 @@ Deno.serve(async (req) => {
         const voucherId = v.id || v.voucherId;
         const invoice = await lexGet(`/invoices/${voucherId}`);
 
-        // Determine month via Leistungsdatum (serviceDate), fallback to Rechnungsdatum
-        // For multi-month service periods, split amount evenly across months
+        // Determine which month(s) this invoice belongs to + how to split it
         const sd = invoice.serviceDate;
         let belongs = false;
-        let monthDivisor = 1; // how many months to split across
-        if (sd) {
+        let monthDivisor = 1;
+        const targetYM = targetYear * 12 + (targetMonth - 1);
+
+        // ── 1. Quarter detection from invoice text (most reliable) ──────
+        // Catches "Q2 2026", "Q1 2025" etc. in title, line items, introduction
+        const allText = [
+          invoice.title || '', invoice.introduction || '', invoice.remark || '',
+          ...(invoice.lineItems || []).map((i: any) => (i.name || '') + ' ' + (i.description || '')),
+        ].join(' ');
+        const qMatch = allText.match(/Q([1-4])\s*(\d{4})/i);
+        if (qMatch) {
+          const q = parseInt(qMatch[1]);
+          const qYear = parseInt(qMatch[2]);
+          const qStartMonth = (q - 1) * 3 + 1; // Q1→1, Q2→4, Q3→7, Q4→10
+          const qStartYM = qYear * 12 + (qStartMonth - 1);
+          const qEndYM   = qStartYM + 2;
+          belongs      = targetYM >= qStartYM && targetYM <= qEndYM;
+          monthDivisor = 3;
+        }
+
+        // ── 2. serviceDate range (fallback) ─────────────────────────────
+        if (!qMatch && sd) {
           const startStr: string = sd.date || sd.startDate || '';
-          const endStr: string = sd.endDate || '';
+          const endStr: string   = sd.endDate || '';
           if (startStr && endStr && startStr !== endStr) {
-            // Multi-month range: check if targetYear/targetMonth falls within range
             const start = new Date(startStr);
             const end   = new Date(endStr);
             if (!isNaN(start.getTime()) && !isNaN(end.getTime())) {
               const startYM = start.getUTCFullYear() * 12 + start.getUTCMonth();
               const endYM   = end.getUTCFullYear()   * 12 + end.getUTCMonth();
-              const targetYM = targetYear * 12 + (targetMonth - 1);
-              belongs = targetYM >= startYM && targetYM <= endYM;
+              belongs      = targetYM >= startYM && targetYM <= endYM;
               monthDivisor = endYM - startYM + 1;
             }
           } else if (startStr) {
@@ -91,7 +108,10 @@ Deno.serve(async (req) => {
               belongs = d.getUTCFullYear() === targetYear && d.getUTCMonth() + 1 === targetMonth;
             }
           }
-        } else {
+        }
+
+        // ── 3. Fallback: Rechnungsdatum ──────────────────────────────────
+        if (!qMatch && !sd) {
           const vd = new Date(v.voucherDate || '');
           belongs = vd.getUTCFullYear() === targetYear && vd.getUTCMonth() + 1 === targetMonth;
         }
