@@ -77,6 +77,7 @@
   // ── Date filter ──────────────────────────────────────────────────────
   var filterFrom  = document.getElementById('filterFrom');
   var filterTo    = document.getElementById('filterTo');
+  var filterApply = document.getElementById('filterApply');
   var filterReset = document.getElementById('filterReset');
 
   function applyDateFilter(costs) {
@@ -96,8 +97,7 @@
     if (lastRenderArgs) render(lastRenderArgs[0], lastRenderArgs[1], lastRenderArgs[2]);
   }
 
-  filterFrom.addEventListener('change', onFilterChange);
-  filterTo.addEventListener('change',   onFilterChange);
+  filterApply.addEventListener('click', onFilterChange);
   filterReset.addEventListener('click', function() {
     filterFrom.value = '';
     filterTo.value   = '';
