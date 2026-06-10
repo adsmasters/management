@@ -670,9 +670,26 @@
     var supaUrl = localStorage.getItem('supabaseUrl') || 'https://lgrnmiszhhahfcmctmwo.supabase.co';
     var supaKey = localStorage.getItem('supabaseKey') || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imxncm5taXN6aGhhaGZjbWN0bXdvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM2NjE2NDksImV4cCI6MjA4OTIzNzY0OX0.FDZRGMESves7XbAMs_oMLWmvnywMlVqe8p7f1kt06qk';
     var client = supabase.createClient(supaUrl, supaKey);
-    client.from('revenue').select('year,month').order('year').order('month').limit(100000)
+    // Supabase caps each request at ~1000 rows regardless of .limit().
+    // Paginate with .range() so ALL months are discovered, not just the first 1000 rows.
+    (function () {
+      var PAGE = 1000;
+      var rowsAcc = [];
+      function fetchPage(from) {
+        return client.from('revenue').select('year,month')
+          .order('id', { ascending: true })
+          .range(from, from + PAGE - 1)
+          .then(function(res) {
+            if (res.error) throw res.error;
+            var chunk = res.data || [];
+            rowsAcc = rowsAcc.concat(chunk);
+            if (chunk.length < PAGE) return { data: rowsAcc };
+            return fetchPage(from + PAGE);
+          });
+      }
+      return fetchPage(0);
+    })()
       .then(function(res) {
-        if (res.error) throw res.error;
         // Deduplicate year/month combos
         var seen = {};
         var months = [];

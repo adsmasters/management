@@ -135,8 +135,27 @@
       allContactNames: () =>
         q(s => s.from('revenue').select('contact_name').order('contact_name'))
           .then(rows => [...new Set(rows.map(r => r.contact_name).filter(Boolean))].sort()),
-      allRows: () =>
-        q(s => s.from('revenue').select('contact_name,total_amount').limit(100000)),
+      allRows: async () => {
+        // Supabase caps each request at ~1000 rows regardless of .limit().
+        // Paginate with .range() until fewer than PAGE rows come back.
+        var PAGE = 1000;
+        var all  = [];
+        var from = 0;
+        var client = sb();
+        // eslint-disable-next-line no-constant-condition
+        while (true) {
+          var res = await client.from('revenue')
+            .select('contact_name,total_amount')
+            .order('id', { ascending: true })
+            .range(from, from + PAGE - 1);
+          if (res.error) throw res.error;
+          var chunk = res.data || [];
+          all = all.concat(chunk);
+          if (chunk.length < PAGE) break;
+          from += PAGE;
+        }
+        return all;
+      },
       forContacts: (contactNames) =>
         q(s => s.from('revenue').select('id,contact_name,year,month,total_amount')
           .in('contact_name', contactNames).order('year').order('month').limit(10000)),
