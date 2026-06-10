@@ -25,13 +25,6 @@
   var deleteModalCancel  = document.getElementById('deleteModalCancel');
   var deleteModalConfirm = document.getElementById('deleteModalConfirm');
 
-  var editingId   = null;
-  var deletingId  = null;
-  var assigningCost  = null;
-  var assigningLinks = []; // norm(contact_name) of current links
-  var allClients     = []; // sorted contact_name strings from revenue
-  var allLinks       = []; // all acquisition_contact_links rows
-
   var assignModal       = document.getElementById('assignModal');
   var assignModalSource = document.getElementById('assignModalSource');
   var assignSearch      = document.getElementById('assignSearch');
@@ -39,6 +32,21 @@
   var assignModalClose  = document.getElementById('assignModalClose');
   var assignModalCancel = document.getElementById('assignModalCancel');
   var assignModalSave   = document.getElementById('assignModalSave');
+
+  var detailModal      = document.getElementById('detailModal');
+  var detailModalTitle = document.getElementById('detailModalTitle');
+  var detailModalBody  = document.getElementById('detailModalBody');
+  var detailModalClose = document.getElementById('detailModalClose');
+
+  var editingId      = null;
+  var deletingId     = null;
+  var assigningCost  = null;
+  var selectedSet    = {};   // norm(contactName) → true/false — persists across search re-renders
+  var savedLinks     = {};   // norm(contactName) → true — links already saved in DB for current cost
+  var allClients     = [];   // sorted contact_name strings from revenue
+  var allLinks       = [];   // all acquisition_contact_links rows
+
+  var MONTHS_LABEL = ['Jan','Feb','Mär','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez'];
 
   var TYPE_LABELS = {
     'messe':           'Messe',
@@ -59,9 +67,13 @@
 
   function norm(str) { return (str || '').trim().toLowerCase(); }
 
-  // ── Modal open/close ──────────────────────────────────────────────────
+  function escHtml(str) {
+    return (str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  // ── Add/Edit Modal ────────────────────────────────────────────────────
   function openModal(entry) {
-    editingId           = entry ? entry.id : null;
+    editingId = entry ? entry.id : null;
     acqModalTitle.textContent = entry ? 'Eintrag bearbeiten' : 'Neuer Eintrag';
     acqSourceInput.value = entry ? (entry.source_name || '') : '';
     acqTypeSelect.value  = entry ? (entry.source_type  || 'sonstige') : 'sonstige';
@@ -72,10 +84,7 @@
     acqSourceInput.focus();
   }
 
-  function closeModal() {
-    acqModal.classList.add('hidden');
-    editingId = null;
-  }
+  function closeModal() { acqModal.classList.add('hidden'); editingId = null; }
 
   acqModalClose.addEventListener('click',  closeModal);
   acqModalCancel.addEventListener('click', closeModal);
@@ -84,55 +93,30 @@
 
   acqModalSave.addEventListener('click', function () {
     var source = acqSourceInput.value.trim();
-    if (!source) {
-      acqSourceInput.focus();
-      acqSourceInput.style.borderColor = 'var(--danger)';
-      return;
-    }
+    if (!source) { acqSourceInput.focus(); acqSourceInput.style.borderColor = 'var(--danger)'; return; }
     acqSourceInput.style.borderColor = '';
-
     var type   = acqTypeSelect.value;
     var amount = parseFloat(acqAmountInput.value) || 0;
     var date   = acqDateInput.value || null;
     var notes  = acqNotesInput.value.trim() || null;
-
     acqModalSave.disabled    = true;
     acqModalSave.textContent = 'Speichern…';
-
-    var promise;
-    if (editingId) {
-      promise = window.db.acquisitionCosts.update(editingId, {
-        source_name: source, source_type: type,
-        amount: amount, cost_date: date, notes: notes,
-        updated_at: new Date().toISOString(),
-      });
-    } else {
-      promise = window.db.acquisitionCosts.create(source, type, amount, date, notes);
-    }
-
-    promise.then(function () {
-      closeModal();
-      loadData();
-    }).catch(function (e) {
-      showError('Fehler: ' + e.message);
-      closeModal();
-    }).finally(function () {
-      acqModalSave.disabled    = false;
-      acqModalSave.textContent = 'Speichern';
-    });
+    var promise = editingId
+      ? window.db.acquisitionCosts.update(editingId, { source_name: source, source_type: type, amount: amount, cost_date: date, notes: notes, updated_at: new Date().toISOString() })
+      : window.db.acquisitionCosts.create(source, type, amount, date, notes);
+    promise.then(function () { closeModal(); loadData(); })
+      .catch(function (e) { showError('Fehler: ' + e.message); closeModal(); })
+      .finally(function () { acqModalSave.disabled = false; acqModalSave.textContent = 'Speichern'; });
   });
 
-  // ── Delete modal ──────────────────────────────────────────────────────
+  // ── Delete Modal ──────────────────────────────────────────────────────
   function openDeleteModal(entry) {
     deletingId = entry.id;
     deleteEntryName.textContent = entry.source_name;
     deleteModal.classList.remove('hidden');
   }
 
-  function closeDeleteModal() {
-    deleteModal.classList.add('hidden');
-    deletingId = null;
-  }
+  function closeDeleteModal() { deleteModal.classList.add('hidden'); deletingId = null; }
 
   deleteModalClose.addEventListener('click',   closeDeleteModal);
   deleteModalCancel.addEventListener('click',  closeDeleteModal);
@@ -144,18 +128,23 @@
     window.db.acquisitionCosts.delete(deletingId)
       .then(function () { closeDeleteModal(); loadData(); })
       .catch(function (e) { showError('Fehler: ' + e.message); closeDeleteModal(); })
-      .finally(function () {
-        deleteModalConfirm.disabled    = false;
-        deleteModalConfirm.textContent = 'Endgültig löschen';
-      });
+      .finally(function () { deleteModalConfirm.disabled = false; deleteModalConfirm.textContent = 'Endgültig löschen'; });
   });
 
-  // ── Assign clients modal ──────────────────────────────────────────────
+  // ── Assign Modal ──────────────────────────────────────────────────────
   function openAssignModal(cost) {
     assigningCost = cost;
-    assigningLinks = allLinks
-      .filter(function (l) { return l.acquisition_cost_id === cost.id; })
-      .map(function (l) { return norm(l.contact_name); });
+
+    // Build saved set from current DB links
+    savedLinks = {};
+    selectedSet = {};
+    allLinks.forEach(function (l) {
+      if (l.acquisition_cost_id === cost.id) {
+        savedLinks[norm(l.contact_name)]   = true;
+        selectedSet[norm(l.contact_name)]  = true;
+      }
+    });
+
     assignModalSource.textContent = cost.source_name;
     assignSearch.value = '';
     renderAssignList('');
@@ -163,66 +152,134 @@
     assignSearch.focus();
   }
 
-  function closeAssignModal() {
-    assignModal.classList.add('hidden');
-    assigningCost = null;
-  }
+  function closeAssignModal() { assignModal.classList.add('hidden'); assigningCost = null; }
 
   function renderAssignList(filter) {
     var f = filter.trim().toLowerCase();
     assignClientList.innerHTML = '';
     allClients.forEach(function (contactName) {
       if (f && contactName.toLowerCase().indexOf(f) === -1) return;
-      var checked = assigningLinks.indexOf(norm(contactName)) !== -1;
+      var key     = norm(contactName);
+      var checked = !!selectedSet[key];
       var row = document.createElement('label');
       row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:6px;cursor:pointer;background:var(--surface);border:1px solid var(--border);user-select:none';
-      row.innerHTML =
-        '<input type="checkbox" data-name="' + escHtml(contactName) + '" ' + (checked ? 'checked' : '') + ' style="width:16px;height:16px;cursor:pointer;accent-color:var(--primary)">' +
-        '<span style="font-size:14px;font-weight:500">' + escHtml(contactName) + '</span>';
+      var cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = checked;
+      cb.style.cssText = 'width:16px;height:16px;cursor:pointer;accent-color:var(--primary);flex-shrink:0';
+      cb.addEventListener('change', function () {
+        if (cb.checked) selectedSet[key] = true;
+        else delete selectedSet[key];
+      });
+      var label = document.createElement('span');
+      label.style.cssText = 'font-size:14px;font-weight:500';
+      label.textContent = contactName;
+      row.appendChild(cb);
+      row.appendChild(label);
       assignClientList.appendChild(row);
     });
   }
 
-  assignSearch.addEventListener('input', function () {
-    renderAssignList(assignSearch.value);
-  });
-
+  assignSearch.addEventListener('input', function () { renderAssignList(assignSearch.value); });
   assignModalClose.addEventListener('click',  closeAssignModal);
   assignModalCancel.addEventListener('click', closeAssignModal);
   assignModal.addEventListener('click', function (e) { if (e.target === assignModal) closeAssignModal(); });
 
   assignModalSave.addEventListener('click', function () {
     if (!assigningCost) return;
-    var costId     = assigningCost.id;
-    var checkboxes = assignClientList.querySelectorAll('input[type=checkbox]');
-    var updates    = [];
+    var costId  = assigningCost.id;
+    var updates = [];
 
-    checkboxes.forEach(function (cb) {
-      var contactName   = cb.getAttribute('data-name');
-      var isChecked     = cb.checked;
-      var alreadyLinked = assigningLinks.indexOf(norm(contactName)) !== -1;
-
-      if (isChecked && !alreadyLinked) {
-        updates.push(window.db.acquisitionContactLinks.create(costId, contactName));
-      } else if (!isChecked && alreadyLinked) {
-        updates.push(window.db.acquisitionContactLinks.delete(costId, contactName));
+    // Add newly checked
+    Object.keys(selectedSet).forEach(function (normName) {
+      if (!savedLinks[normName]) {
+        // Find original casing
+        var original = allClients.find(function (c) { return norm(c) === normName; }) || normName;
+        updates.push(window.db.acquisitionContactLinks.create(costId, original));
       }
     });
 
+    // Remove unchecked
+    Object.keys(savedLinks).forEach(function (normName) {
+      if (!selectedSet[normName]) {
+        var original = allClients.find(function (c) { return norm(c) === normName; }) || normName;
+        updates.push(window.db.acquisitionContactLinks.delete(costId, original));
+      }
+    });
+
+    if (updates.length === 0) { closeAssignModal(); return; }
+
     assignModalSave.disabled    = true;
     assignModalSave.textContent = 'Speichern…';
-
     Promise.all(updates)
       .then(function () { closeAssignModal(); loadData(); })
       .catch(function (e) { showError('Fehler: ' + e.message); closeAssignModal(); })
-      .finally(function () {
-        assignModalSave.disabled    = false;
-        assignModalSave.textContent = 'Speichern';
-      });
+      .finally(function () { assignModalSave.disabled = false; assignModalSave.textContent = 'Speichern'; });
   });
 
+  // ── Detail Modal ──────────────────────────────────────────────────────
+  function openDetailModal(cost, linkedContactNames) {
+    detailModalTitle.textContent = cost.source_name + ' – Zugeordnete Kunden';
+    detailModalBody.innerHTML = '<div style="padding:20px;color:var(--text-secondary);font-size:13px">Lade…</div>';
+    detailModal.classList.remove('hidden');
+
+    if (linkedContactNames.length === 0) {
+      detailModalBody.innerHTML = '<div style="padding:24px;color:var(--text-secondary);text-align:center">Noch keine Kunden zugeordnet.</div>';
+      return;
+    }
+
+    window.db.revenue.forContacts(linkedContactNames).then(function (rows) {
+      // Group by contact → by year/month
+      var byContact = {};
+      linkedContactNames.forEach(function (n) { byContact[n] = {}; });
+      rows.forEach(function (r) {
+        var name = r.contact_name;
+        if (!byContact[name]) byContact[name] = {};
+        var key = r.year + '-' + String(r.month).padStart(2, '0');
+        byContact[name][key] = (byContact[name][key] || 0) + (r.total_amount || 0);
+      });
+
+      var html = '<div style="overflow-y:auto;max-height:520px">';
+      linkedContactNames.slice().sort(function (a, b) { return a.localeCompare(b, 'de'); }).forEach(function (name) {
+        var months = byContact[name] || {};
+        var total  = Object.values(months).reduce(function (s, v) { return s + v; }, 0);
+        var sortedMonths = Object.keys(months).sort();
+
+        html += '<div style="border-bottom:1px solid var(--border);padding:14px 20px">';
+        html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:' + (sortedMonths.length ? '8px' : '0') + '">';
+        html += '<span style="font-weight:600;font-size:14px">' + escHtml(name) + '</span>';
+        html += '<span style="font-weight:700;font-size:14px;font-variant-numeric:tabular-nums">' + fmt(total) + '</span>';
+        html += '</div>';
+
+        if (sortedMonths.length) {
+          html += '<div style="display:flex;flex-wrap:wrap;gap:4px">';
+          sortedMonths.forEach(function (mk) {
+            var parts = mk.split('-');
+            var y = parseInt(parts[0]), m = parseInt(parts[1]);
+            var label = MONTHS_LABEL[m - 1] + ' ' + y;
+            html += '<span style="font-size:11px;background:var(--surface-hover,#f1f5f9);border:1px solid var(--border);border-radius:4px;padding:2px 7px;font-variant-numeric:tabular-nums">'
+              + escHtml(label) + ' · ' + fmt(months[mk]) + '</span>';
+          });
+          html += '</div>';
+        } else {
+          html += '<span style="font-size:12px;color:var(--text-secondary)">Kein Umsatz in importierten Monaten</span>';
+        }
+        html += '</div>';
+      });
+      html += '</div>';
+      detailModalBody.innerHTML = html;
+    }).catch(function (e) {
+      detailModalBody.innerHTML = '<div style="padding:20px;color:var(--danger)">Fehler: ' + escHtml(e.message) + '</div>';
+    });
+  }
+
+  function closeDetailModal() { detailModal.classList.add('hidden'); }
+
+  detailModalClose.addEventListener('click', closeDetailModal);
+  detailModal.addEventListener('click', function (e) { if (e.target === detailModal) closeDetailModal(); });
+
   document.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape') { closeModal(); closeDeleteModal(); closeAssignModal(); }
+    if (e.key === 'Escape') { closeModal(); closeDeleteModal(); closeAssignModal(); closeDetailModal(); }
   });
 
   // ── Load data ─────────────────────────────────────────────────────────
@@ -244,19 +301,11 @@
 
       loadingEl.classList.add('hidden');
 
-      // Build sorted unique contact names from revenue
       var contactSet = {};
-      revenues.forEach(function (r) {
-        if (r.contact_name) contactSet[r.contact_name] = true;
-      });
-      allClients = Object.keys(contactSet).sort(function (a, b) {
-        return a.localeCompare(b, 'de');
-      });
+      revenues.forEach(function (r) { if (r.contact_name) contactSet[r.contact_name] = true; });
+      allClients = Object.keys(contactSet).sort(function (a, b) { return a.localeCompare(b, 'de'); });
 
-      if (costs.length === 0) {
-        emptyState.classList.remove('hidden');
-        return;
-      }
+      if (costs.length === 0) { emptyState.classList.remove('hidden'); return; }
 
       contentEl.classList.remove('hidden');
       render(costs, revenues, links);
@@ -272,28 +321,29 @@
   function render(costs, revenues, links) {
     allLinks = links;
 
-    // revenue per lexoffice contact_name (normalized)
     var revByContact = {};
     revenues.forEach(function (row) {
       var key = norm(row.contact_name || '');
       revByContact[key] = (revByContact[key] || 0) + (row.total_amount || 0);
     });
 
-    // links per cost id: costId → [norm(contact_name), ...]
-    var linksByCost = {};
+    // links per cost: costId → original contact_name strings
+    var linksByCostOriginal = {};
+    var linksByCostNorm     = {};
     links.forEach(function (l) {
-      if (!linksByCost[l.acquisition_cost_id]) linksByCost[l.acquisition_cost_id] = [];
-      linksByCost[l.acquisition_cost_id].push(norm(l.contact_name));
+      var cid = l.acquisition_cost_id;
+      if (!linksByCostOriginal[cid]) { linksByCostOriginal[cid] = []; linksByCostNorm[cid] = []; }
+      linksByCostOriginal[cid].push(l.contact_name);
+      linksByCostNorm[cid].push(norm(l.contact_name));
     });
 
     function costRevenue(costId) {
-      var contacts = linksByCost[costId] || [];
+      var contacts = linksByCostNorm[costId] || [];
       var total = 0;
       contacts.forEach(function (c) { total += revByContact[c] || 0; });
       return total;
     }
 
-    // KPIs
     var totalCosts  = 0;
     var totalRevAcq = 0;
     costs.forEach(function (cost) {
@@ -313,10 +363,10 @@
       roiEl.className   = 'kpi-value';
     }
 
-    // Table rows
     acqBody.innerHTML = '';
     costs.forEach(function (cost) {
-      var linked = linksByCost[cost.id] || [];
+      var linkedOriginal = linksByCostOriginal[cost.id] || [];
+      var count  = linkedOriginal.length;
       var ltdRev = costRevenue(cost.id);
 
       var roiHtml;
@@ -325,10 +375,15 @@
         var cls  = mult >= 1 ? 'roi-pos' : 'roi-neg';
         roiHtml  = '<span class="' + cls + '">' + mult.toFixed(1) + '× ROI</span>';
       } else {
-        roiHtml = '<span style="color:var(--text-secondary)">—</span>';
+        roiHtml = ltdRev > 0
+          ? '<span style="color:var(--text-secondary)">' + fmt(ltdRev) + '</span>'
+          : '<span style="color:var(--text-secondary)">—</span>';
       }
 
       var typeLabel = TYPE_LABELS[cost.source_type] || cost.source_type || '—';
+      var countHtml = count > 0
+        ? '<button class="btn btn-ghost btn-sm detail-btn" style="padding:2px 8px;font-size:13px;font-weight:600">' + count + '</button>'
+        : '<span style="color:var(--text-secondary)">0</span>';
 
       var tr = document.createElement('tr');
       tr.innerHTML =
@@ -337,7 +392,7 @@
         '</td>' +
         '<td><span style="font-size:12px;background:var(--surface-hover,#f1f5f9);padding:2px 8px;border-radius:4px;border:1px solid var(--border)">' + typeLabel + '</span></td>' +
         '<td class="right" style="font-variant-numeric:tabular-nums">' + fmt(cost.amount || 0) + '</td>' +
-        '<td class="right">' + linked.length + '</td>' +
+        '<td class="right">' + countHtml + '</td>' +
         '<td class="right" style="font-variant-numeric:tabular-nums">' + fmt(ltdRev) + '</td>' +
         '<td>' + roiHtml + '</td>' +
         '<td class="center"><div style="display:flex;gap:6px;justify-content:center">' +
@@ -352,15 +407,12 @@
             ' Löschen</button>' +
         '</div></td>';
 
+      if (count > 0) tr.querySelector('.detail-btn').addEventListener('click', function () { openDetailModal(cost, linkedOriginal); });
       tr.querySelector('.assign-btn').addEventListener('click',  function () { openAssignModal(cost); });
       tr.querySelector('.edit-btn').addEventListener('click',    function () { openModal(cost); });
       tr.querySelector('.delete-btn').addEventListener('click',  function () { openDeleteModal(cost); });
       acqBody.appendChild(tr);
     });
-  }
-
-  function escHtml(str) {
-    return (str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
 
   // ── Boot ──────────────────────────────────────────────────────────────
