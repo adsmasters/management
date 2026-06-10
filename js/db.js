@@ -132,9 +132,10 @@
     revenue: {
       forMonth: (year, month) =>
         q(s => s.from('revenue').select('*').eq('year', year).eq('month', month)),
-      allContactNames: () =>
-        q(s => s.from('revenue').select('contact_name').order('contact_name'))
-          .then(rows => [...new Set(rows.map(r => r.contact_name).filter(Boolean))].sort()),
+      allContactNames: async () => {
+        var rows = await window.db.revenue.allRows();
+        return [...new Set(rows.map(r => r.contact_name).filter(Boolean))].sort();
+      },
       allRows: async () => {
         // Supabase caps each request at ~1000 rows regardless of .limit().
         // Paginate with .range() until fewer than PAGE rows come back.
@@ -156,9 +157,28 @@
         }
         return all;
       },
-      forContacts: (contactNames) =>
-        q(s => s.from('revenue').select('id,contact_name,year,month,total_amount')
-          .in('contact_name', contactNames).order('year').order('month').limit(10000)),
+      forContacts: async (contactNames) => {
+        if (!contactNames || contactNames.length === 0) return [];
+        // Paginate with .range() — Supabase caps each request at ~1000 rows.
+        var PAGE = 1000;
+        var all  = [];
+        var from = 0;
+        var client = sb();
+        // eslint-disable-next-line no-constant-condition
+        while (true) {
+          var res = await client.from('revenue')
+            .select('id,contact_name,year,month,total_amount')
+            .in('contact_name', contactNames)
+            .order('id', { ascending: true })
+            .range(from, from + PAGE - 1);
+          if (res.error) throw res.error;
+          var chunk = res.data || [];
+          all = all.concat(chunk);
+          if (chunk.length < PAGE) break;
+          from += PAGE;
+        }
+        return all;
+      },
       updateAmount: (id, total_amount) =>
         q(s => s.from('revenue').update({ total_amount }).eq('id', id).select().single()),
       insertRow: (year, month, contactName, amount) =>
