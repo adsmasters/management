@@ -74,6 +74,31 @@
     return (str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
 
+  // ── View toggle ──────────────────────────────────────────────────────
+  var currentView = 'all';
+  var viewAllBtn   = document.getElementById('viewAll');
+  var viewTypeBtn  = document.getElementById('viewType');
+  var viewAllPanel = document.getElementById('viewAllPanel');
+  var viewTypePanel= document.getElementById('viewTypePanel');
+
+  function setView(v) {
+    currentView = v;
+    if (v === 'all') {
+      viewAllPanel.classList.remove('hidden');
+      viewTypePanel.classList.add('hidden');
+      viewAllBtn.className  = 'btn btn-primary btn-sm';
+      viewTypeBtn.className = 'btn btn-secondary btn-sm';
+    } else {
+      viewAllPanel.classList.add('hidden');
+      viewTypePanel.classList.remove('hidden');
+      viewAllBtn.className  = 'btn btn-secondary btn-sm';
+      viewTypeBtn.className = 'btn btn-primary btn-sm';
+    }
+  }
+
+  viewAllBtn.addEventListener('click',  function() { setView('all'); });
+  viewTypeBtn.addEventListener('click', function() { setView('type'); });
+
   // ── Sort ─────────────────────────────────────────────────────────────
   var lastRenderArgs = null;
 
@@ -472,6 +497,86 @@
       tr.querySelector('.edit-btn').addEventListener('click',    function () { openModal(cost); });
       tr.querySelector('.delete-btn').addEventListener('click',  function () { openDeleteModal(cost); });
       acqBody.appendChild(tr);
+    });
+
+    renderTypeView(costs, linksByCostNorm, linksByCostOriginal, revByContact);
+  }
+
+  function renderTypeView(costs, linksByCostNorm, linksByCostOriginal, revByContact) {
+    var typeCards = document.getElementById('typeCards');
+    var typeBody  = document.getElementById('typeBody');
+
+    // Aggregate by type
+    var byType = {};
+    costs.forEach(function(cost) {
+      var t = cost.source_type || 'sonstige';
+      if (!byType[t]) byType[t] = { costs: 0, revenue: 0, clients: 0, count: 0 };
+      byType[t].costs  += (cost.amount || 0);
+      byType[t].count  += 1;
+      var linked = linksByCostNorm[cost.id] || [];
+      byType[t].clients += linked.length;
+      linked.forEach(function(c) { byType[t].revenue += revByContact[c] || 0; });
+    });
+
+    // Sort by revenue desc
+    var types = Object.keys(byType).sort(function(a, b) {
+      return byType[b].revenue - byType[a].revenue;
+    });
+
+    // Cards
+    var TYPE_COLORS = {
+      'messe': '#6366f1', 'online-marketing': '#0ea5e9', 'seo': '#10b981',
+      'kaltakquise': '#f59e0b', 'empfehlung': '#ec4899', 'sonstige': '#94a3b8',
+    };
+
+    typeCards.innerHTML = '';
+    types.forEach(function(t) {
+      var d     = byType[t];
+      var label = TYPE_LABELS[t] || t;
+      var color = TYPE_COLORS[t] || '#94a3b8';
+      var roi   = d.costs > 0 ? (d.revenue / d.costs).toFixed(1) + '× ROI' : (d.revenue > 0 ? fmt(d.revenue) : '—');
+      var roiCls = d.costs > 0 && d.revenue >= d.costs ? 'roi-pos' : (d.costs > 0 ? 'roi-neg' : '');
+      var card = document.createElement('div');
+      card.className = 'kpi-card';
+      card.style.borderTop = '3px solid ' + color;
+      card.innerHTML =
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">' +
+          '<span style="font-size:13px;font-weight:700;color:' + color + '">' + escHtml(label) + '</span>' +
+          '<span style="font-size:11px;color:var(--text-secondary)">' + d.count + ' Aktivität' + (d.count !== 1 ? 'en' : '') + '</span>' +
+        '</div>' +
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">' +
+          '<div><div style="font-size:11px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.04em">Kosten</div><div style="font-size:16px;font-weight:700">' + fmt(d.costs) + '</div></div>' +
+          '<div><div style="font-size:11px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.04em">Umsatz</div><div style="font-size:16px;font-weight:700">' + fmt(d.revenue) + '</div></div>' +
+          '<div><div style="font-size:11px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.04em">Kunden</div><div style="font-size:16px;font-weight:700">' + d.clients + '</div></div>' +
+          '<div><div style="font-size:11px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.04em">ROI</div><div style="font-size:16px;font-weight:700" class="' + roiCls + '">' + roi + '</div></div>' +
+        '</div>';
+      typeCards.appendChild(card);
+    });
+
+    // Table
+    typeBody.innerHTML = '';
+    types.forEach(function(t) {
+      var d     = byType[t];
+      var label = TYPE_LABELS[t] || t;
+      var color = TYPE_COLORS[t] || '#94a3b8';
+      var roiHtml, roiSort = 0;
+      if (d.costs > 0) {
+        var mult = d.revenue / d.costs;
+        roiSort  = mult;
+        var cls  = mult >= 1 ? 'roi-pos' : 'roi-neg';
+        roiHtml  = '<span class="' + cls + '">' + mult.toFixed(1) + '× ROI</span>';
+      } else {
+        roiHtml = d.revenue > 0 ? fmt(d.revenue) : '<span style="color:var(--text-secondary)">—</span>';
+      }
+      var tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:' + color + ';margin-right:8px;vertical-align:middle"></span><strong>' + escHtml(label) + '</strong></td>' +
+        '<td class="right">' + d.count + '</td>' +
+        '<td class="right" style="font-variant-numeric:tabular-nums">' + fmt(d.costs) + '</td>' +
+        '<td class="right">' + d.clients + '</td>' +
+        '<td class="right" style="font-variant-numeric:tabular-nums">' + fmt(d.revenue) + '</td>' +
+        '<td>' + roiHtml + '</td>';
+      typeBody.appendChild(tr);
     });
   }
 

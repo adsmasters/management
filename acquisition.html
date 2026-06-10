@@ -57,6 +57,12 @@
   </div>
 
   <div id="content" class="hidden">
+
+    <div style="display:flex;gap:8px;margin-bottom:16px">
+      <button id="viewAll"  class="btn btn-primary btn-sm">Alle Einträge</button>
+      <button id="viewType" class="btn btn-secondary btn-sm">Nach Typ</button>
+    </div>
+
     <div class="summary-strip">
       <div class="kpi-card">
         <div class="kpi-label">Gesamtausgaben</div>
@@ -72,7 +78,8 @@
       </div>
     </div>
 
-    <div class="card">
+    <!-- Einzelansicht -->
+    <div id="viewAllPanel" class="card">
       <div class="table-wrap">
         <table>
           <thead>
@@ -90,6 +97,29 @@
         </table>
       </div>
     </div>
+
+    <!-- Typ-Vergleich -->
+    <div id="viewTypePanel" class="hidden">
+      <div id="typeCards" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px;margin-bottom:20px"></div>
+      <div class="card">
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th style="min-width:160px">Typ</th>
+                <th class="right">Aktivitäten</th>
+                <th class="right">Kosten</th>
+                <th class="right">Kunden</th>
+                <th class="right">Umsatz (LTD)</th>
+                <th>ROI</th>
+              </tr>
+            </thead>
+            <tbody id="typeBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
   </div>
 
   <div id="emptyState" class="hidden">
