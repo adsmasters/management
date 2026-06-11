@@ -38,3 +38,22 @@ CREATE TABLE IF NOT EXISTS acquisition_contact_links (
 ALTER TABLE acquisition_contact_links ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Allow all on acquisition_contact_links" ON acquisition_contact_links FOR ALL USING (true) WITH CHECK (true);
 ```
+
+## 4. Freelancer-Verrechnungssatz + Umsatz-Ausschlüsse (MA-Umsatz-Modell)
+
+```sql
+-- Verrechnungssatz pro Mitarbeiter (was die Agentur dem Kunden pro Stunde
+-- berechnet, z.B. 50 €/h für die Designerin). NICHT der Kostensatz (hourly_rate).
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS billing_rate numeric;
+
+-- Welche Mitarbeiter bei welchem Kunden NICHT am Umsatz beteiligt werden.
+CREATE TABLE IF NOT EXISTS client_employee_exclusions (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  client_id   uuid NOT NULL REFERENCES clients(id)   ON DELETE CASCADE,
+  employee_id uuid NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+  created_at timestamptz DEFAULT now(),
+  UNIQUE(client_id, employee_id)
+);
+ALTER TABLE client_employee_exclusions ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow all on client_employee_exclusions" ON client_employee_exclusions FOR ALL USING (true) WITH CHECK (true);
+```

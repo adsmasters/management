@@ -247,6 +247,18 @@
         q(s => s.from('acquisition_costs').delete().eq('id', id)),
     },
 
+    revenueExclusions: {
+      // (Kunde × Mitarbeiter) die NICHT am Umsatz beteiligt werden
+      listAll: () =>
+        q(s => s.from('client_employee_exclusions').select('client_id,employee_id')),
+      add: (clientId, employeeId) =>
+        q(s => s.from('client_employee_exclusions')
+          .insert({ client_id: clientId, employee_id: employeeId }).select().single()),
+      remove: (clientId, employeeId) =>
+        q(s => s.from('client_employee_exclusions')
+          .delete().eq('client_id', clientId).eq('employee_id', employeeId)),
+    },
+
     acquisitionContactLinks: {
       listForCost: (costId) =>
         q(s => s.from('acquisition_contact_links').select('*').eq('acquisition_cost_id', costId)),

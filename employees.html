@@ -131,9 +131,14 @@
       <!-- Stundensatz (nur für Freelancer) -->
       <div id="hourlyField" style="display:none">
         <div class="field">
-          <label for="empHourlyRate">Stundensatz <span style="color:var(--text-muted);font-weight:400">(optional)</span></label>
-          <input type="number" id="empHourlyRate" min="0" step="5" placeholder="z.B. 80">
-          <span class="hint">Kosten pro Stunde in € – wird direkt mit den erfassten Stunden multipliziert</span>
+          <label for="empHourlyRate">Kostensatz <span style="color:var(--text-muted);font-weight:400">(optional)</span></label>
+          <input type="number" id="empHourlyRate" min="0" step="5" placeholder="z.B. 20">
+          <span class="hint">Was die Person pro Stunde <strong>kostet</strong> (€) – fließt in die Profitabilität (Kosten)</span>
+        </div>
+        <div class="field">
+          <label for="empBillingRate">Verrechnungssatz <span style="color:var(--text-muted);font-weight:400">(optional)</span></label>
+          <input type="number" id="empBillingRate" min="0" step="5" placeholder="z.B. 50">
+          <span class="hint">Was die Agentur dem Kunden pro Stunde <strong>berechnet</strong> (€) – steuert den MA-Umsatz: Stunden × Satz, Rest geht an die Owner</span>
         </div>
       </div>
       <div class="field">
@@ -172,10 +177,10 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="js/db.js"></script>
+<script src="js/db.js?v=20260611"></script>
 <script src="js/utils.js"></script>
 <script src="js/auth.js"></script>
-<script src="js/employees.js"></script>
+<script src="js/employees.js?v=20260611"></script>
   <script defer src="https://adsmasters.github.io/hub/backlink.js"></script>
 </body>
 </html>

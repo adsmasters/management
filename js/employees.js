@@ -19,6 +19,7 @@
   const empCostTotal    = document.getElementById('empCostTotal');
   const empCostTotalVal = document.getElementById('empCostTotalVal');
   const empHourlyRate   = document.getElementById('empHourlyRate');
+  const empBillingRate  = document.getElementById('empBillingRate');
   const salaryFields    = document.getElementById('salaryFields');
   const hourlyField     = document.getElementById('hourlyField');
   const empLeaveStart   = document.getElementById('empLeaveStart');
@@ -78,6 +79,7 @@
     empGross.value        = emp?.gross_salary   > 0 ? emp.gross_salary   : '';
     empEmployerCost.value = emp?.employer_costs > 0 ? emp.employer_costs : '';
     empHourlyRate.value   = emp?.hourly_rate    > 0 ? emp.hourly_rate    : '';
+    empBillingRate.value  = emp?.billing_rate   > 0 ? emp.billing_rate   : '';
     empLeaveStart.value   = emp?.leave_start ? emp.leave_start.substring(0, 7) : '';
     empCostTotal.style.display = 'none';
     if ((emp?.gross_salary || 0) + (emp?.employer_costs || 0) > 0) updateCostTotal();
@@ -106,6 +108,7 @@
     const employerCost = isFreelancer ? 0 : (parseFloat(empEmployerCost.value) || 0);
     const monthlyCost  = gross + employerCost;
     const hourlyRate   = isFreelancer ? (parseFloat(empHourlyRate.value) || 0) : 0;
+    const billingRate  = isFreelancer ? (parseFloat(empBillingRate.value) || 0) : 0;
     const active       = empActive.checked;
 
     empModalSave.disabled = true;
@@ -117,6 +120,7 @@
                      employer_costs: isFreelancer ? null : (employerCost || null),
                      monthly_cost:   isFreelancer ? 0    : monthlyCost,
                      hourly_rate:    isFreelancer ? (hourlyRate || null) : null,
+                     billing_rate:   isFreelancer ? (billingRate || null) : null,
                      leave_start:    leaveStart };
     const promise = editingId
       ? window.db.employees.update(editingId, fields)

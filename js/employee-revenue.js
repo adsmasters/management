@@ -87,11 +87,13 @@
       window.db.absences.forYear(year).catch(function () { return []; }),
       Promise.all(monthNums.map(function (m) { return window.db.revenue.forMonth(year, m); })),
       Promise.all(monthNums.map(function (m) { return window.db.adjustments.forMonth(year, m).catch(function () { return []; }); })),
+      window.db.revenueExclusions.listAll().catch(function () { return []; }),
     ]).then(function (r) {
       DATA = {
         year: year,
         employees: r[0], clients: r[1], entries: r[2], mappings: r[3],
         utilHours: r[4], absences: r[5], revenueByMonth: r[6], adjByMonth: r[7],
+        exclusions: r[8] || [],
       };
       loadingEl.classList.add('hidden');
       contentEl.classList.remove('hidden');
@@ -150,21 +152,67 @@
       mm[e.employee_id] = (mm[e.employee_id] || 0) + (e.hours || 0);
     });
 
-    // Ist: Umsatz je MA je Monat (nach Stundenanteil) -------------------
+    // Ist: Umsatz je MA je Monat ---------------------------------------
+    // Modell:
+    //  • Freelancer mit Verrechnungssatz (billing_rate > 0) bekommen
+    //    Stunden × Satz. Der REST des Kundenumsatzes geht an die übrigen
+    //    Mitarbeiter ("Owner") nach Stundenanteil.
+    //  • Übersteigt die Summe der Freelancer-Ansprüche den Kundenumsatz
+    //    (z.B. reiner Bild-Kunde), werden sie anteilig auf den Umsatz
+    //    gedeckelt → der Freelancer bekommt praktisch den ganzen Umsatz.
+    //  • Ausgeschlossene (Kunde × MA) zählen NICHT für den Umsatz
+    //    (ihre Stunden bleiben aber sichtbar).
     var empRev = {};   // empId → {m → revenue}
     var empHours = {};  // empId → {m → kundenstunden}
+    var empClientRevMonth = {}; // cid → m → eid → revenue (für Modal-Aufschlüsselung)
     function addRev(empId, m, v) { (empRev[empId] = empRev[empId] || {})[m] = ((empRev[empId] || {})[m] || 0) + v; }
     function addHrs(empId, m, v) { (empHours[empId] = empHours[empId] || {})[m] = ((empHours[empId] || {})[m] || 0) + v; }
+    function addClientRev(cid, m, eid, v) {
+      var a = (empClientRevMonth[cid] = empClientRevMonth[cid] || {});
+      var b = (a[m] = a[m] || {});
+      b[eid] = (b[eid] || 0) + v;
+    }
+
+    var empById = {};
+    employees.forEach(function (e) { empById[e.id] = e; });
+    var excludedSet = {}; // 'cid|eid' → true
+    (DATA.exclusions || []).forEach(function (x) { excludedSet[x.client_id + '|' + x.employee_id] = true; });
 
     for (var cid in entryByClientEmpMonth) {
       for (var mo in entryByClientEmpMonth[cid]) {
-        var total = clientHoursMonth[cid][mo] || 0;
-        var rev = (clientRevMonth[cid] && clientRevMonth[cid][mo]) || 0;
+        var rev  = (clientRevMonth[cid] && clientRevMonth[cid][mo]) || 0;
         var emps = entryByClientEmpMonth[cid][mo];
+
+        // Stunden immer tracken (auch ausgeschlossene – sie haben gearbeitet)
+        for (var eidH in emps) addHrs(eidH, mo, emps[eidH]);
+        if (!rev) continue;
+
+        // Teilnehmer für die Umsatzverteilung (Ausgeschlossene raus)
+        var freelancers = [], owners = [], ownerHrs = 0, claimSum = 0;
         for (var eid in emps) {
-          var hrs = emps[eid];
-          addHrs(eid, mo, hrs);
-          if (total > 0 && rev) addRev(eid, mo, rev * (hrs / total));
+          if (excludedSet[cid + '|' + eid]) continue;
+          var hrs  = emps[eid];
+          var rate = +((empById[eid] || {}).billing_rate) || 0;
+          if (rate > 0) { var claim = hrs * rate; freelancers.push({ eid: eid, claim: claim }); claimSum += claim; }
+          else          { owners.push({ eid: eid, hrs: hrs }); ownerHrs += hrs; }
+        }
+
+        if (freelancers.length && claimSum >= rev) {
+          // Ansprüche ≥ Umsatz → anteilig deckeln, Owner bekommen 0
+          freelancers.forEach(function (f) {
+            var v = rev * f.claim / claimSum;
+            addRev(f.eid, mo, v); addClientRev(cid, mo, f.eid, v);
+          });
+        } else {
+          // Freelancer bekommen Satz-Wert; Rest an Owner nach Stunden
+          freelancers.forEach(function (f) { addRev(f.eid, mo, f.claim); addClientRev(cid, mo, f.eid, f.claim); });
+          var remaining = rev - claimSum;
+          if (ownerHrs > 0 && remaining > 0) {
+            owners.forEach(function (o) {
+              var v = remaining * o.hrs / ownerHrs;
+              addRev(o.eid, mo, v); addClientRev(cid, mo, o.eid, v);
+            });
+          }
         }
       }
     }
@@ -252,6 +300,8 @@
       entryByClientEmpMonth: entryByClientEmpMonth,
       clientHoursMonth: clientHoursMonth,
       clientRevMonth: clientRevMonth,
+      empClientRevMonth: empClientRevMonth,
+      excludedSet: excludedSet,
     };
 
     render({
@@ -388,10 +438,11 @@
         hrs += h;
         cTotH += totalH;
         cRev += r;
-        if (totalH > 0) rev += r * (h / totalH);
+        rev += (((COMP.empClientRevMonth[cid] || {})[m] || {})[empId]) || 0;
       });
       if (hrs > 0) {
-        rows.push({ name: (clientsById[cid] || {}).name || '?', hrs: hrs, rev: rev, cTotH: cTotH, cRev: cRev });
+        rows.push({ cid: cid, name: (clientsById[cid] || {}).name || '?', hrs: hrs, rev: rev, cTotH: cTotH, cRev: cRev,
+                    excluded: !!COMP.excludedSet[cid + '|' + empId] });
         totHrs += hrs; totRev += rev;
       }
     });
@@ -401,25 +452,50 @@
     var html = '<div class="table-wrap"><table class="mini-table"><thead><tr>' +
       '<th>Kunde</th><th class="right">MA-Std</th>' +
       (single ? '<th class="right">Kunden-Std ges.</th><th class="right">Anteil</th><th class="right">Kunden-Umsatz</th>' : '') +
-      '<th class="right">MA-Umsatz</th></tr></thead><tbody>';
+      '<th class="right">MA-Umsatz</th><th></th></tr></thead><tbody>';
 
     if (!rows.length) {
-      html += '<tr><td colspan="' + (single ? 6 : 3) + '" class="muted">Keine Stunden in diesem Zeitraum.</td></tr>';
+      html += '<tr><td colspan="' + (single ? 7 : 4) + '" class="muted">Keine Stunden in diesem Zeitraum.</td></tr>';
     } else {
       rows.forEach(function (r) {
         var share = (single && r.cTotH > 0) ? (r.hrs / r.cTotH * 100).toFixed(1) + ' %' : '';
-        html += '<tr><td>' + r.name + '</td>' +
+        var nameCell = r.name + (r.excluded ? ' <span style="font-size:10px;color:var(--danger);font-weight:600;white-space:nowrap">· ausgeschlossen</span>' : '');
+        var btn = '<button class="excl-toggle" data-cid="' + r.cid + '" title="'
+          + (r.excluded ? 'Wieder am Umsatz beteiligen' : 'Bei diesem Kunden vom Umsatz ausschließen')
+          + '" style="background:none;border:1px solid var(--border);border-radius:4px;cursor:pointer;padding:1px 7px;font-size:11px;color:'
+          + (r.excluded ? 'var(--primary)' : 'var(--text-secondary)') + '">'
+          + (r.excluded ? '↩ einbeziehen' : '🚫 ausschließen') + '</button>';
+        html += '<tr><td>' + nameCell + '</td>' +
           '<td class="right">' + fmtH(r.hrs) + '</td>' +
           (single ? '<td class="right">' + fmtH(r.cTotH) + '</td><td class="right">' + share + '</td><td class="right">' + fmtEur(r.cRev) + '</td>' : '') +
-          '<td class="right">' + fmtEur(r.rev) + '</td></tr>';
+          '<td class="right">' + (r.excluded ? '<span class="muted">0 €</span>' : fmtEur(r.rev)) + '</td>' +
+          '<td class="right">' + btn + '</td></tr>';
       });
       html += '<tr style="font-weight:700;border-top:2px solid var(--border)"><td>Gesamt</td>' +
         '<td class="right">' + fmtH(totHrs) + '</td>' +
         (single ? '<td></td><td></td><td></td>' : '') +
-        '<td class="right">' + fmtEur(totRev) + '</td></tr>';
+        '<td class="right">' + fmtEur(totRev) + '</td><td></td></tr>';
     }
-    html += '</tbody></table></div>';
+    html += '</tbody></table></div>' +
+      '<div style="margin-top:8px;font-size:11px;color:var(--text-secondary)">🚫 Ausschließen = dieser Mitarbeiter wird beim Umsatz dieses Kunden nicht berücksichtigt (Umsatz geht ganz an die Owner). Stunden bleiben sichtbar.</div>';
     modalBody.innerHTML = html;
+
+    // Ausschluss-Schalter
+    modalBody.querySelectorAll('.excl-toggle').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var cid = b.getAttribute('data-cid');
+        var isExcl = !!COMP.excludedSet[cid + '|' + empId];
+        b.disabled = true; b.textContent = '…';
+        var op = isExcl ? window.db.revenueExclusions.remove(cid, empId)
+                        : window.db.revenueExclusions.add(cid, empId);
+        op.then(function () {
+          if (isExcl) DATA.exclusions = (DATA.exclusions || []).filter(function (x) { return !(x.client_id === cid && x.employee_id === empId); });
+          else        (DATA.exclusions = DATA.exclusions || []).push({ client_id: cid, employee_id: empId });
+          compute();          // Grid + COMP neu berechnen
+          renderModalBody();  // Modal aktualisieren
+        }).catch(function (e) { alert('Fehler: ' + e.message); b.disabled = false; });
+      });
+    });
   }
 
   // ── Szenario-Panel ────────────────────────────────────────────────────
