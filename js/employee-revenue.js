@@ -465,7 +465,8 @@
           + '" style="background:none;border:1px solid var(--border);border-radius:4px;cursor:pointer;padding:1px 7px;font-size:11px;color:'
           + (r.excluded ? 'var(--primary)' : 'var(--text-secondary)') + '">'
           + (r.excluded ? '↩ einbeziehen' : '🚫 ausschließen') + '</button>';
-        html += '<tr><td>' + nameCell + '</td>' +
+        html += '<tr><td><span class="cli-expand" data-cid="' + r.cid + '" title="Klick: wer hat noch an diesem Kunden gearbeitet?" style="cursor:pointer;user-select:none">' +
+            '<span class="cli-caret" style="display:inline-block;width:12px;color:var(--text-secondary)">▸</span>' + nameCell + '</span></td>' +
           '<td class="right">' + fmtH(r.hrs) + '</td>' +
           (single ? '<td class="right">' + fmtH(r.cTotH) + '</td><td class="right">' + share + '</td><td class="right">' + fmtEur(r.cRev) + '</td>' : '') +
           '<td class="right">' + (r.excluded ? '<span class="muted">0 €</span>' : fmtEur(r.rev)) + '</td>' +
@@ -494,6 +495,59 @@
           compute();          // Grid + COMP neu berechnen
           renderModalBody();  // Modal aktualisieren
         }).catch(function (e) { alert('Fehler: ' + e.message); b.disabled = false; });
+      });
+    });
+
+    // Aufklappen: wer hat noch an diesem Kunden gearbeitet?
+    var empNameById = {};
+    COMP.employees.forEach(function (e) { empNameById[e.id] = e.name; });
+    function clientTeam(cid) {
+      var byEmp = {}; // eid → {hrs, rev}
+      monthsInScope().forEach(function (m) {
+        var emps = (COMP.entryByClientEmpMonth[cid] || {})[m] || {};
+        var revM = (COMP.empClientRevMonth[cid] || {})[m] || {};
+        Object.keys(emps).forEach(function (eid) {
+          var e = byEmp[eid] = byEmp[eid] || { hrs: 0, rev: 0 };
+          e.hrs += emps[eid] || 0;
+          e.rev += revM[eid] || 0;
+        });
+      });
+      return byEmp;
+    }
+    var colspan = single ? 7 : 4;
+    modalBody.querySelectorAll('.cli-expand').forEach(function (el) {
+      el.addEventListener('click', function () {
+        var cid = el.getAttribute('data-cid');
+        var tr = el.closest('tr');
+        var caret = el.querySelector('.cli-caret');
+        var nxt = tr.nextElementSibling;
+        if (nxt && nxt.classList.contains('cli-detail') && nxt.getAttribute('data-cid') === cid) {
+          nxt.remove(); caret.textContent = '▸'; return;
+        }
+        var team = clientTeam(cid);
+        var list = Object.keys(team).map(function (eid) {
+          return { eid: eid, name: empNameById[eid] || '?', hrs: team[eid].hrs, rev: team[eid].rev,
+                   excl: !!COMP.excludedSet[cid + '|' + eid] };
+        }).filter(function (x) { return x.hrs > 0; }).sort(function (a, b) { return b.hrs - a.hrs; });
+
+        var totH = list.reduce(function (s, x) { return s + x.hrs; }, 0);
+        var inner = list.map(function (x) {
+          var me = x.eid === empId;
+          var pct = totH > 0 ? ' <span style="color:var(--text-muted)">(' + (x.hrs / totH * 100).toFixed(0) + '%)</span>' : '';
+          return '<div style="display:flex;justify-content:space-between;gap:12px;padding:3px 0;border-bottom:1px solid var(--border)' + (me ? ';font-weight:700' : '') + '">' +
+            '<span>' + (me ? '➤ ' : '') + x.name + (x.excl ? ' <span style="color:var(--danger);font-size:10px;font-weight:600">· ausgeschlossen</span>' : '') + '</span>' +
+            '<span style="color:var(--text-secondary);font-variant-numeric:tabular-nums;white-space:nowrap">' + fmtH(x.hrs) + pct + ' · ' + (x.excl ? '0 €' : fmtEur(x.rev)) + '</span>' +
+          '</div>';
+        }).join('');
+
+        var dtr = document.createElement('tr');
+        dtr.className = 'cli-detail';
+        dtr.setAttribute('data-cid', cid);
+        dtr.innerHTML = '<td colspan="' + colspan + '" style="background:var(--surface-hover,#f8fafc);padding:8px 14px 10px 26px">' +
+          '<div style="font-size:11px;color:var(--text-secondary);margin-bottom:4px">Alle Mitarbeiter an diesem Kunden (Stunden · MA-Umsatz):</div>' +
+          (inner || '<div class="muted" style="font-size:12px">Keine weiteren.</div>') + '</td>';
+        tr.parentNode.insertBefore(dtr, tr.nextSibling);
+        caret.textContent = '▾';
       });
     });
   }
