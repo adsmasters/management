@@ -347,6 +347,7 @@
       var byContact = {};
       linkedContactNames.forEach(function (n) { byContact[n] = {}; });
       rows.forEach(function (r) {
+        if (!revenueMonthInRange(r.year, r.month)) return; // respect active date filter
         var name = r.contact_name;
         if (!byContact[name]) byContact[name] = {};
         var key = r.year + '-' + String(r.month).padStart(2, '0');
@@ -599,7 +600,9 @@
           } else {
             var empty = document.createElement('span');
             empty.style.cssText = 'font-size:12px;color:var(--text-secondary)';
-            empty.textContent = 'Kein Umsatz in importierten Monaten';
+            empty.textContent = (filterFrom.value || filterTo.value)
+              ? 'Kein Umsatz im gewählten Zeitraum'
+              : 'Kein Umsatz in importierten Monaten';
             section.appendChild(empty);
           }
 

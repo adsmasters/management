@@ -146,7 +146,7 @@
         // eslint-disable-next-line no-constant-condition
         while (true) {
           var res = await client.from('revenue')
-            .select('contact_name,total_amount')
+            .select('contact_name,total_amount,year,month')
             .order('id', { ascending: true })
             .range(from, from + PAGE - 1);
           if (res.error) throw res.error;
