@@ -93,6 +93,24 @@
     });
   }
 
+  // Filter revenue rows (year/month granularity) by the same date range.
+  // A revenue month counts if it falls within [from-month, to-month] inclusive.
+  function revenueMonthInRange(year, month) {
+    var from = filterFrom.value;
+    var to   = filterTo.value;
+    if (!from && !to) return true;
+    var ym = year * 12 + (month - 1);
+    if (from) {
+      var fy = parseInt(from.slice(0, 4), 10), fm = parseInt(from.slice(5, 7), 10);
+      if (ym < fy * 12 + (fm - 1)) return false;
+    }
+    if (to) {
+      var ty = parseInt(to.slice(0, 4), 10), tm = parseInt(to.slice(5, 7), 10);
+      if (ym > ty * 12 + (tm - 1)) return false;
+    }
+    return true;
+  }
+
   function onFilterChange() {
     if (lastRenderArgs) render(lastRenderArgs[0], lastRenderArgs[1], lastRenderArgs[2]);
   }
@@ -646,8 +664,17 @@
     lastRenderArgs = [costs, revenues, links];
     allLinks = links;
 
+    // Revenue column label reflects whether a date range is active
+    var rangeActive = !!(filterFrom.value || filterTo.value);
+    var umsatzLabel = rangeActive ? 'Umsatz (Zeitraum)' : 'Umsatz (LTD)';
+    var lblA = document.getElementById('umsatzColLabel');
+    var lblB = document.getElementById('umsatzColLabelType');
+    if (lblA) lblA.textContent = umsatzLabel;
+    if (lblB) lblB.textContent = umsatzLabel;
+
     var revByContact = {};
     revenues.forEach(function (row) {
+      if (!revenueMonthInRange(row.year, row.month)) return;
       var key = norm(row.contact_name || '');
       revByContact[key] = (revByContact[key] || 0) + (row.total_amount || 0);
     });
