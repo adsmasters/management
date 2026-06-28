@@ -122,59 +122,188 @@
     });
   }
 
-  // ── Übersicht ──────────────────────────────────────────────────────────────
-  function renderOverview() {
-    var byMonth = E.summarize(state.transactions, state.settings);
-    var keys = Object.keys(byMonth).concat(Object.keys(state.revenueByMonth))
-      .filter(function (v, i, a) { return a.indexOf(v) === i; }).sort();
+  // ── Dashboards (Profit & Spend) ─────────────────────────────────────────────
+  var dash = { from: null, to: null };
+  var charts = {};
+  var currentTab = 'profit';
 
-    var totRev = 0, totCost = 0, totMemo = 0;
-    var rowsHtml = '';
-    keys.forEach(function (k) {
-      var b = byMonth[k] || { costNet: 0, memoNet: 0, byCategory: {}, uncategorizedCount: 0, year: +k.slice(0, 4), month: +k.slice(5) };
-      var rev = state.revenueByMonth[k] || 0;
-      var cost = b.costNet, profit = rev - cost, margin = rev ? profit / rev * 100 : 0;
-      totRev += rev; totCost += cost; totMemo += b.memoNet;
-      var cats = Object.keys(b.byCategory).sort(function (a, c) { return b.byCategory[c] - b.byCategory[a]; });
-      var detail = cats.map(function (c) {
-        var off = state.settings[c] === false;
-        return '<tr class="cat-detail" data-detail="' + k + '" style="display:none"><td>' + esc(c) +
-          (off ? ' <span class="pill">Memo</span>' : '') +
-          '</td><td colspan="3"></td><td class="num">' + fmt(b.byCategory[c]) + '</td></tr>';
-      }).join('');
-      var warn = b.uncategorizedCount ? ' <span class="pill" style="background:var(--danger-bg);color:#991b1b">' + b.uncategorizedCount + ' unkat.</span>' : '';
-      rowsHtml +=
-        '<tr class="month-row" data-k="' + k + '">' +
-          '<td>' + esc(monthLabel(b.year, b.month)) + warn + '</td>' +
-          '<td class="num revenue">' + fmt(rev) + '</td>' +
-          '<td class="num cost">' + fmt(cost) + '</td>' +
-          '<td class="num ' + (profit >= 0 ? 'pos' : 'neg') + '">' + fmt(profit) + '</td>' +
-          '<td class="num ' + (profit >= 0 ? 'pos' : 'neg') + '">' + (rev ? pct(margin) : '—') + '</td>' +
-        '</tr>' + detail;
-    });
+  var CATEGORY_COLORS = {
+    'Employee': '#2563eb', 'Freelancer/Externe': '#7c3aed', 'Marketing': '#16a34a',
+    'Software': '#0891b2', 'Reisekosten': '#db2777', 'Equipment': '#ca8a04', 'Büro': '#0d9488',
+    'Restaurant': '#dc2626', 'PayPal': '#64748b', 'Andere': '#94a3b8', 'Hotel': '#e11d48',
+    'Steuern': '#9333ea', 'Umsatzsteuer': '#f59e0b', 'Team-Event': '#10b981',
+  };
+  var PALETTE = ['#2563eb', '#7c3aed', '#16a34a', '#0891b2', '#db2777', '#ca8a04', '#0d9488',
+    '#dc2626', '#64748b', '#9333ea', '#f59e0b', '#e11d48', '#10b981', '#475569', '#a16207'];
+  function catColor(cat, i) { return CATEGORY_COLORS[cat] || PALETTE[i % PALETTE.length]; }
+  function round2(n) { return Math.round((Number(n) || 0) * 100) / 100; }
+  function fmtShort(n) {
+    var a = Math.abs(n);
+    if (a >= 1000) return Math.round(n / 1000) + 'k';
+    return '' + Math.round(n);
+  }
+  function ymOf(t) { return t.year + '-' + pad2(t.month); }
+  function vendorName(t) { return suggestPattern(t.payee || t.description) || '(unbekannt)'; }
 
-    el('overviewTable').innerHTML =
-      '<thead><tr><th>Monat</th><th>Umsatz</th><th>Kosten (netto)</th><th>Gewinn v. St.</th><th>Marge</th></tr></thead>' +
-      '<tbody>' + (rowsHtml || '<tr><td colspan="5" class="muted">Noch keine Kostenbuchungen importiert.</td></tr>') + '</tbody>';
+  function availableMonths() {
+    var s = {};
+    state.transactions.forEach(function (t) { s[ymOf(t)] = 1; });
+    Object.keys(state.revenueByMonth).forEach(function (k) { s[k] = 1; });
+    return Object.keys(s).sort();
+  }
+  function monthSeq(from, to) {     // durchgehend (Lücken inklusive)
+    if (!from || !to) return [];
+    var out = [], y = +from.slice(0, 4), m = +from.slice(5), ey = +to.slice(0, 4), em = +to.slice(5);
+    var guard = 0;
+    while ((y < ey || (y === ey && m <= em)) && guard++ < 240) { out.push(y + '-' + pad2(m)); if (++m > 12) { m = 1; y++; } }
+    return out;
+  }
+  function ensureRange() {
+    var av = availableMonths();
+    if (!av.length) return [];
+    if (!dash.from || dash.from < av[0]) dash.from = av[0];
+    if (!dash.to || dash.to > av[av.length - 1]) dash.to = av[av.length - 1];
+    if (dash.from > dash.to) dash.from = av[0];
+    return monthSeq(av[0], av[av.length - 1]);
+  }
+  function selectedMonths() { return monthSeq(dash.from, dash.to); }
 
-    var totProfit = totRev - totCost;
-    el('kpis').innerHTML =
-      kpi('Umsatz', fmt(totRev), '') +
-      kpi('Kosten (netto)', fmt(totCost), '') +
-      kpi('Gewinn vor Steuern', fmt(totProfit), totProfit >= 0 ? 'pos' : 'neg') +
-      kpi('Marge', totRev ? pct(totProfit / totRev * 100) : '—', totProfit >= 0 ? 'pos' : 'neg') +
-      kpi('Steuern/USt (Memo)', fmt(totMemo), '');
-
-    Array.prototype.forEach.call(document.querySelectorAll('#overviewTable tr.month-row'), function (tr) {
-      tr.addEventListener('click', function () {
-        Array.prototype.forEach.call(document.querySelectorAll('.cat-detail[data-detail="' + tr.dataset.k + '"]'), function (d) {
-          d.style.display = d.style.display === 'none' ? '' : 'none';
-        });
+  function renderDashFilter(id) {
+    if (!el(id)) return;
+    var full = ensureRange();
+    var opts = function (sel) {
+      return full.map(function (m) { var p = m.split('-'); return '<option value="' + m + '"' + (m === sel ? ' selected' : '') + '>' + esc(monthLabel(+p[0], +p[1])) + '</option>'; }).join('');
+    };
+    el(id).innerHTML = '<span class="df-label">Zeitraum</span>' +
+      '<select class="df-sel" data-df="from">' + opts(dash.from) + '</select>' +
+      '<span class="df-arrow">→</span>' +
+      '<select class="df-sel" data-df="to">' + opts(dash.to) + '</select>';
+    Array.prototype.forEach.call(el(id).querySelectorAll('.df-sel'), function (s) {
+      s.addEventListener('change', function () {
+        dash[s.dataset.df] = s.value;
+        if (dash.from > dash.to) { if (s.dataset.df === 'from') dash.to = dash.from; else dash.from = dash.to; }
+        renderProfitStats(); renderSpendStats(); drawCharts(currentTab);
       });
     });
   }
-  function kpi(label, value, cls) {
-    return '<div class="kpi-card"><div class="kpi-label">' + label + '</div><div class="kpi-value ' + (cls || '') + '">' + value + '</div></div>';
+
+  function kpiCard(label, value, cls, sub) {
+    return '<div class="kpi ' + (cls || '') + '"><div class="kpi-l">' + label + '</div><div class="kpi-v">' + value +
+      '</div>' + (sub ? '<div class="kpi-s">' + sub + '</div>' : '') + '</div>';
+  }
+
+  function baseOpts(o) {
+    o = o || {};
+    return {
+      responsive: true, maintainAspectRatio: false, indexAxis: o.horizontal ? 'y' : 'x',
+      animation: { duration: 350 },
+      plugins: {
+        legend: { display: o.legend !== false, position: 'bottom', labels: { boxWidth: 12, boxHeight: 12, usePointStyle: true, font: { size: 11 } } },
+        tooltip: { callbacks: { label: function (ctx) { var v = ctx.parsed[o.horizontal ? 'x' : 'y']; if (v == null) v = ctx.parsed; return (ctx.dataset.label ? ctx.dataset.label + ': ' : '') + fmt(v); } } },
+      },
+      scales: {
+        x: { stacked: !!o.stacked, grid: { display: false }, ticks: { font: { size: 11 }, callback: o.horizontal ? function (v) { return fmtShort(v); } : undefined } },
+        y: { stacked: !!o.stacked, grid: { color: '#eef2f7' }, ticks: { font: { size: 11 }, callback: o.horizontal ? undefined : function (v) { return fmtShort(v); } } },
+      },
+    };
+  }
+  function chart(id, config) {
+    var cv = document.getElementById(id); if (!cv || !window.Chart) return;
+    if (charts[id]) charts[id].destroy();
+    charts[id] = new window.Chart(cv.getContext('2d'), config);
+  }
+  function drawCharts(name) { if (name === 'profit') drawProfitCharts(); else if (name === 'spend') drawSpendCharts(); }
+
+  // ── Profit ──────────────────────────────────────────────────────────────────
+  function profitData() {
+    var by = E.summarize(state.transactions, state.settings);
+    return selectedMonths().map(function (m) {
+      var p = m.split('-');
+      var rev = state.revenueByMonth[m] || 0;
+      var cost = (by[m] && by[m].costNet) || 0;
+      return { ym: m, label: monthLabel(+p[0], +p[1]), rev: rev, cost: cost, profit: rev - cost };
+    });
+  }
+  function renderProfitStats() {
+    renderDashFilter('profitFilter');
+    var d = profitData(), tRev = 0, tCost = 0;
+    d.forEach(function (r) { tRev += r.rev; tCost += r.cost; });
+    var tProfit = tRev - tCost;
+    el('profitKpis').innerHTML =
+      kpiCard('Umsatz (netto)', fmt(tRev), 'rev') +
+      kpiCard('Kosten (netto)', fmt(tCost), 'cost') +
+      kpiCard('Gewinn vor Steuern', fmt(tProfit), tProfit >= 0 ? 'profit-pos' : 'profit-neg') +
+      kpiCard('Marge', tRev ? pct(tProfit / tRev * 100) : '—', tProfit >= 0 ? 'profit-pos' : 'profit-neg');
+    var rows = d.map(function (r) {
+      var gap = (r.rev === 0 && r.cost === 0);
+      return '<tr' + (gap ? ' class="gap-row"' : '') + '><td>' + esc(r.label) + (gap ? ' <span class="pill">keine Daten</span>' : '') + '</td>' +
+        '<td class="num revenue">' + fmt(r.rev) + '</td><td class="num cost">' + fmt(r.cost) + '</td>' +
+        '<td class="num ' + (r.profit >= 0 ? 'pos' : 'neg') + '">' + fmt(r.profit) + '</td>' +
+        '<td class="num ' + (r.profit >= 0 ? 'pos' : 'neg') + '">' + (r.rev ? pct(r.profit / r.rev * 100) : '—') + '</td></tr>';
+    }).join('');
+    el('profitTable').innerHTML = '<thead><tr><th>Monat</th><th>Umsatz</th><th>Kosten</th><th>Gewinn v. St.</th><th>Marge</th></tr></thead><tbody>' +
+      (rows || '<tr><td colspan="5" class="muted">Keine Daten.</td></tr>') + '</tbody>';
+  }
+  function drawProfitCharts() {
+    var d = profitData(), labels = d.map(function (r) { return r.label; });
+    chart('chProfitMonth', { type: 'bar', data: { labels: labels, datasets: [{ label: 'Gewinn', data: d.map(function (r) { return round2(r.profit); }), backgroundColor: d.map(function (r) { return r.profit >= 0 ? '#16a34a' : '#dc2626'; }), borderRadius: 6 }] }, options: baseOpts({ money: true, legend: false }) });
+    chart('chRevCost', { type: 'bar', data: { labels: labels, datasets: [
+      { label: 'Umsatz', data: d.map(function (r) { return round2(r.rev); }), backgroundColor: '#84cc16', borderRadius: 6 },
+      { label: 'Kosten', data: d.map(function (r) { return round2(r.cost); }), backgroundColor: '#f87171', borderRadius: 6 },
+    ] }, options: baseOpts({ money: true, legend: true }) });
+  }
+
+  // ── Spend ───────────────────────────────────────────────────────────────────
+  function spendData() {
+    var months = selectedMonths(), set = {}; months.forEach(function (m) { set[m] = 1; });
+    var tx = state.transactions.filter(function (t) { return !t.excluded && set[ymOf(t)]; });
+    var net = function (t) { return Number(t.amount_net != null ? t.amount_net : t.amount_gross) || 0; };
+    var byCat = {}, byVendor = {}, byMonthCat = {};
+    months.forEach(function (m) { byMonthCat[m] = {}; });
+    tx.forEach(function (t) {
+      var c = t.category || '(unkategorisiert)', v = vendorName(t), m = ymOf(t), a = net(t);
+      byCat[c] = (byCat[c] || 0) + a; byVendor[v] = (byVendor[v] || 0) + a;
+      byMonthCat[m][c] = (byMonthCat[m][c] || 0) + a;
+    });
+    var total = Object.keys(byCat).reduce(function (s, k) { return s + byCat[k]; }, 0);
+    return { months: months, tx: tx, net: net, byCat: byCat, byVendor: byVendor, byMonthCat: byMonthCat, total: total };
+  }
+  function renderSpendStats() {
+    renderDashFilter('spendFilter');
+    var s = spendData();
+    var cats = Object.keys(s.byCat).sort(function (a, b) { return s.byCat[b] - s.byCat[a]; });
+    var nMonths = s.months.filter(function (m) { return s.tx.some(function (t) { return ymOf(t) === m; }); }).length || 1;
+    el('spendKpis').innerHTML =
+      kpiCard('Ausgaben gesamt', fmt(s.total), 'cost') +
+      kpiCard('Buchungen', String(s.tx.length), '') +
+      kpiCard('Ø pro Monat', fmt(s.total / nMonths), '') +
+      kpiCard('Größte Kategorie', cats[0] || '—', '', cats[0] ? fmt(s.byCat[cats[0]]) : '');
+    // Top-Lieferanten-Tabelle
+    var vend = Object.keys(s.byVendor).map(function (k) { return [k, s.byVendor[k]]; }).sort(function (a, b) { return b[1] - a[1]; });
+    var vrows = vend.slice(0, 15).map(function (x, i) {
+      return '<tr><td>' + (i + 1) + '. ' + esc(x[0]) + '</td><td class="num cost">' + fmt(x[1]) + '</td><td class="num muted">' + (s.total ? pct(x[1] / s.total * 100) : '—') + '</td></tr>';
+    }).join('');
+    el('vendorTable').innerHTML = '<thead><tr><th>Lieferant</th><th>Ausgaben</th><th>%</th></tr></thead><tbody>' +
+      (vrows || '<tr><td colspan="3" class="muted">Keine Daten.</td></tr>') + '</tbody>';
+    // Detailtabelle (letzte Buchungen)
+    var recent = s.tx.slice().sort(function (a, b) { return a.tx_date < b.tx_date ? 1 : -1; }).slice(0, 80);
+    var drows = recent.map(function (t) {
+      return '<tr><td>' + esc(t.tx_date) + '</td><td>' + esc(vendorName(t).slice(0, 32)) + '</td><td>' + esc(t.category || '—') +
+        '</td><td class="muted">' + esc(t.source === 'kreissparkasse' ? 'Bank' : 'AMEX') + '</td><td class="num cost">' + fmt(s.net(t)) + '</td></tr>';
+    }).join('');
+    el('spendDetailTable').innerHTML = '<thead><tr><th>Datum</th><th>Lieferant</th><th>Kategorie</th><th>Quelle</th><th>Betrag</th></tr></thead><tbody>' +
+      (drows || '<tr><td colspan="5" class="muted">Keine Daten.</td></tr>') + '</tbody>';
+  }
+  function drawSpendCharts() {
+    var s = spendData();
+    var cats = Object.keys(s.byCat).sort(function (a, b) { return s.byCat[b] - s.byCat[a]; });
+    chart('chSpendCat', { type: 'doughnut', data: { labels: cats, datasets: [{ data: cats.map(function (c) { return round2(s.byCat[c]); }), backgroundColor: cats.map(function (c, i) { return catColor(c, i); }), borderWidth: 2, borderColor: '#fff' }] },
+      options: { responsive: true, maintainAspectRatio: false, cutout: '58%', plugins: { legend: { position: 'right', labels: { boxWidth: 12, usePointStyle: true, font: { size: 11 } } }, tooltip: { callbacks: { label: function (ctx) { return ctx.label + ': ' + fmt(ctx.parsed) + ' (' + (s.total ? (ctx.parsed / s.total * 100).toFixed(1) : 0) + '%)'; } } } } } });
+    var vend = Object.keys(s.byVendor).map(function (k) { return [k, s.byVendor[k]]; }).sort(function (a, b) { return b[1] - a[1]; }).slice(0, 12);
+    chart('chSpendVendor', { type: 'bar', data: { labels: vend.map(function (x) { return x[0].slice(0, 22); }), datasets: [{ label: 'Ausgaben', data: vend.map(function (x) { return round2(x[1]); }), backgroundColor: '#2563eb', borderRadius: 5 }] }, options: baseOpts({ horizontal: true, legend: false }) });
+    // Monatlich gestapelt nach Kategorie
+    var ds = cats.map(function (c, i) { return { label: c, data: s.months.map(function (m) { return round2(s.byMonthCat[m][c] || 0); }), backgroundColor: catColor(c, i), borderRadius: 3 }; });
+    chart('chSpendMonth', { type: 'bar', data: { labels: s.months.map(function (m) { var p = m.split('-'); return monthLabel(+p[0], +p[1]); }), datasets: ds }, options: baseOpts({ stacked: true, legend: true }) });
   }
 
   // ── Import ─────────────────────────────────────────────────────────────────
@@ -241,7 +370,7 @@
 
     chain.then(reloadData).then(function () {
       preview.innerHTML = '<div class="alert alert-success">' + summaries.join('<br>') + '</div>';
-      renderImports(); renderOverview(); renderMissing(); renderCategories();
+      renderImports(); renderProfitStats(); renderSpendStats(); drawCharts(currentTab); renderMissing(); renderCategories();
       el('csvFile').value = '';
     }).catch(function (e) { preview.innerHTML = '<div class="alert alert-danger">Fehler: ' + esc(e.message) + '</div>'; });
   }
@@ -459,7 +588,7 @@
       cb.addEventListener('change', function () {
         window.db.cost.categorySettings.set(cb.dataset.cat, cb.checked).then(function () {
           state.settings[cb.dataset.cat] = cb.checked;
-          renderOverview(); renderCategories();
+          renderProfitStats(); renderSpendStats(); drawCharts(currentTab); renderCategories();
         }).catch(function (e) { alert(e.message); });
       });
     });
@@ -493,13 +622,19 @@
   // ── Plumbing ───────────────────────────────────────────────────────────────
   function reloadData() { return loadAll(); }
   function reloadAndRender() { return loadAll().then(renderAll); }
-  function renderAll() { renderOverview(); renderImports(); renderMissing(); renderRules(); renderCategories(); }
+  function renderAll() {
+    renderProfitStats(); renderSpendStats();
+    renderImports(); renderMissing(); renderRules(); renderCategories();
+    drawCharts(currentTab);
+  }
 
   function switchTab(name) {
+    currentTab = name;
     Array.prototype.forEach.call(document.querySelectorAll('.ka-tab'), function (t) {
       t.classList.toggle('active', t.dataset.tab === name); });
     Array.prototype.forEach.call(document.querySelectorAll('.ka-panel'), function (p) {
       p.classList.toggle('active', p.dataset.panel === name); });
+    drawCharts(name);   // Charts erst zeichnen, wenn Panel sichtbar (korrekte Größe)
   }
 
   function bindStatic() {

@@ -43,6 +43,36 @@
     .pill { font-size:11px; padding:2px 8px; border-radius:10px; background:var(--border); color:var(--text-secondary); }
     .muted { color:var(--text-muted); font-size:12px; }
     .right { text-align:right; }
+
+    /* Dashboards */
+    .dash-filter { display:flex; align-items:center; gap:10px; margin-bottom:18px; flex-wrap:wrap; }
+    .dash-filter .df-label { font-size:12px; font-weight:600; color:var(--text-secondary); text-transform:uppercase; letter-spacing:.04em; }
+    .dash-filter .df-sel { padding:8px 12px; border:1px solid var(--border); border-radius:10px; background:var(--surface); color:var(--text); font-size:13px; font-weight:600; cursor:pointer; }
+    .dash-filter .df-arrow { color:var(--text-muted); }
+
+    .kpi-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:20px; }
+    @media (max-width:880px){ .kpi-grid{ grid-template-columns:repeat(2,1fr); } }
+    .kpi { position:relative; background:var(--surface); border:1px solid var(--border); border-radius:16px; padding:18px 20px; overflow:hidden;
+      box-shadow:0 1px 2px rgba(16,24,40,.04); transition:transform .15s, box-shadow .15s; }
+    .kpi:hover { transform:translateY(-2px); box-shadow:0 8px 24px rgba(16,24,40,.08); }
+    .kpi::before { content:''; position:absolute; left:0; top:0; bottom:0; width:4px; background:var(--text-muted); }
+    .kpi.rev::before { background:#84cc16; } .kpi.cost::before { background:#f87171; }
+    .kpi.profit-pos::before { background:#16a34a; } .kpi.profit-neg::before { background:#dc2626; }
+    .kpi .kpi-l { font-size:12px; color:var(--text-secondary); text-transform:uppercase; letter-spacing:.04em; font-weight:600; }
+    .kpi .kpi-v { font-size:26px; font-weight:750; margin-top:6px; letter-spacing:-.02em; }
+    .kpi.profit-pos .kpi-v { color:#15803d; } .kpi.profit-neg .kpi-v { color:#b91c1c; }
+    .kpi .kpi-s { font-size:12px; color:var(--text-muted); margin-top:2px; }
+
+    .chart-grid { display:grid; grid-template-columns:repeat(2,1fr); gap:16px; }
+    @media (max-width:880px){ .chart-grid{ grid-template-columns:1fr; } }
+    .chart-card { background:var(--surface); border:1px solid var(--border); border-radius:16px; padding:16px 18px 18px; box-shadow:0 1px 2px rgba(16,24,40,.04); }
+    .chart-card.span2 { grid-column:span 2; }
+    @media (max-width:880px){ .chart-card.span2{ grid-column:span 1; } }
+    .chart-head { display:flex; align-items:baseline; justify-content:space-between; margin-bottom:12px; gap:10px; }
+    .chart-head h3 { font-size:14px; font-weight:700; margin:0; }
+    .chart-head .chart-sub { font-size:11px; color:var(--text-muted); }
+    .chart-box { position:relative; height:300px; }
+    tr.gap-row td { color:var(--text-muted); background:repeating-linear-gradient(45deg,transparent,transparent 6px,rgba(0,0,0,.02) 6px,rgba(0,0,0,.02) 12px); }
   </style>
 </head>
 <body>
@@ -82,23 +112,41 @@
 
   <div id="app" style="display:none">
     <div class="ka-tabs">
-      <button class="ka-tab active" data-tab="overview">Monatsübersicht</button>
+      <button class="ka-tab active" data-tab="profit">📈 Profit</button>
+      <button class="ka-tab" data-tab="spend">📊 Spend</button>
       <button class="ka-tab" data-tab="import">Import</button>
       <button class="ka-tab warn" data-tab="missing">Unkategorisiert <span class="count" id="missingCount">0</span></button>
       <button class="ka-tab" data-tab="rules">Regeln</button>
       <button class="ka-tab" data-tab="categories">Kategorien</button>
     </div>
 
-    <!-- Übersicht -->
-    <section class="ka-panel active" data-panel="overview">
-      <div class="summary-strip" id="kpis"></div>
-      <div class="card"><div class="card-body table-wrap">
-        <table class="ka" id="overviewTable"></table>
-        <div class="muted" style="margin-top:10px">
-          Umsatz = Lexoffice (Ausschlüsse aus <a href="settings.html">Einstellungen → Umsatz-Ausschlüsse</a>, z.&nbsp;B. Red&nbsp;Bull).
-          Kosten = Netto (MwSt herausgerechnet), ohne ausgeschlossene Buchungen und ohne Kategorien, die in „Kategorien" deaktiviert sind (Steuern, Umsatzsteuer).
-        </div>
+    <!-- Profit Analysis -->
+    <section class="ka-panel active" data-panel="profit">
+      <div class="dash-filter" id="profitFilter"></div>
+      <div class="kpi-grid" id="profitKpis"></div>
+      <div class="chart-grid">
+        <div class="chart-card span2"><div class="chart-head"><h3>Gewinn pro Monat</h3><span class="chart-sub">vor Steuern · Umsatz − Netto-Kosten</span></div><div class="chart-box"><canvas id="chProfitMonth"></canvas></div></div>
+        <div class="chart-card span2"><div class="chart-head"><h3>Umsatz vs. Kosten</h3><span class="chart-sub">pro Monat</span></div><div class="chart-box"><canvas id="chRevCost"></canvas></div></div>
+      </div>
+      <div class="card" style="margin-top:18px"><div class="card-body table-wrap">
+        <table class="ka" id="profitTable"></table>
+        <div class="muted" style="margin-top:10px">Umsatz = Lexoffice (Red-Bull-Ausschluss aus <a href="settings.html">Einstellungen</a>). Kosten = Netto ohne ausgeschlossene Buchungen und ohne Memo-Kategorien (Steuern, Umsatzsteuer).</div>
       </div></div>
+    </section>
+
+    <!-- Spend Classification -->
+    <section class="ka-panel" data-panel="spend">
+      <div class="dash-filter" id="spendFilter"></div>
+      <div class="kpi-grid" id="spendKpis"></div>
+      <div class="chart-grid">
+        <div class="chart-card"><div class="chart-head"><h3>Ausgaben nach Kategorie</h3></div><div class="chart-box"><canvas id="chSpendCat"></canvas></div></div>
+        <div class="chart-card"><div class="chart-head"><h3>Top-Lieferanten</h3></div><div class="chart-box"><canvas id="chSpendVendor"></canvas></div></div>
+        <div class="chart-card span2"><div class="chart-head"><h3>Ausgaben pro Monat</h3><span class="chart-sub">gestapelt nach Kategorie</span></div><div class="chart-box"><canvas id="chSpendMonth"></canvas></div></div>
+      </div>
+      <div class="chart-grid" style="margin-top:18px">
+        <div class="chart-card"><div class="chart-head"><h3>Top-Lieferanten</h3><span class="chart-sub">Anteil am Gesamt</span></div><div class="card-body table-wrap" style="padding:0"><table class="ka" id="vendorTable"></table></div></div>
+        <div class="chart-card"><div class="chart-head"><h3>Letzte Buchungen</h3></div><div class="card-body table-wrap" style="padding:0;max-height:360px;overflow:auto"><table class="ka" id="spendDetailTable"></table></div></div>
+      </div>
     </section>
 
     <!-- Import -->
@@ -208,6 +256,7 @@
 </main>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="js/db.js"></script>
 <script src="js/utils.js"></script>
 <script src="js/clockify.js"></script>
