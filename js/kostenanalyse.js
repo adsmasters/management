@@ -380,11 +380,14 @@
       });
     });
 
-    chain.then(reloadData).then(function () {
-      preview.innerHTML = '<div class="alert alert-success">' + summaries.join('<br>') + '</div>';
-      renderImports(); renderProfitStats(); renderSpendStats(); drawCharts(currentTab); renderMissing(); renderCategories();
-      el('csvFile').value = '';
-    }).catch(function (e) { preview.innerHTML = '<div class="alert alert-danger">Fehler: ' + esc(e.message) + '</div>'; });
+    chain.then(reloadData)
+      .then(function () { return reapplyRules(); })   // vorhandene Regeln direkt anwenden
+      .then(reloadData)
+      .then(function () {
+        preview.innerHTML = '<div class="alert alert-success">' + summaries.join('<br>') + '</div>';
+        renderImports(); renderProfitStats(); renderSpendStats(); drawCharts(currentTab); renderMissing(); renderCategories(); renderTransactions();
+        el('csvFile').value = '';
+      }).catch(function (e) { preview.innerHTML = '<div class="alert alert-danger">Fehler: ' + esc(e.message) + '</div>'; });
   }
   function monthFromIso(iso) { var p = (iso || '').split('-'); return p.length === 3 ? MONTHS[+p[1] - 1] + ' ' + p[0] : iso; }
 
@@ -712,7 +715,8 @@
   // ── Regeln neu anwenden ────────────────────────────────────────────────────
   function reapplyRules() {
     var rules = rulesObj();
-    var updates = state.transactions.map(function (t) {
+    var changed = [];          // nur tatsächlich geänderte Zeilen schreiben
+    state.transactions.forEach(function (t) {
       var manual = t.excluded && t.exclude_reason === MANUAL_REASON;        // einzeln ausgeschlossen
       var adjusted = !t.excluded && t.exclude_reason === ADJUSTED_REASON;   // Betrag angepasst
       var manualCat = !t.excluded && isManualCat(t.exclude_reason);         // Kategorie manuell gesetzt
@@ -721,15 +725,18 @@
       var reason = manual ? MANUAL_REASON
         : (en.excluded ? en.exclude_reason : (adjusted ? ADJUSTED_REASON : (manualCat ? t.exclude_reason : en.exclude_reason)));
       var net = (adjusted && !en.excluded) ? t.amount_net : en.amount_net;  // angepassten Betrag halten
-      return Object.assign({}, t, {
-        category: manualCat ? t.category : en.category, vat_rate: en.vat_rate, vat_amount: en.vat_amount, amount_net: net,
+      var category = manualCat ? t.category : en.category;
+      var diff = String(category) !== String(t.category) || Number(net) !== Number(t.amount_net) ||
+        !!excluded !== !!t.excluded || String(reason) !== String(t.exclude_reason) ||
+        Number(en.vat_amount) !== Number(t.vat_amount) || Number(en.vat_rate) !== Number(t.vat_rate);
+      if (diff) changed.push(Object.assign({}, t, {
+        category: category, vat_rate: en.vat_rate, vat_amount: en.vat_amount, amount_net: net,
         excluded: excluded, exclude_reason: reason, updated_at: new Date().toISOString(),
-      });
+      }));
     });
-    if (!updates.length) return Promise.resolve();
-    // In Blöcken upserten (Supabase-Limit schonen)
+    if (!changed.length) return Promise.resolve();
     var chunks = [];
-    for (var i = 0; i < updates.length; i += 200) chunks.push(updates.slice(i, i + 200));
+    for (var i = 0; i < changed.length; i += 200) chunks.push(changed.slice(i, i + 200));
     return chunks.reduce(function (p, c) {
       return p.then(function () { return window.db.cost.transactions.bulkUpsert(c); });
     }, Promise.resolve());
