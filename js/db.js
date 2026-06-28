@@ -374,6 +374,11 @@
         add: (matchType, pattern, category) =>
           q(s => s.from('cost_category_rules')
             .insert({ match_type: matchType || 'contains', pattern, category }).select().single()),
+        // Sammel-Insert: rules = [{match_type, pattern, category}]
+        addMany: (rules) =>
+          q(s => s.from('cost_category_rules')
+            .insert(rules.map(r => ({ match_type: r.match_type || 'contains', pattern: r.pattern, category: r.category })))
+            .select()),
         update: (id, fields) =>
           q(s => s.from('cost_category_rules').update(fields).eq('id', id).select().single()),
         delete: (id) =>

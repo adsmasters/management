@@ -124,7 +124,14 @@
 
     <!-- Unkategorisiert -->
     <section class="ka-panel" data-panel="missing">
-      <div class="alert alert-info">Buchungen ohne Kategorie. Lege eine Regel an – sie greift sofort für alle passenden (auch künftigen) Buchungen.</div>
+      <div class="alert alert-info">Buchungen ohne Kategorie. Trage bei den gewünschten Zeilen eine Kategorie ein und klick <strong>oben rechts „Alle ausgefüllten anlegen"</strong> – oder pro Zeile einzeln. Regeln greifen sofort für alle passenden (auch künftigen) Buchungen.</div>
+      <div style="display:flex;gap:12px;align-items:center;margin-bottom:12px;flex-wrap:wrap">
+        <button id="missingBulkBtn" class="btn btn-primary">✓ Alle ausgefüllten anlegen</button>
+        <input id="missingFillAll" placeholder="Kategorie für alle leeren Felder setzen" size="30" list="catList"
+          style="padding:7px 9px;border:1px solid var(--border);border-radius:var(--radius);background:var(--surface);color:var(--text);font-size:13px">
+        <button id="missingFillBtn" class="btn btn-secondary btn-sm">in leere Felder übernehmen</button>
+        <span id="missingBulkHint" class="muted"></span>
+      </div>
       <div class="card"><div class="card-body table-wrap"><table class="ka" id="missingTable"></table></div></div>
     </section>
 
