@@ -48,6 +48,24 @@
   function rulesObj() {
     return { categoryRules: state.categoryRules, vatRules: state.vatRules, excludeRules: state.excludeRules };
   }
+  // Sinnvolles Regel-Pattern: Anbietername ohne angehängte Transaktions-IDs.
+  // "PAYPAL *FLASCHENP. 17642964006" → "PAYPAL *FLASCHENP."
+  // "PAYPAL *A24 4029357733" → "PAYPAL *A24"   (kurze Codes wie A24 bleiben)
+  function suggestPattern(text) {
+    var s = String(text || '').split('|')[0].trim();
+    var toks = s.split(/\s+/);
+    var out = [];
+    for (var i = 0; i < toks.length; i++) {
+      var t = toks[i];
+      var digitCount = (t.match(/\d/g) || []).length;
+      var pureDigits = /^\d+$/.test(t);
+      if ((pureDigits && t.length >= 4) || digitCount >= 5) break;   // ID-Token → abschneiden
+      out.push(t);
+    }
+    var p = out.join(' ').replace(/[\s.,;:_\-]+$/, '').trim();
+    return p || s;
+  }
+
   function isExcludedRevenue(name) {
     var kws = (localStorage.getItem('revenueExcludeKeywords') || '')
       .split('\n').map(function (k) { return k.trim().toLowerCase(); }).filter(Boolean);
@@ -231,8 +249,9 @@
     var groups = {};
     state.transactions.forEach(function (t) {
       if (t.category != null || t.excluded) return;
-      var key = E.norm(t.payee || t.description).slice(0, 50);
-      (groups[key] = groups[key] || { sample: t, sum: 0, count: 0 });
+      var pat = suggestPattern(t.payee || t.description);
+      var key = E.norm(pat);
+      (groups[key] = groups[key] || { sample: t, pattern: pat, sum: 0, count: 0 });
       groups[key].sum += Number(t.amount_net != null ? t.amount_net : t.amount_gross) || 0;
       groups[key].count++;
     });
@@ -241,7 +260,7 @@
 
     var rows = keys.map(function (k, i) {
       var g = groups[k];
-      var suggest = esc((g.sample.payee || g.sample.description || '').split('|')[0].trim().slice(0, 40));
+      var suggest = esc(g.pattern);
       return '<tr><td>' + esc(g.sample.description.slice(0, 70)) + '</td>' +
         '<td class="num">' + g.count + '</td><td class="num cost">' + fmt(g.sum) + '</td>' +
         '<td class="right"><input id="mp' + i + '" class="miss-pat" data-i="' + i + '" value="' + suggest + '" size="18" style="padding:5px 7px;border:1px solid var(--border);border-radius:6px">' +
