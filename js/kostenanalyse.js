@@ -396,6 +396,21 @@
           .then(reloadAndRender).catch(function (e) { alert(e.message); b.disabled = false; });
       });
     });
+
+    // Finanzamt-Sammelzahlungen (USt + Lohnsteuer): nur Lohnsteuer zählt
+    var bundles = state.transactions.filter(function (t) {
+      return /lohnsteuer/i.test(t.description || '') && /umsatzsteuer/i.test(t.description || '');
+    }).sort(function (a, b) { return (a.tx_date < b.tx_date) ? 1 : -1; });
+    var bBody = bundles.map(function (t) {
+      var ls = E.extractLohnsteuer(t.description);
+      var ust = ls != null ? (Number(t.amount_gross) - ls) : null;
+      return '<tr><td>' + esc(t.tx_date) + '</td><td class="num">' + fmt(t.amount_gross) + '</td>' +
+        '<td class="num cost">' + (ls != null ? fmt(ls) : '?') + '</td>' +
+        '<td class="num muted">' + (ust != null ? fmt(ust) : '?') + '</td></tr>';
+    }).join('');
+    el('bundleTable').innerHTML =
+      '<thead><tr><th>Datum</th><th>Gesamt (brutto)</th><th>zählt: Lohnsteuer</th><th>Durchlauf: Umsatzsteuer</th></tr></thead><tbody>' +
+      (bBody || '<tr><td colspan="4" class="muted">Keine Finanzamt-Sammelzahlungen gefunden.</td></tr>') + '</tbody>';
   }
   function ruleTable(rules, cells, ns, headers) {
     var body = rules.map(function (r) {

@@ -177,14 +177,43 @@
     return { excluded: false, exclude_reason: null };
   }
 
+  // Lohnsteuer-Beträge aus einem Finanzamt-Buchungstext extrahieren.
+  // "... Umsatzsteuer Okt. 25 14.694,96 Lohnsteuer Nov. 25 4.557,73" → 4557.73
+  function extractLohnsteuer(desc) {
+    var toks = String(desc || '').split(/\s+/);
+    var sum = 0, found = false;
+    for (var i = 0; i < toks.length; i++) {
+      if (!/lohnsteuer/i.test(toks[i])) continue;
+      for (var j = i + 1; j < Math.min(toks.length, i + 6); j++) {
+        var m = toks[j].match(/^(\d[\d.]*,\d{2})$/);   // dt. Betrag wie 4.557,73
+        if (m) { sum += parseGermanAmount(m[1]); found = true; break; }
+      }
+    }
+    return found ? Math.round(sum * 100) / 100 : null;
+  }
+
+  // Finanzamt-Sammelzahlung (Umsatzsteuer + Lohnsteuer in einer Lastschrift):
+  // nur die Lohnsteuer ist echter Aufwand; der USt-Anteil ist Durchlauf.
+  // Reihenfolge-unabhängig: greift, sobald Text BEIDE Steuerarten + Lohnsteuer-Betrag enthält.
+  function isBundledTaxPayment(tx) {
+    return /lohnsteuer/i.test(tx.description || '')
+      && /umsatzsteuer/i.test(tx.description || '')
+      && extractLohnsteuer(tx.description) != null;
+  }
+
   // Eine Transaktion vollständig anreichern (Kategorie + MwSt + Ausschluss).
   function enrich(tx, rules) {
     var cat = categorize(tx, rules.categoryRules || []);
     var vat = applyVat(tx, rules.vatRules || []);
     var exc = applyExclude(tx, rules.excludeRules || []);
+    var net = vat.amount_net;
+    if (isBundledTaxPayment(tx)) {                   // immer als Lohnsteuer behandeln (egal welche Regel zuerst griff)
+      cat = 'Employee';
+      net = extractLohnsteuer(tx.description);
+    }
     return Object.assign({}, tx, {
       category: cat,
-      vat_rate: vat.vat_rate, vat_amount: vat.vat_amount, amount_net: vat.amount_net,
+      vat_rate: vat.vat_rate, vat_amount: vat.vat_amount, amount_net: net,
       excluded: exc.excluded, exclude_reason: exc.exclude_reason,
     });
   }
@@ -264,6 +293,8 @@
     applyExclude: applyExclude,
     enrich: enrich,
     enrichAll: enrichAll,
+    extractLohnsteuer: extractLohnsteuer,
+    isBundledTaxPayment: isBundledTaxPayment,
     signature: signature,
     assignDedupHashes: assignDedupHashes,
     summarize: summarize,

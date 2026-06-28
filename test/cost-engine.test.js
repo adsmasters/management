@@ -143,4 +143,27 @@ test('summarize: excluded zählt nie, Steuern nur als Memo', () => {
   assert.strictEqual(s.uncategorizedCount, 1);
 });
 
+// ── Finanzamt-Sammelzahlung: nur Lohnsteuer zählt ────────────────────────────
+test('extractLohnsteuer: nur Lohnsteuer-Betrag aus Bündel', () => {
+  assert.strictEqual(
+    E.extractLohnsteuer('STEUERVERWALTUNG NRW Umsatzsteuer Okt. 25 14.694,96 Lohnsteuer Nov. 25 4.557,73'),
+    4557.73);
+  assert.strictEqual(
+    E.extractLohnsteuer('Umsatzsteuer Dez. 25 4.506,67 Umsatzsteuer SVZ 26 11.002,00 Lohnsteuer Jan. 26 4.616,82'),
+    4616.82);
+  assert.strictEqual(E.extractLohnsteuer('Lohnsteuer Feb. 26 7.427,60'), 7427.60);
+  assert.strictEqual(E.extractLohnsteuer('keine steuer hier'), null);
+});
+
+test('enrich: Finanzamt-Bündel zählt nur Lohnsteuer als Kosten', () => {
+  var rules = { categoryRules: [{ match_type: 'contains', pattern: 'Lohnsteuer', category: 'Employee' }], vatRules: [], excludeRules: [] };
+  var bundle = E.enrich({ description: 'STEUERVERWALTUNG NRW Umsatzsteuer Sept.25 10.286,77 Lohnsteuer Okt. 25 4.664,53',
+    amount_gross: 14951.30, tx_date: '2025-11-13' }, rules);
+  assert.strictEqual(bundle.category, 'Employee');
+  assert.strictEqual(bundle.amount_net, 4664.53, 'nur Lohnsteuer zählt');
+  // reine Lohnsteuer (kein USt) bleibt voll
+  var pure = E.enrich({ description: 'STEUERVERWALTUNG NRW Lohnsteuer Feb. 26 7.427,60', amount_gross: 7427.60, tx_date: '2026-03-13' }, rules);
+  assert.strictEqual(pure.amount_net, 7427.60);
+});
+
 console.log('\n' + passed + ' Tests bestanden.\n');
