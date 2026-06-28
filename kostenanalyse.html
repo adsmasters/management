@@ -73,6 +73,19 @@
     .chart-head .chart-sub { font-size:11px; color:var(--text-muted); }
     .chart-box { position:relative; height:300px; }
     tr.gap-row td { color:var(--text-muted); background:repeating-linear-gradient(45deg,transparent,transparent 6px,rgba(0,0,0,.02) 6px,rgba(0,0,0,.02) 12px); }
+
+    /* Datenabdeckung */
+    .cov-wrap { overflow-x:auto; }
+    table.cov { border-collapse:separate; border-spacing:3px; }
+    table.cov th { font-size:10px; text-align:center; color:var(--text-secondary); font-weight:700; padding:2px 4px; min-width:38px; }
+    table.cov th .cov-y { font-size:9px; color:var(--text-muted); font-weight:500; }
+    td.cov-src { font-size:12px; font-weight:700; white-space:nowrap; padding-right:12px; text-align:right; }
+    td.cov-cell { text-align:center; font-size:11px; font-weight:700; padding:9px 4px; border-radius:7px; min-width:38px; }
+    td.cov-ok  { background:#dcfce7; color:#166534; }
+    td.cov-dbl { background:#fef9c3; color:#854d0e; box-shadow:inset 0 0 0 1.5px #eab308; }
+    td.cov-gap { color:#b91c1c; background:repeating-linear-gradient(45deg,#fef2f2,#fef2f2 4px,#fde2e2 4px,#fde2e2 8px); }
+    .cov-key { display:inline-block; width:12px; height:12px; border-radius:3px; vertical-align:-2px; margin-right:3px; }
+    .cov-key.cov-ok { background:#dcfce7; } .cov-key.cov-gap { background:repeating-linear-gradient(45deg,#fef2f2,#fef2f2 3px,#fde2e2 3px,#fde2e2 6px); } .cov-key.cov-dbl { background:#fef9c3; box-shadow:inset 0 0 0 1px #eab308; }
   </style>
 </head>
 <body>
@@ -177,6 +190,10 @@
         <div class="dropzone" id="dropzone">CSV-Datei(en) hier ablegen oder oben auswählen</div>
         <div id="importPreview" style="margin-top:16px"></div>
       </div></div>
+
+      <div class="card" style="margin-top:18px"><div class="card-header"><h2>📅 Datenabdeckung · wo fehlen Zeiträume?</h2></div>
+        <div class="card-body"><div id="coverage"></div></div>
+      </div>
 
       <div class="card" style="margin-top:18px"><div class="card-header"><h2>Import-Historie</h2></div>
         <div class="card-body table-wrap"><table class="ka" id="importsTable"></table></div>
