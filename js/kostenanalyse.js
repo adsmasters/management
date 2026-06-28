@@ -132,7 +132,7 @@
   }
 
   // ── Dashboards (Profit & Spend) ─────────────────────────────────────────────
-  var dash = { from: null, to: null };
+  var dash = { from: null, to: null, hiddenCats: null };
   var charts = {};
   var currentTab = 'profit';
 
@@ -194,6 +194,41 @@
         renderProfitStats(); renderSpendStats(); drawCharts(currentTab);
       });
     });
+    renderCatFilter(el(id));
+  }
+
+  function renderCatFilter(container) {
+    var hidden = ensureHidden();
+    var cats = allCategories();
+    var visN = cats.filter(function (c) { return !hidden[c]; }).length;
+    var anyHidden = cats.some(function (c) { return hidden[c]; });
+    var wrap = document.createElement('span');
+    wrap.className = 'cat-filter';
+    wrap.innerHTML =
+      '<button type="button" class="df-sel cf-btn">Kategorien: ' + (anyHidden ? visN + '/' + cats.length : 'alle') + ' ▾</button>' +
+      '<div class="cf-panel" style="display:none">' +
+        '<label class="cf-row cf-all"><input type="checkbox" class="cf-allbox"' + (visN === cats.length ? ' checked' : '') + '> <strong>Alle</strong></label>' +
+        cats.map(function (c) {
+          return '<label class="cf-row"><input type="checkbox" class="cf-cb" value="' + esc(c) + '"' + (hidden[c] ? '' : ' checked') + '> ' + esc(c) + '</label>';
+        }).join('') +
+      '</div>';
+    container.appendChild(wrap);
+    var panel = wrap.querySelector('.cf-panel');
+    wrap.querySelector('.cf-btn').addEventListener('click', function (e) {
+      e.stopPropagation();
+      document.querySelectorAll('.cf-panel').forEach(function (p) { if (p !== panel) p.style.display = 'none'; });
+      panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+    });
+    panel.addEventListener('click', function (e) { e.stopPropagation(); });
+    function apply() { persistHidden(); renderProfitStats(); renderSpendStats(); drawCharts(currentTab); }
+    Array.prototype.forEach.call(wrap.querySelectorAll('.cf-cb'), function (cb) {
+      cb.addEventListener('change', function () { if (cb.checked) delete dash.hiddenCats[cb.value]; else dash.hiddenCats[cb.value] = 1; apply(); });
+    });
+    wrap.querySelector('.cf-allbox').addEventListener('change', function (e) {
+      var on = e.target.checked;
+      cats.forEach(function (c) { if (on) delete dash.hiddenCats[c]; else dash.hiddenCats[c] = 1; });
+      apply();
+    });
   }
 
   function kpiCard(label, value, cls, sub) {
@@ -227,8 +262,19 @@
   function drawCharts(name) { if (name === 'profit') drawProfitCharts(); else if (name === 'spend') drawSpendCharts(); }
 
   // ── Profit ──────────────────────────────────────────────────────────────────
+  // Manuell ausgeblendete Kategorien (Spend+Profit-Ansicht). Default: Memo-Kategorien.
+  function ensureHidden() {
+    if (dash.hiddenCats) return dash.hiddenCats;
+    var stored = null; try { stored = JSON.parse(localStorage.getItem('kaHiddenCats') || 'null'); } catch (e) {}
+    if (stored && typeof stored === 'object') dash.hiddenCats = stored;
+    else { dash.hiddenCats = {}; Object.keys(state.settings).forEach(function (c) { if (state.settings[c] === false) dash.hiddenCats[c] = 1; }); }
+    return dash.hiddenCats;
+  }
+  function persistHidden() { try { localStorage.setItem('kaHiddenCats', JSON.stringify(dash.hiddenCats || {})); } catch (e) {} }
+  function notHidden(t) { var h = ensureHidden(); return !h[t.category == null ? '(unkategorisiert)' : t.category]; }
+
   function profitData() {
-    var by = E.summarize(state.transactions, state.settings);
+    var by = E.summarize(state.transactions.filter(notHidden), state.settings);
     return selectedMonths().map(function (m) {
       var p = m.split('-');
       var rev = state.revenueByMonth[m] || 0;
@@ -268,7 +314,7 @@
   // ── Spend ───────────────────────────────────────────────────────────────────
   function spendData() {
     var months = selectedMonths(), set = {}; months.forEach(function (m) { set[m] = 1; });
-    var tx = state.transactions.filter(function (t) { return !t.excluded && set[ymOf(t)]; });
+    var tx = state.transactions.filter(function (t) { return !t.excluded && set[ymOf(t)] && notHidden(t); });
     var net = function (t) { return Number(t.amount_net != null ? t.amount_net : t.amount_gross) || 0; };
     var byCat = {}, byVendor = {}, byMonthCat = {};
     months.forEach(function (m) { byMonthCat[m] = {}; });
@@ -798,6 +844,9 @@
   function bindStatic() {
     Array.prototype.forEach.call(document.querySelectorAll('.ka-tab'), function (t) {
       t.addEventListener('click', function () { switchTab(t.dataset.tab); });
+    });
+    document.addEventListener('click', function () {   // Kategorie-Filter-Panel bei Außenklick schließen
+      Array.prototype.forEach.call(document.querySelectorAll('.cf-panel'), function (p) { p.style.display = 'none'; });
     });
     el('csvFile').addEventListener('change', function (e) { handleFiles(e.target.files); });
     ['txSearch', 'txCat', 'txSource', 'txStatus'].forEach(function (id) {

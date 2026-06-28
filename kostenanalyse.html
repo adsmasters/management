@@ -49,6 +49,14 @@
     .dash-filter .df-label { font-size:12px; font-weight:600; color:var(--text-secondary); text-transform:uppercase; letter-spacing:.04em; }
     .dash-filter .df-sel { padding:8px 12px; border:1px solid var(--border); border-radius:10px; background:var(--surface); color:var(--text); font-size:13px; font-weight:600; cursor:pointer; }
     .dash-filter .df-arrow { color:var(--text-muted); }
+    .cat-filter { position:relative; display:inline-block; }
+    .cat-filter .cf-btn { cursor:pointer; }
+    .cf-panel { position:absolute; z-index:30; top:calc(100% + 6px); left:0; min-width:230px; max-height:340px; overflow:auto;
+      background:var(--surface); border:1px solid var(--border); border-radius:12px; box-shadow:0 12px 32px rgba(16,24,40,.14); padding:8px; }
+    .cf-row { display:flex; align-items:center; gap:8px; padding:6px 8px; border-radius:8px; font-size:13px; cursor:pointer; }
+    .cf-row:hover { background:var(--hover,rgba(0,0,0,.03)); }
+    .cf-row.cf-all { border-bottom:1px solid var(--border); margin-bottom:4px; padding-bottom:8px; }
+    .cf-row input { cursor:pointer; }
 
     .kpi-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; margin-bottom:20px; }
     @media (max-width:880px){ .kpi-grid{ grid-template-columns:repeat(2,1fr); } }
