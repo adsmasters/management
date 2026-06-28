@@ -192,18 +192,21 @@
       '</div>' + (sub ? '<div class="kpi-s">' + sub + '</div>' : '') + '</div>';
   }
 
+  function labelTick(value) { return this.getLabelForValue(value); }   // Kategorie-Achse → echtes Label
+  function valueTick(value) { return fmtShort(value); }                 // Werte-Achse → €-Kurzform
   function baseOpts(o) {
     o = o || {};
+    var h = !!o.horizontal;   // horizontal: x = Werte, y = Kategorie
     return {
-      responsive: true, maintainAspectRatio: false, indexAxis: o.horizontal ? 'y' : 'x',
+      responsive: true, maintainAspectRatio: false, indexAxis: h ? 'y' : 'x',
       animation: { duration: 350 },
       plugins: {
         legend: { display: o.legend !== false, position: 'bottom', labels: { boxWidth: 12, boxHeight: 12, usePointStyle: true, font: { size: 11 } } },
-        tooltip: { callbacks: { label: function (ctx) { var v = ctx.parsed[o.horizontal ? 'x' : 'y']; if (v == null) v = ctx.parsed; return (ctx.dataset.label ? ctx.dataset.label + ': ' : '') + fmt(v); } } },
+        tooltip: { callbacks: { label: function (ctx) { var v = ctx.parsed[h ? 'x' : 'y']; if (v == null) v = ctx.parsed; return (ctx.dataset.label ? ctx.dataset.label + ': ' : '') + fmt(v); } } },
       },
       scales: {
-        x: { stacked: !!o.stacked, grid: { display: false }, ticks: { font: { size: 11 }, callback: o.horizontal ? function (v) { return fmtShort(v); } : undefined } },
-        y: { stacked: !!o.stacked, grid: { color: '#eef2f7' }, ticks: { font: { size: 11 }, callback: o.horizontal ? undefined : function (v) { return fmtShort(v); } } },
+        x: { stacked: !!o.stacked, grid: { display: h, color: '#eef2f7' }, ticks: { font: { size: 11 }, autoSkip: !h, maxRotation: 0, callback: h ? valueTick : labelTick } },
+        y: { stacked: !!o.stacked, grid: { display: !h, color: '#eef2f7' }, ticks: { font: { size: 11 }, callback: h ? labelTick : valueTick } },
       },
     };
   }
