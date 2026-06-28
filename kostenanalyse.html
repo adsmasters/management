@@ -135,6 +135,7 @@
     <div class="ka-tabs">
       <button class="ka-tab active" data-tab="profit">📈 Profit</button>
       <button class="ka-tab" data-tab="spend">📊 Spend</button>
+      <button class="ka-tab" data-tab="compare">🔀 Vergleich</button>
       <button class="ka-tab" data-tab="transactions">🧾 Buchungen</button>
       <button class="ka-tab" data-tab="import">Import</button>
       <button class="ka-tab warn" data-tab="missing">Unkategorisiert <span class="count" id="missingCount">0</span></button>
@@ -169,6 +170,16 @@
         <div class="chart-card"><div class="chart-head"><h3>Top-Lieferanten</h3><span class="chart-sub">Anteil am Gesamt</span></div><div class="card-body table-wrap" style="padding:0"><table class="ka" id="vendorTable"></table></div></div>
         <div class="chart-card"><div class="chart-head"><h3>Letzte Buchungen</h3></div><div class="card-body table-wrap" style="padding:0;max-height:360px;overflow:auto"><table class="ka" id="spendDetailTable"></table></div></div>
       </div>
+    </section>
+
+    <!-- Vergleich (Year-over-Year) -->
+    <section class="ka-panel" data-panel="compare">
+      <div class="dash-filter" id="compareFilter"></div>
+      <div class="kpi-grid" id="compareKpis"></div>
+      <div class="chart-grid">
+        <div class="chart-card span2"><div class="chart-head"><h3>Veränderung nach Kategorie</h3><span class="chart-sub">B − A · rot = gestiegen, grün = gefallen</span></div><div class="chart-box" style="height:360px"><canvas id="chCompare"></canvas></div></div>
+      </div>
+      <div class="card" style="margin-top:18px"><div class="card-body table-wrap"><table class="ka" id="compareTable"></table></div></div>
     </section>
 
     <!-- Buchungen (alle Transaktionen) -->
