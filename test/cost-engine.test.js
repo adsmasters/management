@@ -166,4 +166,14 @@ test('enrich: Finanzamt-Bündel zählt nur Lohnsteuer als Kosten', () => {
   assert.strictEqual(pure.amount_net, 7427.60);
 });
 
+test('suggestCategory: Reisekosten/Software/Marketing erkannt', () => {
+  assert.strictEqual(E.suggestCategory('WWW.DEUTSCHEBAHN.COM (N BERLIN'), 'Reisekosten');
+  assert.strictEqual(E.suggestCategory('Eurowings GmbH Dortmund'), 'Reisekosten');
+  assert.strictEqual(E.suggestCategory('HILTON BERLIN KU_DAMM BERLIN'), 'Reisekosten');
+  assert.strictEqual(E.suggestCategory('OPENAI *CHATGPT SUBSCR SAN FRANCISCO'), 'Software');
+  assert.strictEqual(E.suggestCategory('INDEED IRELAND OPERATIO DUBLIN'), 'Marketing');
+  assert.strictEqual(E.suggestCategory('UPWORK DUBLIN'), 'Freelancer/Externe');
+  assert.strictEqual(E.suggestCategory('PAYPAL *FLASCHENP. 17642964006'), null);   // unbekannt
+});
+
 console.log('\n' + passed + ' Tests bestanden.\n');
