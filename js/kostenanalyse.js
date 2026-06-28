@@ -133,6 +133,7 @@
 
   // ── Dashboards (Profit & Spend) ─────────────────────────────────────────────
   var dash = { from: null, to: null, hiddenCats: null };
+  var compare = { aFrom: null, aTo: null, bFrom: null, bTo: null };
   var charts = {};
   var currentTab = 'profit';
 
@@ -259,7 +260,7 @@
     if (charts[id]) charts[id].destroy();
     charts[id] = new window.Chart(cv.getContext('2d'), config);
   }
-  function drawCharts(name) { if (name === 'profit') drawProfitCharts(); else if (name === 'spend') drawSpendCharts(); }
+  function drawCharts(name) { if (name === 'profit') drawProfitCharts(); else if (name === 'spend') drawSpendCharts(); else if (name === 'compare') drawCompareChart(); }
 
   // ── Profit ──────────────────────────────────────────────────────────────────
   // Manuell ausgeblendete Kategorien (Spend+Profit-Ansicht). Default: Memo-Kategorien.
@@ -690,6 +691,93 @@
     });
   }
 
+  // ── Vergleich (Year-over-Year) ──────────────────────────────────────────────
+  function shiftMonths(ym, delta) {
+    var y = +ym.slice(0, 4), m = +ym.slice(5) + delta;
+    while (m < 1) { m += 12; y--; } while (m > 12) { m -= 12; y++; }
+    return y + '-' + pad2(m);
+  }
+  function rangeLbl(from, to) {
+    function sm(ym) { var p = ym.split('-'); return MONTHS[+p[1] - 1].slice(0, 3) + ' ' + p[0].slice(2); }
+    return sm(from) + '–' + sm(to);
+  }
+  function ensureCompare() {
+    var av = availableMonths(); if (!av.length) return [];
+    var latest = av[av.length - 1], ly = +latest.slice(0, 4);
+    if (!compare.bTo) {   // Default: 1. Halbjahr aktuelles Jahr vs. Vorjahr
+      compare.bFrom = ly + '-01'; compare.bTo = ly + '-06';
+      compare.aFrom = (ly - 1) + '-01'; compare.aTo = (ly - 1) + '-06';
+    }
+    return monthSeq((ly - 1) + '-01', ly + '-12');   // wählbar: 2 volle Jahre
+  }
+  function periodAgg(from, to) {
+    var ms = {}; monthSeq(from, to).forEach(function (m) { ms[m] = 1; });
+    var byCat = {}, total = 0, rev = 0;
+    state.transactions.forEach(function (t) {
+      if (t.excluded || !ms[ymOf(t)] || !notHidden(t)) return;
+      var net = Number(t.amount_net != null ? t.amount_net : t.amount_gross) || 0;
+      var c = t.category || '(unkategorisiert)';
+      byCat[c] = (byCat[c] || 0) + net; total += net;
+    });
+    Object.keys(ms).forEach(function (m) { rev += state.revenueByMonth[m] || 0; });
+    return { byCat: byCat, total: total, rev: rev };
+  }
+  function renderCompareFilter(c) {
+    if (!c) return;
+    var full = ensureCompare();
+    if (!full.length) { c.innerHTML = '<span class="muted">Noch keine Daten.</span>'; return; }
+    var opts = function (sel) { return full.map(function (m) { var p = m.split('-'); return '<option value="' + m + '"' + (m === sel ? ' selected' : '') + '>' + esc(MONTHS[+p[1] - 1].slice(0, 3) + ' ' + p[0]) + '</option>'; }).join(''); };
+    c.innerHTML =
+      '<span class="df-label">Vergleich A</span>' +
+      '<select class="df-sel" data-cf="aFrom">' + opts(compare.aFrom) + '</select><span class="df-arrow">→</span><select class="df-sel" data-cf="aTo">' + opts(compare.aTo) + '</select>' +
+      '<span style="display:inline-block;width:22px"></span>' +
+      '<span class="df-label">Vergleich B</span>' +
+      '<select class="df-sel" data-cf="bFrom">' + opts(compare.bFrom) + '</select><span class="df-arrow">→</span><select class="df-sel" data-cf="bTo">' + opts(compare.bTo) + '</select>';
+    Array.prototype.forEach.call(c.querySelectorAll('[data-cf]'), function (s) {
+      s.addEventListener('change', function () { compare[s.dataset.cf] = s.value; renderCompare(); drawCompareChart(); });
+    });
+  }
+  function compareCats(A, B) {
+    var set = {}; Object.keys(A.byCat).forEach(function (c) { set[c] = 1; }); Object.keys(B.byCat).forEach(function (c) { set[c] = 1; });
+    return Object.keys(set).sort(function (x, y) {
+      return Math.abs((B.byCat[y] || 0) - (A.byCat[y] || 0)) - Math.abs((B.byCat[x] || 0) - (A.byCat[x] || 0));
+    });
+  }
+  function renderCompare() {
+    if (!el('compareTable')) return;
+    renderCompareFilter(el('compareFilter'));
+    var A = periodAgg(compare.aFrom, compare.aTo), B = periodAgg(compare.bFrom, compare.bTo);
+    var la = rangeLbl(compare.aFrom, compare.aTo), lb = rangeLbl(compare.bFrom, compare.bTo);
+    var dCost = B.total - A.total, pCost = A.total ? dCost / A.total * 100 : null;
+    el('compareKpis').innerHTML =
+      kpiCard('Kosten ' + la, fmt(A.total), 'cost') +
+      kpiCard('Kosten ' + lb, fmt(B.total), 'cost') +
+      kpiCard('Veränderung Kosten', (dCost >= 0 ? '+' : '') + fmt(dCost), dCost > 0 ? 'profit-neg' : 'profit-pos', pCost == null ? '' : ((dCost >= 0 ? '+' : '') + pct(pCost))) +
+      kpiCard('Gewinn ' + la + ' → ' + lb, fmt(A.rev - A.total) + '  →  ' + fmt(B.rev - B.total), '');
+    var rows = compareCats(A, B).map(function (c) {
+      var a = A.byCat[c] || 0, b = B.byCat[c] || 0, d = b - a, p = a ? d / a * 100 : null;
+      var cls, txt;
+      if (a === 0 && b > 0) { cls = 'neg'; txt = '▲ neu'; }
+      else if (b === 0 && a > 0) { cls = 'pos'; txt = '▼ entfällt'; }
+      else if (p != null && Math.abs(p) < 3) { cls = ''; txt = '→ ≈ gleich'; }
+      else if (d > 0) { cls = 'neg'; txt = '▲ gestiegen'; }
+      else { cls = 'pos'; txt = '▼ gefallen'; }
+      return '<tr><td>' + esc(c) + '</td><td class="num">' + fmt(a) + '</td><td class="num">' + fmt(b) +
+        '</td><td class="num ' + cls + '">' + (d >= 0 ? '+' : '') + fmt(d) + '</td>' +
+        '<td class="num ' + cls + '">' + (p == null ? '—' : ((d >= 0 ? '+' : '') + pct(p))) + '</td>' +
+        '<td class="' + cls + '">' + txt + '</td></tr>';
+    }).join('');
+    el('compareTable').innerHTML =
+      '<thead><tr><th>Kategorie</th><th>' + esc(la) + '</th><th>' + esc(lb) + '</th><th>Δ €</th><th>Δ %</th><th>Trend</th></tr></thead>' +
+      '<tbody>' + (rows || '<tr><td colspan="6" class="muted">Keine Daten in den gewählten Zeiträumen.</td></tr>') + '</tbody>';
+  }
+  function drawCompareChart() {
+    var A = periodAgg(compare.aFrom, compare.aTo), B = periodAgg(compare.bFrom, compare.bTo);
+    var movers = compareCats(A, B).map(function (c) { return [c, (B.byCat[c] || 0) - (A.byCat[c] || 0)]; })
+      .filter(function (x) { return Math.abs(x[1]) >= 0.005; }).slice(0, 14);
+    chart('chCompare', { type: 'bar', data: { labels: movers.map(function (x) { return x[0]; }), datasets: [{ label: 'Veränderung', data: movers.map(function (x) { return round2(x[1]); }), backgroundColor: movers.map(function (x) { return x[1] > 0 ? '#dc2626' : '#16a34a'; }), borderRadius: 5 }] }, options: baseOpts({ horizontal: true, legend: false }) });
+  }
+
   // ── Buchungen (alle Transaktionen) ──────────────────────────────────────────
   function allCategories() {
     var s = {};
@@ -827,7 +915,7 @@
   function reloadData() { return loadAll(); }
   function reloadAndRender() { return loadAll().then(renderAll); }
   function renderAll() {
-    renderProfitStats(); renderSpendStats();
+    renderProfitStats(); renderSpendStats(); renderCompare();
     renderImports(); renderMissing(); renderRules(); renderCategories(); renderTransactions();
     drawCharts(currentTab);
   }
