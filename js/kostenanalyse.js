@@ -318,8 +318,43 @@
     chart('chSpendMonth', { type: 'bar', data: { labels: s.months.map(function (m) { var p = m.split('-'); return monthLabel(+p[0], +p[1]); }), datasets: ds }, options: baseOpts({ stacked: true, legend: true }) });
   }
 
+  // ── Datenabdeckung (welche Monate/Quellen sind vorhanden, wo sind Lücken) ────
+  function renderCoverage() {
+    if (!el('coverage')) return;
+    var av = availableMonths();
+    if (!av.length) { el('coverage').innerHTML = '<div class="muted">Noch keine Daten importiert.</div>'; return; }
+    var months = monthSeq(av[0], av[av.length - 1]);
+    var sources = [['kreissparkasse', 'Kreissparkasse'], ['amex', 'AMEX']];
+    var cnt = {}, imps = {};
+    state.transactions.forEach(function (t) {
+      var s = t.source, m = ymOf(t);
+      cnt[s] = cnt[s] || {}; cnt[s][m] = (cnt[s][m] || 0) + 1;
+      imps[s] = imps[s] || {}; imps[s][m] = imps[s][m] || {}; imps[s][m][t.import_id] = 1;
+    });
+    var head = '<th></th>' + months.map(function (m) { var p = m.split('-'); return '<th>' + MONTHS[+p[1] - 1].slice(0, 3) + '<div class="cov-y">' + p[0].slice(2) + '</div></th>'; }).join('');
+    var gaps = [], dbls = [];
+    var bodyRows = sources.map(function (s) {
+      var cells = months.map(function (m) {
+        var c = (cnt[s[0]] && cnt[s[0]][m]) || 0;
+        var nImp = (imps[s[0]] && imps[s[0]][m]) ? Object.keys(imps[s[0]][m]).length : 0;
+        var p = m.split('-'), lbl = MONTHS[+p[1] - 1].slice(0, 3) + ' ' + p[0];
+        if (!c) { gaps.push(s[1] + ' ' + lbl); return '<td class="cov-cell cov-gap" title="keine Daten">–</td>'; }
+        if (nImp > 1) { dbls.push(s[1] + ' ' + lbl + ' (' + nImp + ' Importe)'); return '<td class="cov-cell cov-dbl" title="' + c + ' Buchungen aus ' + nImp + ' Importen">' + c + '</td>'; }
+        return '<td class="cov-cell cov-ok" title="' + c + ' Buchungen">' + c + '</td>';
+      }).join('');
+      return '<tr><td class="cov-src">' + s[1] + '</td>' + cells + '</tr>';
+    }).join('');
+    var note = '<div class="muted" style="margin-top:12px;line-height:1.6">' +
+      '<span class="cov-key cov-ok"></span> Daten vorhanden &nbsp; <span class="cov-key cov-gap"></span> Lücke &nbsp; <span class="cov-key cov-dbl"></span> mehrere Importe';
+    if (gaps.length) note += '<br><strong style="color:#b91c1c">Lücken:</strong> ' + esc(gaps.join(' · '));
+    if (dbls.length) note += '<br><strong style="color:#854d0e">Mehrfach abgedeckt:</strong> ' + esc(dbls.join(' · ')) + ' — exakte Dubletten sind ausgeschlossen; bei AMEX überlappen sich Auszüge normal.';
+    note += '</div>';
+    el('coverage').innerHTML = '<div class="cov-wrap"><table class="cov"><thead><tr>' + head + '</tr></thead><tbody>' + bodyRows + '</tbody></table></div>' + note;
+  }
+
   // ── Import ─────────────────────────────────────────────────────────────────
   function renderImports() {
+    renderCoverage();
     var rows = state.imports.map(function (im) {
       return '<tr><td>' + esc(im.period_label || '–') + '</td><td>' + esc(im.source) + '</td>' +
         '<td>' + esc(im.filename || '') + '</td><td class="num">' + im.row_count + '</td>' +
