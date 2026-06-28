@@ -78,19 +78,28 @@
   function parseKreissparkasse(text) {
     var rows = splitRows(text);
     if (!rows.length) return [];
+    // Spalten anhand des Headers finden – robust gegen neue Spalten (z.B. "Kategorie"),
+    // Quoting ("..."), und Spaltenreihenfolge. Fallback auf feste Positionen.
+    var header = splitLine(rows[0], ';').map(function (h) { return norm(h); });
+    function col(name) { return header.indexOf(norm(name)); }
+    var iDate = col('Buchungstag'), iBook = col('Buchungstext'), iPurp = col('Verwendungszweck');
+    var iPayee = col('Beguenstigter/Zahlungspflichtiger'), iBetrag = col('Betrag');
+    var get = function (p, idx, fallbackFromEnd) {
+      if (idx >= 0 && idx < p.length) return p[idx];
+      return fallbackFromEnd != null ? p[p.length - fallbackFromEnd] : '';
+    };
     var out = [];
-    for (var i = 1; i < rows.length; i++) {          // Zeile 0 = Header
+    for (var i = 1; i < rows.length; i++) {
       var p = splitLine(rows[i], ';');
       if (p.length < 5) continue;
-      // Robust gegen vereinzelte Semikolons im Freitext: Betrag/Währung/Info vom Ende.
-      var betrag = parseGermanAmount(p[p.length - 3]);
+      var betrag = parseGermanAmount(get(p, iBetrag, 3));   // Fallback: 3.-letzte Spalte
       if (!isFinite(betrag)) continue;
-      if (betrag >= 0) continue;                     // Gutschrift = Umsatz → überspringen
-      var dt = parseDateKsk(p[1]);
+      if (betrag >= 0) continue;                            // Gutschrift = Umsatz → überspringen
+      var dt = parseDateKsk(get(p, iDate, null) || p[1]);
       if (!dt) continue;
-      var bookingText = (p[3] || '').trim();
-      var purpose     = (p[4] || '').trim();
-      var payee       = (p[p.length - 6] || '').trim();   // Beguenstigter (vor IBAN/BIC/Betrag)
+      var bookingText = (get(p, iBook, null) || p[3] || '').trim();
+      var purpose     = (get(p, iPurp, null) || p[4] || '').trim();
+      var payee       = (get(p, iPayee, 6) || '').trim();   // Beguenstigter
       var description = [payee, purpose, bookingText].filter(Boolean).join(' | ');
       out.push({
         source: 'kreissparkasse',

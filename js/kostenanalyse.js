@@ -39,9 +39,16 @@
   function readFile(file) {
     return new Promise(function (res, rej) {
       var r = new FileReader();
-      r.onload = function () { res(r.result); };
+      r.onload = function () {
+        var buf = r.result;
+        var utf8 = new TextDecoder('utf-8', { fatal: false }).decode(buf);
+        if (utf8.indexOf('�') !== -1) {       // ungültige UTF-8-Bytes → Datei ist Latin-1
+          try { return res(new TextDecoder('iso-8859-1').decode(buf)); } catch (e) { /* fallthrough */ }
+        }
+        res(utf8);
+      };
       r.onerror = rej;
-      r.readAsText(file, 'utf-8');
+      r.readAsArrayBuffer(file);   // Bytes lesen, Kodierung selbst bestimmen (UTF-8 oder Latin-1)
     });
   }
   function detectSource(text) {
