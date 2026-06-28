@@ -366,6 +366,12 @@
         bulkUpsert: (rows) =>
           q(s => s.from('cost_transactions')
             .upsert(rows, { onConflict: 'id' }).select('id')),
+        // Einzelne Buchungen aus-/einschließen (manuell, überlebt „Regeln neu anwenden").
+        bulkExclude: (ids, excluded, reason) =>
+          q(s => s.from('cost_transactions')
+            .update({ excluded: !!excluded, exclude_reason: excluded ? (reason || null) : null,
+                      updated_at: new Date().toISOString() })
+            .in('id', ids).select('id')),
       },
 
       categoryRules: {

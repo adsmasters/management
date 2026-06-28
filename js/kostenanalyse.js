@@ -7,6 +7,8 @@
 
   var E = window.CostEngine;
   var MONTHS = window.MONTHS_DE;
+  var MANUAL_REASON = 'Manuell ausgeschlossen';   // Sentinel: einzeln ausgeschlossen
+  var lastMissing = [];                            // gerenderte Gruppen (für Aktionen)
 
   var state = {
     categoryRules: [], vatRules: [], excludeRules: [],
@@ -251,25 +253,37 @@
       if (t.category != null || t.excluded) return;
       var pat = suggestPattern(t.payee || t.description);
       var key = E.norm(pat);
-      (groups[key] = groups[key] || { sample: t, pattern: pat, sum: 0, count: 0 });
+      (groups[key] = groups[key] || { sample: t, pattern: pat, sum: 0, count: 0, ids: [] });
       groups[key].sum += Number(t.amount_net != null ? t.amount_net : t.amount_gross) || 0;
       groups[key].count++;
+      groups[key].ids.push(t.id);
     });
     var keys = Object.keys(groups).sort(function (a, b) { return groups[b].sum - groups[a].sum; });
+    lastMissing = keys.map(function (k) { return groups[k]; });
     el('missingCount').textContent = keys.length;
 
-    var rows = keys.map(function (k, i) {
-      var g = groups[k];
+    var rows = lastMissing.map(function (g, i) {
       var suggest = esc(g.pattern);
       return '<tr><td>' + esc(g.sample.description.slice(0, 70)) + '</td>' +
         '<td class="num">' + g.count + '</td><td class="num cost">' + fmt(g.sum) + '</td>' +
         '<td class="right"><input id="mp' + i + '" class="miss-pat" data-i="' + i + '" value="' + suggest + '" size="18" style="padding:5px 7px;border:1px solid var(--border);border-radius:6px">' +
         ' → <input id="mc' + i + '" class="miss-cat" data-i="' + i + '" placeholder="Kategorie" size="16" list="catList" style="padding:5px 7px;border:1px solid var(--border);border-radius:6px">' +
-        ' <button class="btn btn-primary btn-sm" data-assign="' + i + '">anlegen</button></td></tr>';
+        ' <button class="btn btn-primary btn-sm" data-assign="' + i + '">anlegen</button>' +
+        ' <button class="btn btn-ghost btn-sm" data-exclude="' + i + '" title="Diese Buchung(en) nicht als Kosten zählen (Durchlaufposten)">⊘ ausschließen</button></td></tr>';
     }).join('');
     el('missingTable').innerHTML =
-      '<thead><tr><th>Beispiel-Buchung</th><th>Anzahl</th><th>Summe</th><th class="right">Regel anlegen (enthält → Kategorie)</th></tr></thead>' +
+      '<thead><tr><th>Beispiel-Buchung</th><th>Anzahl</th><th>Summe</th><th class="right">Regel anlegen (enthält → Kategorie) · oder ausschließen</th></tr></thead>' +
       '<tbody>' + (rows || '<tr><td colspan="4" class="muted">Alles kategorisiert 🎉</td></tr>') + '</tbody>';
+
+    Array.prototype.forEach.call(document.querySelectorAll('[data-exclude]'), function (b) {
+      b.addEventListener('click', function () {
+        var g = lastMissing[b.dataset.exclude];
+        if (!g) return;
+        if (!confirm('„' + g.pattern + '" (' + g.count + ' Buchung(en), ' + fmt(g.sum) + ') als Durchlaufposten ausschließen? Zählt dann nicht als Kosten.')) return;
+        b.disabled = true;
+        window.db.cost.transactions.bulkExclude(g.ids, true, MANUAL_REASON).then(reloadAndRender).catch(function (e) { alert(e.message); b.disabled = false; });
+      });
+    });
 
     Array.prototype.forEach.call(document.querySelectorAll('[data-assign]'), function (b) {
       b.addEventListener('click', function () {
@@ -310,6 +324,24 @@
     bindDelete('cat', window.db.cost.categoryRules);
     bindDelete('vat', window.db.cost.vatRules);
     bindDelete('exc', window.db.cost.excludeRules);
+
+    // Einzeln (manuell) ausgeschlossene Buchungen
+    var manual = state.transactions.filter(function (t) { return t.excluded && t.exclude_reason === MANUAL_REASON; })
+      .sort(function (a, b) { return (a.tx_date < b.tx_date) ? 1 : -1; });
+    var mBody = manual.map(function (t) {
+      return '<tr><td>' + esc(t.tx_date) + '</td><td>' + esc((t.description || '').slice(0, 60)) +
+        '</td><td class="num cost">' + fmt(t.amount_net != null ? t.amount_net : t.amount_gross) + '</td>' +
+        '<td class="right"><button class="btn btn-ghost btn-sm" data-reinc="' + t.id + '">wieder einrechnen</button></td></tr>';
+    }).join('');
+    el('manualExclTable').innerHTML =
+      '<thead><tr><th>Datum</th><th>Buchung</th><th>Betrag (netto)</th><th></th></tr></thead><tbody>' +
+      (mBody || '<tr><td colspan="4" class="muted">Keine einzeln ausgeschlossenen Buchungen.</td></tr>') + '</tbody>';
+    Array.prototype.forEach.call(document.querySelectorAll('[data-reinc]'), function (b) {
+      b.addEventListener('click', function () {
+        b.disabled = true;
+        window.db.cost.transactions.bulkExclude([b.dataset.reinc], false, null).then(reloadAndRender).catch(function (e) { alert(e.message); b.disabled = false; });
+      });
+    });
   }
   function ruleTable(rules, cells, ns, headers) {
     var body = rules.map(function (r) {
@@ -363,10 +395,12 @@
   function reapplyRules() {
     var rules = rulesObj();
     var updates = state.transactions.map(function (t) {
+      var manual = t.excluded && t.exclude_reason === MANUAL_REASON;   // einzeln ausgeschlossen
       var en = E.enrich(t, rules);
       return Object.assign({}, t, {
-        category: en.category, vat_rate: en.vat_rate, vat_amount: en.vat_amount,
-        amount_net: en.amount_net, excluded: en.excluded, exclude_reason: en.exclude_reason,
+        category: en.category, vat_rate: en.vat_rate, vat_amount: en.vat_amount, amount_net: en.amount_net,
+        excluded: manual ? true : en.excluded,
+        exclude_reason: manual ? MANUAL_REASON : en.exclude_reason,
         updated_at: new Date().toISOString(),
       });
     });
