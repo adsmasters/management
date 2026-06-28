@@ -8,6 +8,7 @@
   var E = window.CostEngine;
   var MONTHS = window.MONTHS_DE;
   var MANUAL_REASON = 'Manuell ausgeschlossen';   // Sentinel: einzeln ausgeschlossen
+  var ADJUSTED_REASON = 'Angepasst';              // Sentinel: Betrag manuell angepasst (anteilig)
   var lastMissing = [];                            // gerenderte Gruppen (für Aktionen)
 
   var state = {
@@ -253,10 +254,11 @@
       if (t.category != null || t.excluded) return;
       var pat = suggestPattern(t.payee || t.description);
       var key = E.norm(pat);
-      (groups[key] = groups[key] || { sample: t, pattern: pat, sum: 0, count: 0, ids: [] });
+      (groups[key] = groups[key] || { sample: t, pattern: pat, sum: 0, count: 0, ids: [], txs: [] });
       groups[key].sum += Number(t.amount_net != null ? t.amount_net : t.amount_gross) || 0;
       groups[key].count++;
       groups[key].ids.push(t.id);
+      groups[key].txs.push(t);
     });
     var keys = Object.keys(groups).sort(function (a, b) { return groups[b].sum - groups[a].sum; });
     lastMissing = keys.map(function (k) { return groups[k]; });
@@ -269,6 +271,7 @@
         '<td class="right"><input id="mp' + i + '" class="miss-pat" data-i="' + i + '" value="' + suggest + '" size="18" style="padding:5px 7px;border:1px solid var(--border);border-radius:6px">' +
         ' → <input id="mc' + i + '" class="miss-cat" data-i="' + i + '" placeholder="Kategorie" size="16" list="catList" style="padding:5px 7px;border:1px solid var(--border);border-radius:6px">' +
         ' <button class="btn btn-primary btn-sm" data-assign="' + i + '">anlegen</button>' +
+        ' <button class="btn btn-secondary btn-sm" data-adjust="' + i + '" title="Betrag anteilig anpassen, z.B. nur dein 1/3 (Rest erstattet)">✎ anpassen</button>' +
         ' <button class="btn btn-ghost btn-sm" data-exclude="' + i + '" title="Diese Buchung(en) nicht als Kosten zählen (Durchlaufposten)">⊘ ausschließen</button></td></tr>';
     }).join('');
     el('missingTable').innerHTML =
@@ -282,6 +285,36 @@
         if (!confirm('„' + g.pattern + '" (' + g.count + ' Buchung(en), ' + fmt(g.sum) + ') als Durchlaufposten ausschließen? Zählt dann nicht als Kosten.')) return;
         b.disabled = true;
         window.db.cost.transactions.bulkExclude(g.ids, true, MANUAL_REASON).then(reloadAndRender).catch(function (e) { alert(e.message); b.disabled = false; });
+      });
+    });
+
+    Array.prototype.forEach.call(document.querySelectorAll('[data-adjust]'), function (b) {
+      b.addEventListener('click', function () {
+        var g = lastMissing[b.dataset.adjust];
+        if (!g) return;
+        var ans = prompt(
+          'Wie viel von „' + g.pattern + '" soll als Kosten zählen?\n\n' +
+          '• Anteil als Bruch, z.B.  1/3   (ein Drittel, Rest wurde erstattet)\n' +
+          '• oder Prozent, z.B.  33%\n' +
+          '• oder fester Euro-Betrag, z.B.  1332,00\n\n' +
+          'Aktuell: ' + fmt(g.sum) + (g.count > 1 ? ' (' + g.count + ' Buchungen, Anteil/Prozent gilt je Buchung)' : ''), '1/3');
+        if (ans == null) return;
+        ans = ans.trim();
+        var frac = null, abs = null;
+        var mFrac = ans.match(/^(\d+(?:[.,]\d+)?)\s*\/\s*(\d+(?:[.,]\d+)?)$/);
+        var mPct = ans.match(/^(\d+(?:[.,]\d+)?)\s*%$/);
+        if (mFrac) frac = parseFloat(mFrac[1].replace(',', '.')) / parseFloat(mFrac[2].replace(',', '.'));
+        else if (mPct) frac = parseFloat(mPct[1].replace(',', '.')) / 100;
+        else { abs = parseFloat(ans.replace(/[^0-9,.-]/g, '').replace(/\.(?=\d{3}\b)/g, '').replace(',', '.')); }
+        if (frac == null && !isFinite(abs)) { alert('Bitte „1/3", „33%" oder einen Euro-Betrag eingeben.'); return; }
+        if (abs != null && g.count > 1) { alert('Bei mehreren Buchungen bitte einen Anteil/Prozent angeben (gilt je Buchung).'); return; }
+        b.disabled = true;
+        var rules = rulesObj();
+        Promise.all(g.txs.map(function (t) {
+          var orig = E.enrich(t, rules).amount_net;                 // immer vom Originalbetrag rechnen
+          var nn = frac != null ? Math.round(orig * frac * 100) / 100 : abs;
+          return window.db.cost.transactions.update(t.id, { amount_net: nn, exclude_reason: ADJUSTED_REASON });
+        })).then(reloadAndRender).catch(function (e) { alert(e.message); b.disabled = false; });
       });
     });
 
@@ -342,6 +375,27 @@
         window.db.cost.transactions.bulkExclude([b.dataset.reinc], false, null).then(reloadAndRender).catch(function (e) { alert(e.message); b.disabled = false; });
       });
     });
+
+    // Angepasste Buchungen (anteilig)
+    var rules = rulesObj();
+    var adjusted = state.transactions.filter(function (t) { return !t.excluded && t.exclude_reason === ADJUSTED_REASON; })
+      .sort(function (a, b) { return (a.tx_date < b.tx_date) ? 1 : -1; });
+    var aBody = adjusted.map(function (t) {
+      var orig = E.enrich(t, rules).amount_net;
+      return '<tr><td>' + esc(t.tx_date) + '</td><td>' + esc((t.description || '').slice(0, 55)) +
+        '</td><td class="num muted">' + fmt(orig) + '</td><td class="num cost">' + fmt(t.amount_net) + '</td>' +
+        '<td class="right"><button class="btn btn-ghost btn-sm" data-reset="' + t.id + '" data-orig="' + orig + '">zurücksetzen</button></td></tr>';
+    }).join('');
+    el('adjustedTable').innerHTML =
+      '<thead><tr><th>Datum</th><th>Buchung</th><th>Original</th><th>Angepasst</th><th></th></tr></thead><tbody>' +
+      (aBody || '<tr><td colspan="5" class="muted">Keine angepassten Buchungen.</td></tr>') + '</tbody>';
+    Array.prototype.forEach.call(document.querySelectorAll('[data-reset]'), function (b) {
+      b.addEventListener('click', function () {
+        b.disabled = true;
+        window.db.cost.transactions.update(b.dataset.reset, { amount_net: parseFloat(b.dataset.orig), exclude_reason: null })
+          .then(reloadAndRender).catch(function (e) { alert(e.message); b.disabled = false; });
+      });
+    });
   }
   function ruleTable(rules, cells, ns, headers) {
     var body = rules.map(function (r) {
@@ -395,13 +449,16 @@
   function reapplyRules() {
     var rules = rulesObj();
     var updates = state.transactions.map(function (t) {
-      var manual = t.excluded && t.exclude_reason === MANUAL_REASON;   // einzeln ausgeschlossen
+      var manual = t.excluded && t.exclude_reason === MANUAL_REASON;        // einzeln ausgeschlossen
+      var adjusted = !t.excluded && t.exclude_reason === ADJUSTED_REASON;   // Betrag angepasst
       var en = E.enrich(t, rules);
+      var excluded = manual || en.excluded;
+      var reason = manual ? MANUAL_REASON
+        : (en.excluded ? en.exclude_reason : (adjusted ? ADJUSTED_REASON : en.exclude_reason));
+      var net = (adjusted && !en.excluded) ? t.amount_net : en.amount_net;  // angepassten Betrag halten
       return Object.assign({}, t, {
-        category: en.category, vat_rate: en.vat_rate, vat_amount: en.vat_amount, amount_net: en.amount_net,
-        excluded: manual ? true : en.excluded,
-        exclude_reason: manual ? MANUAL_REASON : en.exclude_reason,
-        updated_at: new Date().toISOString(),
+        category: en.category, vat_rate: en.vat_rate, vat_amount: en.vat_amount, amount_net: net,
+        excluded: excluded, exclude_reason: reason, updated_at: new Date().toISOString(),
       });
     });
     if (!updates.length) return Promise.resolve();
