@@ -52,6 +52,17 @@ test('Kreissparkasse: AMEX-Sammelzahlung als Kostenzeile vorhanden (vor Ausschlu
     'AMEX-Verrechnungen müssen als Kostenzeilen geparst werden');
 });
 
+test('Kreissparkasse: neues Format (quoted + Spalte "Kategorie")', () => {
+  var h = '"Auftragskonto";"Buchungstag";"Valutadatum";"Buchungstext";"Verwendungszweck";"Glaeubiger ID";"Mandatsreferenz";"Kundenreferenz (End-to-End)";"Sammlerreferenz";"Lastschrift Ursprungsbetrag";"Auslagenersatz Ruecklastschrift";"Beguenstigter/Zahlungspflichtiger";"Kontonummer/IBAN";"BIC (SWIFT-Code)";"Betrag";"Waehrung";"Info";"Kategorie"';
+  var cost = '"DE78";"29.05.26";"29.05.26";"DAUERAUFTRAG";"Gewerbemiete";"";"";"";"";"";"";"D/P Communications & Media GmbH,";"DE35";"GENODED1HTK";"-1999,20";"EUR";"Umsatz gebucht";""';
+  var rev  = '"DE78";"29.05.26";"29.05.26";"GUTSCHR. UEBERWEISUNG";"RNr";"";"";"";"";"";"";"Brooklyn Soap GmbH";"DE10";"DEUTDEFFXXX";"2975,00";"EUR";"Umsatz gebucht";""';
+  var rows = E.parseKreissparkasse([h, cost, rev].join('\n'));
+  assert.strictEqual(rows.length, 1, 'nur die negative Buchung als Kosten');
+  assert.strictEqual(rows[0].amount_gross, 1999.2);
+  assert.ok(/D\/P Communications/.test(rows[0].payee));
+  assert.strictEqual(rows[0].tx_date, '2026-05-29');
+});
+
 // ── AMEX ─────────────────────────────────────────────────────────────────────
 const amex = E.parseAmex(fx('amex_sample.csv'));
 
