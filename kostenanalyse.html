@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kostenanalyse – Adsmasters Management</title>
+  <link rel="stylesheet" href="css/style.css">
+  <style>
+    .ka-tabs { display:flex; gap:4px; border-bottom:1px solid var(--border); margin-bottom:22px; flex-wrap:wrap; }
+    .ka-tab { padding:10px 16px; cursor:pointer; border:none; background:none; color:var(--text-secondary);
+      font-size:14px; font-weight:600; border-bottom:2px solid transparent; }
+    .ka-tab.active { color:var(--text); border-bottom-color:var(--primary, #2563eb); }
+    .ka-tab .count { font-size:11px; background:var(--border); border-radius:10px; padding:1px 7px; margin-left:6px; }
+    .ka-tab.warn .count { background:var(--danger-bg); color:#991b1b; }
+    .ka-panel { display:none; }
+    .ka-panel.active { display:block; }
+
+    .summary-strip { display:flex; gap:16px; flex-wrap:wrap; margin-bottom:20px; }
+    .kpi-card { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius);
+      padding:16px 20px; flex:1; min-width:150px; }
+    .kpi-card .kpi-label { font-size:12px; color:var(--text-secondary); text-transform:uppercase; letter-spacing:.04em; font-weight:600; }
+    .kpi-card .kpi-value { font-size:24px; font-weight:700; margin-top:4px; }
+    .kpi-card .kpi-value.pos { color:var(--success); }
+    .kpi-card .kpi-value.neg { color:var(--danger); }
+
+    table.ka { width:100%; border-collapse:collapse; font-size:13px; }
+    table.ka th, table.ka td { padding:8px 10px; border-bottom:1px solid var(--border); text-align:right; white-space:nowrap; }
+    table.ka th:first-child, table.ka td:first-child { text-align:left; }
+    table.ka th { font-size:11px; text-transform:uppercase; letter-spacing:.03em; color:var(--text-secondary); }
+    table.ka tr.month-row:hover { background:var(--hover, rgba(0,0,0,.02)); cursor:pointer; }
+    td.num { font-variant-numeric:tabular-nums; }
+    td.revenue { color:#0369a1; }
+    td.cost    { color:#dc2626; }
+    td.pos { color:#065f46; font-weight:600; } td.neg { color:#991b1b; font-weight:600; }
+    .memo { color:var(--text-muted); font-size:12px; }
+    .cat-detail td { background:var(--surface); font-size:12px; color:var(--text-secondary); }
+    .dropzone { border:2px dashed var(--border); border-radius:var(--radius); padding:26px; text-align:center;
+      color:var(--text-secondary); background:var(--surface); }
+    .rule-row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin-bottom:6px; }
+    .rule-row input, .rule-row select { padding:6px 8px; border:1px solid var(--border); border-radius:var(--radius);
+      background:var(--surface); color:var(--text); font-size:13px; }
+    .toggle-row { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 0; border-bottom:1px solid var(--border); }
+    .pill { font-size:11px; padding:2px 8px; border-radius:10px; background:var(--border); color:var(--text-secondary); }
+    .muted { color:var(--text-muted); font-size:12px; }
+    .right { text-align:right; }
+  </style>
+</head>
+<body>
+
+<header class="header">
+  <div class="header-inner">
+    <a href="index.html" class="logo">Adsmasters <span>Management</span></a>
+    <nav>
+      <a href="index.html"       class="nav-link">Übersicht</a>
+      <a href="clients.html"     class="nav-link">Kunden</a>
+      <a href="employees.html"   class="nav-link">Mitarbeiter</a>
+      <a href="utilization.html" class="nav-link">Auslastung</a>
+      <a href="profit.html"           class="nav-link">Profitabilität</a>
+      <a href="kostenanalyse.html"    class="nav-link active">Kostenanalyse</a>
+      <a href="revenue-timeline.html" class="nav-link">Umsatz-Verlauf</a>
+      <a href="employee-revenue.html" class="nav-link">MA-Umsatz</a>
+      <a href="acquisition.html"      class="nav-link">Akquisition</a>
+      <a href="name-mapping.html"     class="nav-link">Zuordnung</a>
+      <a href="settings.html"         class="nav-link">Einstellungen</a>
+    </nav>
+  </div>
+</header>
+
+<main class="main">
+  <div class="page-header">
+    <div>
+      <h1>Kostenanalyse</h1>
+      <div class="sub">Betriebskosten aus Bank- & Kreditkarten-CSV · Profitabilität vor Steuern</div>
+    </div>
+    <div>
+      <button id="reapplyBtn" class="btn btn-secondary btn-sm" title="Kategorie-, MwSt- und Ausschlussregeln auf alle Buchungen neu anwenden">↻ Regeln neu anwenden</button>
+    </div>
+  </div>
+
+  <div id="loading" class="alert alert-info">Lade Daten …</div>
+  <div id="error" class="alert alert-danger" style="display:none"></div>
+
+  <div id="app" style="display:none">
+    <div class="ka-tabs">
+      <button class="ka-tab active" data-tab="overview">Monatsübersicht</button>
+      <button class="ka-tab" data-tab="import">Import</button>
+      <button class="ka-tab warn" data-tab="missing">Unkategorisiert <span class="count" id="missingCount">0</span></button>
+      <button class="ka-tab" data-tab="rules">Regeln</button>
+      <button class="ka-tab" data-tab="categories">Kategorien</button>
+    </div>
+
+    <!-- Übersicht -->
+    <section class="ka-panel active" data-panel="overview">
+      <div class="summary-strip" id="kpis"></div>
+      <div class="card"><div class="card-body table-wrap">
+        <table class="ka" id="overviewTable"></table>
+        <div class="muted" style="margin-top:10px">
+          Umsatz = Lexoffice (Ausschlüsse aus <a href="settings.html">Einstellungen → Umsatz-Ausschlüsse</a>, z.&nbsp;B. Red&nbsp;Bull).
+          Kosten = Netto (MwSt herausgerechnet), ohne ausgeschlossene Buchungen und ohne Kategorien, die in „Kategorien" deaktiviert sind (Steuern, Umsatzsteuer).
+        </div>
+      </div></div>
+    </section>
+
+    <!-- Import -->
+    <section class="ka-panel" data-panel="import">
+      <div class="card"><div class="card-body">
+        <div class="rule-row" style="margin-bottom:14px">
+          <label>Quelle:</label>
+          <select id="importSource">
+            <option value="auto">Automatisch erkennen</option>
+            <option value="kreissparkasse">Kreissparkasse (Online Banking)</option>
+            <option value="amex">American Express</option>
+          </select>
+          <input type="file" id="csvFile" accept=".csv,text/csv" multiple>
+        </div>
+        <div class="dropzone" id="dropzone">CSV-Datei(en) hier ablegen oder oben auswählen</div>
+        <div id="importPreview" style="margin-top:16px"></div>
+      </div></div>
+
+      <div class="card" style="margin-top:18px"><div class="card-header"><h2>Import-Historie</h2></div>
+        <div class="card-body table-wrap"><table class="ka" id="importsTable"></table></div>
+      </div>
+    </section>
+
+    <!-- Unkategorisiert -->
+    <section class="ka-panel" data-panel="missing">
+      <div class="alert alert-info">Buchungen ohne Kategorie. Lege eine Regel an – sie greift sofort für alle passenden (auch künftigen) Buchungen.</div>
+      <div class="card"><div class="card-body table-wrap"><table class="ka" id="missingTable"></table></div></div>
+    </section>
+
+    <!-- Regeln -->
+    <section class="ka-panel" data-panel="rules">
+      <div class="card"><div class="card-header"><h2>📖 Kategorie-Regeln (Dictionary)</h2></div>
+        <div class="card-body">
+          <div class="rule-row">
+            <select id="catRuleType"><option value="contains">enthält</option><option value="equals">ist genau</option></select>
+            <input id="catRulePattern" placeholder="Text (z.B. UPWORK)" size="28">
+            <input id="catRuleCategory" placeholder="Kategorie (z.B. Freelancer/Externe)" size="22" list="catList">
+            <button id="catRuleAdd" class="btn btn-primary btn-sm">+ Regel</button>
+          </div>
+          <div class="table-wrap"><table class="ka" id="catRulesTable"></table></div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:18px"><div class="card-header"><h2>🧾 MwSt-Regeln</h2></div>
+        <div class="card-body">
+          <div class="alert alert-info" style="margin-bottom:14px">Für gelistete Lieferanten wird die enthaltene MwSt herausgerechnet (Netto-Kosten). Ausländische Anbieter ohne deutsche MwSt einfach nicht eintragen.</div>
+          <div class="rule-row">
+            <select id="vatRuleType"><option value="contains">enthält</option><option value="equals">ist genau</option></select>
+            <input id="vatRulePattern" placeholder="Lieferant (z.B. Vodafone)" size="26">
+            <input id="vatRuleRate" placeholder="19" size="4"> %
+            <button id="vatRuleAdd" class="btn btn-primary btn-sm">+ Regel</button>
+          </div>
+          <div class="table-wrap"><table class="ka" id="vatRulesTable"></table></div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:18px"><div class="card-header"><h2>🚫 Ausschluss-Regeln (kostenseitig)</h2></div>
+        <div class="card-body">
+          <div class="alert alert-info" style="margin-bottom:14px">Diese Buchungen zählen <strong>nicht</strong> als Kosten (z.&nbsp;B. Red&nbsp;Bull-Durchlauf, Kreditkarten-Verrechnung). Umsatzseitige Red-Bull-Ausschlüsse stehen in den Einstellungen.</div>
+          <div class="rule-row">
+            <select id="excRuleType"><option value="contains">enthält</option><option value="equals">ist genau</option></select>
+            <input id="excRulePattern" placeholder="Text (z.B. Red Bull)" size="26">
+            <input id="excRuleReason" placeholder="Grund (optional)" size="24">
+            <button id="excRuleAdd" class="btn btn-primary btn-sm">+ Regel</button>
+          </div>
+          <div class="table-wrap"><table class="ka" id="excRulesTable"></table></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Kategorien -->
+    <section class="ka-panel" data-panel="categories">
+      <div class="alert alert-info">Schalter aus = Kategorie zählt <strong>nicht</strong> in „Gewinn vor Steuern" (wird nur als Memo gezeigt). Standard: Steuern (Körperschaft/Gewerbe) und Umsatzsteuer sind aus; Lohnsteuer läuft über „Employee" und bleibt an.</div>
+      <div class="card"><div class="card-body" id="categoriesList"></div></div>
+    </section>
+  </div>
+
+  <datalist id="catList"></datalist>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/db.js"></script>
+<script src="js/utils.js"></script>
+<script src="js/clockify.js"></script>
+<script src="js/lexoffice.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/cost-engine.js"></script>
+<script src="js/kostenanalyse.js"></script>
+</body>
+</html>

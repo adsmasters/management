@@ -57,3 +57,27 @@ CREATE TABLE IF NOT EXISTS client_employee_exclusions (
 ALTER TABLE client_employee_exclusions ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Allow all on client_employee_exclusions" ON client_employee_exclusions FOR ALL USING (true) WITH CHECK (true);
 ```
+
+## 5. Kostenanalyse (Cost Analysis)
+
+Im Supabase SQL-Editor **in dieser Reihenfolge** ausführen:
+
+1. `supabase/cost-analysis-schema.sql` – legt die Tabellen an
+   (`cost_transactions`, `cost_category_rules`, `cost_vat_rules`,
+   `cost_exclude_rules`, `cost_category_settings`, `cost_imports`),
+   RLS-Policies, Defaults (Steuern/Umsatzsteuer aus dem Gewinn vor Steuern)
+   und die eingebauten Kreditkarten-Verrechnungs-Ausschlüsse.
+2. `supabase/cost-analysis-seed-rules.sql` – seedt die 402 Kategorie- und
+   27 MwSt-Regeln aus dem alten Google Sheet „Cost Analysis" + Red-Bull-Ausschluss.
+   Idempotent (NOT EXISTS), kann gefahrlos erneut laufen.
+
+**Transaktionshistorie laden:** Anschließend in der App unter
+**Kostenanalyse → Import** die vorhandenen CSV-Dateien (Kreissparkasse + AMEX,
+z. B. aus dem Google-Drive-Ordner) hochladen. Der Import ist idempotent
+(Dedup über Signatur + Vorkommen), d. h. dieselbe oder eine überlappende Datei
+erneut hochzuladen erzeugt keine Doppelbuchungen. So entsteht die vollständige
+Historie mit konsistenter Kategorisierung/MwSt-Logik – ohne die im Sheet teils
+abgeschnittenen Zeilen abzuschreiben.
+
+> Umsatz kommt weiterhin aus Lexoffice; umsatzseitige Ausschlüsse (z. B. Red Bull)
+> stehen wie gehabt unter **Einstellungen → Umsatz-Ausschlüsse**.

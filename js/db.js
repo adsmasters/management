@@ -326,5 +326,95 @@
           .eq('client_id', clientId).eq('year', year).eq('month', month)),
     },
 
+    // ── Kostenanalyse ───────────────────────────────────────────────────────
+    cost: {
+      imports: {
+        list: () =>
+          q(s => s.from('cost_imports').select('*').order('created_at', { ascending: false })),
+        create: (source, filename, fileHash, rowCount, skippedCount, periodLabel) =>
+          q(s => s.from('cost_imports')
+            .insert({ source, filename: filename || null, file_hash: fileHash || null,
+                      row_count: rowCount || 0, skipped_count: skippedCount || 0,
+                      period_label: periodLabel || null })
+            .select().single()),
+        update: (id, fields) =>
+          q(s => s.from('cost_imports').update(fields).eq('id', id).select().single()),
+        delete: (id) =>
+          q(s => s.from('cost_imports').delete().eq('id', id)),   // cascade → Transaktionen
+        findByHash: (fileHash) =>
+          q(s => s.from('cost_imports').select('*').eq('file_hash', fileHash)),
+      },
+
+      transactions: {
+        // Alle Transaktionen (Agentur-Maßstab; Übersicht aggregiert clientseitig)
+        all: () =>
+          q(s => s.from('cost_transactions').select('*').order('tx_date', { ascending: false })),
+        forImport: (importId) =>
+          q(s => s.from('cost_transactions').select('*').eq('import_id', importId)),
+        uncategorized: () =>
+          q(s => s.from('cost_transactions').select('*').is('category', null).order('tx_date', { ascending: false })),
+        // Einfügen; Duplikate (dedup_hash) werden ignoriert. Liefert eingefügte Zeilen.
+        insertMany: (rows) =>
+          q(s => s.from('cost_transactions')
+            .upsert(rows, { onConflict: 'dedup_hash', ignoreDuplicates: true })
+            .select()),
+        update: (id, fields) =>
+          q(s => s.from('cost_transactions')
+            .update(Object.assign({ updated_at: new Date().toISOString() }, fields))
+            .eq('id', id).select().single()),
+        // Bulk-Neuberechnung (Kategorie/MwSt/Ausschluss) – volle Zeilen upserten.
+        bulkUpsert: (rows) =>
+          q(s => s.from('cost_transactions')
+            .upsert(rows, { onConflict: 'id' }).select('id')),
+      },
+
+      categoryRules: {
+        list: () =>
+          q(s => s.from('cost_category_rules').select('*').order('category')),
+        add: (matchType, pattern, category) =>
+          q(s => s.from('cost_category_rules')
+            .insert({ match_type: matchType || 'contains', pattern, category }).select().single()),
+        update: (id, fields) =>
+          q(s => s.from('cost_category_rules').update(fields).eq('id', id).select().single()),
+        delete: (id) =>
+          q(s => s.from('cost_category_rules').delete().eq('id', id)),
+      },
+
+      vatRules: {
+        list: () =>
+          q(s => s.from('cost_vat_rules').select('*').order('pattern')),
+        add: (matchType, pattern, vatRate, startDate, endDate) =>
+          q(s => s.from('cost_vat_rules')
+            .insert({ match_type: matchType || 'contains', pattern,
+                      vat_rate: vatRate != null ? vatRate : 0.19,
+                      start_date: startDate || null, end_date: endDate || null })
+            .select().single()),
+        update: (id, fields) =>
+          q(s => s.from('cost_vat_rules').update(fields).eq('id', id).select().single()),
+        delete: (id) =>
+          q(s => s.from('cost_vat_rules').delete().eq('id', id)),
+      },
+
+      excludeRules: {
+        list: () =>
+          q(s => s.from('cost_exclude_rules').select('*').order('builtin', { ascending: false })),
+        add: (matchType, pattern, reason) =>
+          q(s => s.from('cost_exclude_rules')
+            .insert({ match_type: matchType || 'contains', pattern, reason: reason || null, builtin: false })
+            .select().single()),
+        delete: (id) =>
+          q(s => s.from('cost_exclude_rules').delete().eq('id', id)),
+      },
+
+      categorySettings: {
+        list: () =>
+          q(s => s.from('cost_category_settings').select('*')),
+        set: (category, includeInProfit) =>
+          q(s => s.from('cost_category_settings').upsert(
+            { category, include_in_profit: !!includeInProfit, updated_at: new Date().toISOString() },
+            { onConflict: 'category' }).select().single()),
+      },
+    },
+
   };
 })();
