@@ -58,6 +58,21 @@
   </div>
 
   <div id="content" class="hidden">
+
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
+      <button id="viewAll"  class="btn btn-primary btn-sm">Alle Einträge</button>
+      <button id="viewType" class="btn btn-secondary btn-sm">Nach Typ</button>
+      <div style="width:1px;height:24px;background:var(--border);margin:0 4px"></div>
+      <div style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-secondary)">
+        <span>Zeitraum:</span>
+        <input type="date" id="filterFrom" style="padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;background:var(--surface);color:var(--text)">
+        <span>–</span>
+        <input type="date" id="filterTo" style="padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;background:var(--surface);color:var(--text)">
+        <button id="filterApply" class="btn btn-primary btn-sm" style="padding:3px 10px;font-size:12px">Anwenden</button>
+        <button id="filterReset" class="btn btn-ghost btn-sm" style="padding:3px 8px;font-size:12px">Zurücksetzen</button>
+      </div>
+    </div>
+
     <div class="summary-strip">
       <div class="kpi-card">
         <div class="kpi-label">Gesamtausgaben</div>
@@ -73,24 +88,48 @@
       </div>
     </div>
 
-    <div class="card">
+    <!-- Einzelansicht -->
+    <div id="viewAllPanel" class="card">
       <div class="table-wrap">
         <table>
           <thead>
             <tr>
               <th style="min-width:180px">Quelle</th>
               <th style="min-width:120px">Typ</th>
-              <th class="right" style="min-width:130px">Kosten</th>
+              <th class="right" style="min-width:130px;cursor:pointer;user-select:none" id="sortKosten">Kosten <span id="sortKostenIcon">↕</span></th>
               <th class="right" style="min-width:80px">Kunden</th>
-              <th class="right" style="min-width:150px">Umsatz (LTD)</th>
-              <th style="min-width:100px">ROI</th>
-              <th class="center" style="min-width:130px">Aktionen</th>
+              <th class="right" style="min-width:150px;cursor:pointer;user-select:none" id="sortUmsatz"><span id="umsatzColLabel">Umsatz (LTD)</span> <span id="sortUmsatzIcon">↕</span></th>
+              <th style="min-width:100px;cursor:pointer;user-select:none" id="sortRoi">ROI <span id="sortRoiIcon">↕</span></th>
+              <th class="center" style="min-width:200px">Aktionen</th>
             </tr>
           </thead>
           <tbody id="acqBody"></tbody>
         </table>
       </div>
     </div>
+
+    <!-- Typ-Vergleich -->
+    <div id="viewTypePanel" class="hidden">
+      <div id="typeCards" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px;margin-bottom:20px"></div>
+      <div class="card">
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th style="min-width:160px">Typ</th>
+                <th class="right">Aktivitäten</th>
+                <th class="right">Kosten</th>
+                <th class="right">Kunden</th>
+                <th class="right"><span id="umsatzColLabelType">Umsatz (LTD)</span></th>
+                <th>ROI</th>
+              </tr>
+            </thead>
+            <tbody id="typeBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
   </div>
 
   <div id="emptyState" class="hidden">
@@ -148,6 +187,39 @@
   </div>
 </div>
 
+<!-- Detail Modal -->
+<div id="detailModal" class="modal-overlay hidden">
+  <div class="modal" style="max-width:620px">
+    <div class="modal-header">
+      <h3 id="detailModalTitle">Zugeordnete Kunden</h3>
+      <button class="modal-close" id="detailModalClose">✕</button>
+    </div>
+    <div class="modal-body" id="detailModalBody" style="padding:0"></div>
+  </div>
+</div>
+
+<!-- Assign Clients Modal -->
+<div id="assignModal" class="modal-overlay hidden">
+  <div class="modal" style="max-width:520px">
+    <div class="modal-header">
+      <h3>Kunden zuordnen – <span id="assignModalSource"></span></h3>
+      <button class="modal-close" id="assignModalClose">✕</button>
+    </div>
+    <div class="modal-body">
+      <p style="color:var(--text-secondary);font-size:13px;margin-bottom:12px">
+        Wähle alle Kunden, die über diese Quelle gewonnen wurden. Die Auswahl wird direkt gespeichert.
+      </p>
+      <input type="text" id="assignSearch" placeholder="Kunden suchen…" autocomplete="off"
+        style="width:100%;margin-bottom:12px;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:14px;background:var(--surface)">
+      <div id="assignClientList" style="max-height:340px;overflow-y:auto;display:flex;flex-direction:column;gap:4px"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" id="assignModalCancel">Abbrechen</button>
+      <button class="btn btn-primary"   id="assignModalSave">Speichern</button>
+    </div>
+  </div>
+</div>
+
 <!-- Confirm Delete Modal -->
 <div id="deleteModal" class="modal-overlay hidden">
   <div class="modal">
@@ -166,9 +238,10 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="js/db.js"></script>
+<script src="js/db.js?v=20260610b"></script>
 <script src="js/utils.js"></script>
 <script src="js/auth.js"></script>
-<script src="js/acquisition.js"></script>
+<script src="js/acquisition.js?v=20260610b"></script>
+  <script defer src="https://adsmasters.github.io/hub/backlink.js"></script>
 </body>
 </html>

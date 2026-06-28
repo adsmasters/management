@@ -132,11 +132,59 @@
     revenue: {
       forMonth: (year, month) =>
         q(s => s.from('revenue').select('*').eq('year', year).eq('month', month)),
-      allContactNames: () =>
-        q(s => s.from('revenue').select('contact_name').order('contact_name'))
-          .then(rows => [...new Set(rows.map(r => r.contact_name).filter(Boolean))].sort()),
-      allRows: () =>
-        q(s => s.from('revenue').select('contact_name,total_amount')),
+      allContactNames: async () => {
+        var rows = await window.db.revenue.allRows();
+        return [...new Set(rows.map(r => r.contact_name).filter(Boolean))].sort();
+      },
+      allRows: async () => {
+        // Supabase caps each request at ~1000 rows regardless of .limit().
+        // Paginate with .range() until fewer than PAGE rows come back.
+        var PAGE = 1000;
+        var all  = [];
+        var from = 0;
+        var client = sb();
+        // eslint-disable-next-line no-constant-condition
+        while (true) {
+          var res = await client.from('revenue')
+            .select('contact_name,total_amount,year,month')
+            .order('id', { ascending: true })
+            .range(from, from + PAGE - 1);
+          if (res.error) throw res.error;
+          var chunk = res.data || [];
+          all = all.concat(chunk);
+          if (chunk.length < PAGE) break;
+          from += PAGE;
+        }
+        return all;
+      },
+      forContacts: async (contactNames) => {
+        if (!contactNames || contactNames.length === 0) return [];
+        // Paginate with .range() — Supabase caps each request at ~1000 rows.
+        var PAGE = 1000;
+        var all  = [];
+        var from = 0;
+        var client = sb();
+        // eslint-disable-next-line no-constant-condition
+        while (true) {
+          var res = await client.from('revenue')
+            .select('id,contact_name,year,month,total_amount')
+            .in('contact_name', contactNames)
+            .order('id', { ascending: true })
+            .range(from, from + PAGE - 1);
+          if (res.error) throw res.error;
+          var chunk = res.data || [];
+          all = all.concat(chunk);
+          if (chunk.length < PAGE) break;
+          from += PAGE;
+        }
+        return all;
+      },
+      updateAmount: (id, total_amount) =>
+        q(s => s.from('revenue').update({ total_amount }).eq('id', id).select().single()),
+      insertRow: (year, month, contactName, amount) =>
+        q(s => s.from('revenue')
+          .insert({ year, month, contact_name: contactName, total_amount: amount })
+          .select().single()),
       clearMonth: (year, month) =>
         q(s => s.from('revenue').delete().eq('year', year).eq('month', month)),
       insertMany: (year, month, rows) =>
@@ -197,6 +245,32 @@
         q(s => s.from('acquisition_costs').update(fields).eq('id', id).select().single()),
       delete: (id) =>
         q(s => s.from('acquisition_costs').delete().eq('id', id)),
+    },
+
+    revenueExclusions: {
+      // (Kunde × Mitarbeiter) die NICHT am Umsatz beteiligt werden
+      listAll: () =>
+        q(s => s.from('client_employee_exclusions').select('client_id,employee_id')),
+      add: (clientId, employeeId) =>
+        q(s => s.from('client_employee_exclusions')
+          .insert({ client_id: clientId, employee_id: employeeId }).select().single()),
+      remove: (clientId, employeeId) =>
+        q(s => s.from('client_employee_exclusions')
+          .delete().eq('client_id', clientId).eq('employee_id', employeeId)),
+    },
+
+    acquisitionContactLinks: {
+      listForCost: (costId) =>
+        q(s => s.from('acquisition_contact_links').select('*').eq('acquisition_cost_id', costId)),
+      listAll: () =>
+        q(s => s.from('acquisition_contact_links').select('*')),
+      create: (costId, contactName) =>
+        q(s => s.from('acquisition_contact_links')
+          .insert({ acquisition_cost_id: costId, contact_name: contactName })
+          .select().single()),
+      delete: (costId, contactName) =>
+        q(s => s.from('acquisition_contact_links')
+          .delete().eq('acquisition_cost_id', costId).eq('contact_name', contactName)),
     },
 
     entries: {
