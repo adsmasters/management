@@ -132,7 +132,7 @@
   }
 
   // ── Dashboards (Profit & Spend) ─────────────────────────────────────────────
-  var dash = { from: null, to: null, hiddenCats: null };
+  var dash = { from: null, to: null, hiddenCats: null, focusCat: null };
   var compare = { aFrom: null, aTo: null, bFrom: null, bTo: null };
   var charts = {};
   var currentTab = 'profit';
@@ -313,9 +313,17 @@
   }
 
   // ── Spend ───────────────────────────────────────────────────────────────────
+  function setFocus(cat) {
+    dash.focusCat = (dash.focusCat === cat) ? null : cat;   // gleiche Kategorie nochmal = Fokus aufheben
+    renderSpendStats(); drawSpendCharts();
+  }
   function spendData() {
     var months = selectedMonths(), set = {}; months.forEach(function (m) { set[m] = 1; });
-    var tx = state.transactions.filter(function (t) { return !t.excluded && set[ymOf(t)] && notHidden(t); });
+    var focus = dash.focusCat;
+    var tx = state.transactions.filter(function (t) {
+      return !t.excluded && set[ymOf(t)] && notHidden(t) &&
+        (!focus || (t.category || '(unkategorisiert)') === focus);
+    });
     var net = function (t) { return Number(t.amount_net != null ? t.amount_net : t.amount_gross) || 0; };
     var byCat = {}, byVendor = {}, byMonthCat = {};
     months.forEach(function (m) { byMonthCat[m] = {}; });
@@ -329,6 +337,12 @@
   }
   function renderSpendStats() {
     renderDashFilter('spendFilter');
+    if (el('spendFocus')) {
+      el('spendFocus').innerHTML = dash.focusCat
+        ? '<button class="focus-chip" id="spendFocusChip"><span class="fx">✕</span> Aufschlüsselung: ' + esc(dash.focusCat) + '</button><span class="focus-hint">Klick zum Aufheben · oder andere Kategorie im Diagramm anklicken</span>'
+        : '';
+      if (el('spendFocusChip')) el('spendFocusChip').addEventListener('click', function () { setFocus(dash.focusCat); });
+    }
     var s = spendData();
     var cats = Object.keys(s.byCat).sort(function (a, b) { return s.byCat[b] - s.byCat[a]; });
     var nMonths = s.months.filter(function (m) { return s.tx.some(function (t) { return ymOf(t) === m; }); }).length || 1;
@@ -355,14 +369,50 @@
   }
   function drawSpendCharts() {
     var s = spendData();
+    var focus = dash.focusCat;
     var cats = Object.keys(s.byCat).sort(function (a, b) { return s.byCat[b] - s.byCat[a]; });
-    chart('chSpendCat', { type: 'doughnut', data: { labels: cats, datasets: [{ data: cats.map(function (c) { return round2(s.byCat[c]); }), backgroundColor: cats.map(function (c, i) { return catColor(c, i); }), borderWidth: 2, borderColor: '#fff' }] },
-      options: { responsive: true, maintainAspectRatio: false, cutout: '58%', plugins: { legend: { position: 'right', labels: { boxWidth: 12, usePointStyle: true, font: { size: 11 } } }, tooltip: { callbacks: { label: function (ctx) { return ctx.label + ': ' + fmt(ctx.parsed) + ' (' + (s.total ? (ctx.parsed / s.total * 100).toFixed(1) : 0) + '%)'; } } } } } });
+    // Titel des Donuts an Fokus anpassen
+    if (el('spendCatTitle')) el('spendCatTitle').textContent = focus ? ('Aufschlüsselung: ' + focus) : 'Ausgaben nach Kategorie';
+    if (el('spendCatSub')) el('spendCatSub').textContent = focus ? 'nach Lieferant · Klick = zurück' : 'Klick = nur diese Kategorie';
+
+    // Im Fokus: Donut zeigt Lieferanten der Kategorie; sonst Kategorien
+    var dLabels, dData, dColors, dClickTargets;
+    if (focus) {
+      var fv = Object.keys(s.byVendor).map(function (k) { return [k, s.byVendor[k]]; }).sort(function (a, b) { return b[1] - a[1]; });
+      var topF = fv.slice(0, 9), restF = fv.slice(9).reduce(function (a, x) { return a + x[1]; }, 0);
+      dLabels = topF.map(function (x) { return x[0]; }).concat(restF > 0 ? ['Übrige'] : []);
+      dData = topF.map(function (x) { return round2(x[1]); }).concat(restF > 0 ? [round2(restF)] : []);
+      dColors = dLabels.map(function (_, i) { return PALETTE[i % PALETTE.length]; });
+      dClickTargets = null;   // Klick im Fokus = Fokus aufheben
+    } else {
+      dLabels = cats; dData = cats.map(function (c) { return round2(s.byCat[c]); });
+      dColors = cats.map(function (c, i) { return catColor(c, i); }); dClickTargets = cats;
+    }
+    chart('chSpendCat', {
+      type: 'doughnut',
+      data: { labels: dLabels, datasets: [{ data: dData, backgroundColor: dColors, borderWidth: 2, borderColor: '#fff' }] },
+      options: {
+        responsive: true, maintainAspectRatio: false, cutout: '58%',
+        onClick: function (e, els) { if (focus) { setFocus(focus); return; } if (els && els.length) setFocus(dClickTargets[els[0].index]); },
+        onHover: function (e, els) { if (e.native && e.native.target) e.native.target.style.cursor = els.length ? 'pointer' : 'default'; },
+        plugins: {
+          legend: { position: 'right', labels: { boxWidth: 12, usePointStyle: true, font: { size: 11 } },
+            onClick: function (e, item) { if (focus) setFocus(focus); else setFocus(dLabels[item.index]); } },
+          tooltip: { callbacks: { label: function (ctx) { return ctx.label + ': ' + fmt(ctx.parsed) + ' (' + (s.total ? (ctx.parsed / s.total * 100).toFixed(1) : 0) + '%)'; } } },
+        },
+      },
+    });
+
     var vend = Object.keys(s.byVendor).map(function (k) { return [k, s.byVendor[k]]; }).sort(function (a, b) { return b[1] - a[1]; }).slice(0, 12);
     chart('chSpendVendor', { type: 'bar', data: { labels: vend.map(function (x) { return x[0].slice(0, 22); }), datasets: [{ label: 'Ausgaben', data: vend.map(function (x) { return round2(x[1]); }), backgroundColor: '#2563eb', borderRadius: 5 }] }, options: baseOpts({ horizontal: true, legend: false }) });
-    // Monatlich gestapelt nach Kategorie
-    var ds = cats.map(function (c, i) { return { label: c, data: s.months.map(function (m) { return round2(s.byMonthCat[m][c] || 0); }), backgroundColor: catColor(c, i), borderRadius: 3 }; });
-    chart('chSpendMonth', { type: 'bar', data: { labels: s.months.map(function (m) { var p = m.split('-'); return monthLabel(+p[0], +p[1]); }), datasets: ds }, options: baseOpts({ stacked: true, legend: true }) });
+
+    // Monatlich gestapelt nach Kategorie (Klick auf Segment = Fokus auf Kategorie)
+    var monthCats = focus ? [focus] : cats;
+    var ds = monthCats.map(function (c, i) { return { label: c, data: s.months.map(function (m) { return round2(s.byMonthCat[m][c] || 0); }), backgroundColor: catColor(c, focus ? cats.indexOf(c) : i), borderRadius: 3 }; });
+    var mOpts = baseOpts({ stacked: true, legend: true });
+    mOpts.onClick = function (e, els) { if (els && els.length) { var lbl = ds[els[0].datasetIndex].label; setFocus(lbl); } };
+    mOpts.onHover = function (e, els) { if (e.native && e.native.target) e.native.target.style.cursor = els.length ? 'pointer' : 'default'; };
+    chart('chSpendMonth', { type: 'bar', data: { labels: s.months.map(function (m) { var p = m.split('-'); return monthLabel(+p[0], +p[1]); }), datasets: ds }, options: mOpts });
   }
 
   // ── Datenabdeckung (welche Monate/Quellen sind vorhanden, wo sind Lücken) ────
