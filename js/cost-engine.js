@@ -135,6 +135,44 @@
     return source === 'amex' ? parseAmex(text) : parseKreissparkasse(text);
   }
 
+  // ── Kategorie-Vorschlag (Heuristik für unbekannte Buchungen) ───────────────
+  // Schlägt eine wahrscheinliche Kategorie vor, wenn KEINE Dictionary-Regel greift.
+  // Reihenfolge = Priorität (erster Treffer gewinnt). Reine Vorschläge – der Nutzer
+  // bestätigt/ändert sie und legt damit eine echte Regel an.
+  var SUGGEST_RULES = [
+    ['Reisekosten', ['deutschebahn', 'deutsche bahn', 'db bahn', 'bahn.com', 'trainline', 'omio',
+      'lufthansa', 'eurowings', 'ryanair', 'easyjet', 'flixbus', 'condor', 'airbnb', 'booking.com',
+      'sixt', 'europcar', 'hertz', 'enterprise rent', 'freenow', 'uber', 'bolt.eu', 'tankstelle',
+      'jet tankst', 'aral', 'shell ', 'esso ', 'parkhaus', 'parking',
+      'hotel', 'motel one', 'novotel', 'mercure', 'ibis', 'marriott', 'hilton', 'hyatt', 'aletto',
+      'premier inn', 'steigenberger', 'radisson', 'holiday inn', 'foremost hospitality']],
+    ['Software', ['openai', 'chatgpt', 'anthropic', 'claude.ai', 'google cloud', 'google workspace',
+      'adobe', 'supabase', 'make.com', 'zapier', 'notion', 'figma', 'github', 'vercel', 'cloudflare',
+      'dashlane', 'helium10', 'optmyzr', 'keepa', 'ahrefs', 'fireflies', 'clickup', 'riverside',
+      'lovable', 'manus ai', 'midjourney', 'resend', 'docuseal', 'jotform', 'typeform', 'wistia',
+      'tella', 'elementor', 'raidboxes', 'alfahosting', 'freepik', 'canva', 'semrush', 'sistrix',
+      'datadive', 'windsor.ai', 'opus clip', 'wispr', 'yamm.com', 'miro.com', 'lizenz',
+      'subscription', 'cake.com', 'docuseal', 'black forest labs', 'p.skool', 'skool.com']],
+    ['Marketing', ['indeed', 'join.com', 'linkedin', 'facebk', 'facebook', 'google *ads', 'google ads',
+      'backlinked', 'flyeralarm', 'sellerdirectories', 'produktbewertungen', 'agencyoperators']],
+    ['Freelancer/Externe', ['upwork', 'fiverr', 'freelancer.com', 'malt.de']],
+    ['Restaurant', ['restaurant', 'ristorante', 'pizzeria', 'trattoria', 'brauhaus', 'petite fleur',
+      'saitta', 'starbucks', 'mcdonald', 'vapiano', 'the grill', 'holocafe', 'carlsplatzblume']],
+    ['Equipment', ['amazon', 'amzn', 'mediamarkt', 'media markt', 'saturn', 'apple store',
+      'cyberport', 'conrad', 'notebooksbilliger', 'baby-walz']],
+    ['Büro', ['telekom', 'vodafone', 'deutsche post', 'ionos', 'strato']],
+  ];
+  function suggestCategory(text) {
+    var hay = norm(text);
+    for (var i = 0; i < SUGGEST_RULES.length; i++) {
+      var cat = SUGGEST_RULES[i][0], kws = SUGGEST_RULES[i][1];
+      for (var j = 0; j < kws.length; j++) {
+        if (hay.indexOf(norm(kws[j])) !== -1) return cat;
+      }
+    }
+    return null;
+  }
+
   // ── Regel-Matching ────────────────────────────────────────────────────────
   function ruleMatches(text, rule) {
     var hay = norm(text);
@@ -287,6 +325,7 @@
     parseAmex: parseAmex,
     parseCsv: parseCsv,
     norm: norm,
+    suggestCategory: suggestCategory,
     ruleMatches: ruleMatches,
     categorize: categorize,
     applyVat: applyVat,

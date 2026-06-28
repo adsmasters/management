@@ -264,12 +264,15 @@
     lastMissing = keys.map(function (k) { return groups[k]; });
     el('missingCount').textContent = keys.length;
 
+    var nSugg = 0;
     var rows = lastMissing.map(function (g, i) {
       var suggest = esc(g.pattern);
+      var catSugg = E.suggestCategory(g.sample.description) || '';
+      if (catSugg) nSugg++;
       return '<tr><td>' + esc(g.sample.description.slice(0, 70)) + '</td>' +
         '<td class="num">' + g.count + '</td><td class="num cost">' + fmt(g.sum) + '</td>' +
         '<td class="right"><input id="mp' + i + '" class="miss-pat" data-i="' + i + '" value="' + suggest + '" size="18" style="padding:5px 7px;border:1px solid var(--border);border-radius:6px">' +
-        ' → <input id="mc' + i + '" class="miss-cat" data-i="' + i + '" placeholder="Kategorie" size="16" list="catList" style="padding:5px 7px;border:1px solid var(--border);border-radius:6px">' +
+        ' → <input id="mc' + i + '" class="miss-cat" data-i="' + i + '" value="' + esc(catSugg) + '" placeholder="Kategorie" size="16" list="catList" style="padding:5px 7px;border:1px solid var(--border);border-radius:6px' + (catSugg ? ';background:#fffbe6' : '') + '">' +
         ' <button class="btn btn-primary btn-sm" data-assign="' + i + '">anlegen</button>' +
         ' <button class="btn btn-secondary btn-sm" data-adjust="' + i + '" title="Betrag anteilig anpassen, z.B. nur dein 1/3 (Rest erstattet)">✎ anpassen</button>' +
         ' <button class="btn btn-ghost btn-sm" data-exclude="' + i + '" title="Diese Buchung(en) nicht als Kosten zählen (Durchlaufposten)">⊘ ausschließen</button></td></tr>';
@@ -277,6 +280,8 @@
     el('missingTable').innerHTML =
       '<thead><tr><th>Beispiel-Buchung</th><th>Anzahl</th><th>Summe</th><th class="right">Regel anlegen (enthält → Kategorie) · oder ausschließen</th></tr></thead>' +
       '<tbody>' + (rows || '<tr><td colspan="4" class="muted">Alles kategorisiert 🎉</td></tr>') + '</tbody>';
+    if (el('missingBulkHint')) el('missingBulkHint').textContent =
+      nSugg ? (nSugg + ' Vorschläge (gelb) vorausgefüllt – bitte prüfen, dann „Alle ausgefüllten anlegen".') : '';
 
     Array.prototype.forEach.call(document.querySelectorAll('[data-exclude]'), function (b) {
       b.addEventListener('click', function () {
