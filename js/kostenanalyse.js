@@ -244,8 +244,8 @@
       var suggest = esc((g.sample.payee || g.sample.description || '').split('|')[0].trim().slice(0, 40));
       return '<tr><td>' + esc(g.sample.description.slice(0, 70)) + '</td>' +
         '<td class="num">' + g.count + '</td><td class="num cost">' + fmt(g.sum) + '</td>' +
-        '<td class="right"><input id="mp' + i + '" value="' + suggest + '" size="18" style="padding:5px 7px;border:1px solid var(--border);border-radius:6px">' +
-        ' → <input id="mc' + i + '" placeholder="Kategorie" size="16" list="catList" style="padding:5px 7px;border:1px solid var(--border);border-radius:6px">' +
+        '<td class="right"><input id="mp' + i + '" class="miss-pat" data-i="' + i + '" value="' + suggest + '" size="18" style="padding:5px 7px;border:1px solid var(--border);border-radius:6px">' +
+        ' → <input id="mc' + i + '" class="miss-cat" data-i="' + i + '" placeholder="Kategorie" size="16" list="catList" style="padding:5px 7px;border:1px solid var(--border);border-radius:6px">' +
         ' <button class="btn btn-primary btn-sm" data-assign="' + i + '">anlegen</button></td></tr>';
     }).join('');
     el('missingTable').innerHTML =
@@ -387,6 +387,40 @@
       reapplyRules().then(reloadAndRender).then(function () {
         el('reapplyBtn').disabled = false; el('reapplyBtn').textContent = '↻ Regeln neu anwenden';
       }).catch(function (e) { alert(e.message); el('reapplyBtn').disabled = false; el('reapplyBtn').textContent = '↻ Regeln neu anwenden'; });
+    });
+
+    // Sammel-Anlegen: alle Zeilen mit ausgefüllter Kategorie auf einmal
+    el('missingBulkBtn').addEventListener('click', function () {
+      var toAdd = [], seen = {};
+      Array.prototype.forEach.call(document.querySelectorAll('#missingTable .miss-cat'), function (cInp) {
+        var i = cInp.dataset.i;
+        var pInp = document.getElementById('mp' + i);
+        var pattern = pInp ? pInp.value.trim() : '';
+        var category = cInp.value.trim();
+        if (!pattern || !category) return;
+        var key = pattern.toLowerCase() + '|' + category;
+        if (seen[key]) return; seen[key] = 1;
+        toAdd.push({ match_type: 'contains', pattern: pattern, category: category });
+      });
+      if (!toAdd.length) { alert('Trage zuerst bei mindestens einer Zeile eine Kategorie ein.'); return; }
+      if (!confirm(toAdd.length + ' Regel(n) anlegen und auf alle Buchungen anwenden?')) return;
+      var btn = el('missingBulkBtn'); btn.disabled = true; btn.textContent = '… wird angelegt';
+      window.db.cost.categoryRules.addMany(toAdd)
+        .then(function () { return reapplyRules(); })
+        .then(reloadAndRender)
+        .then(function () { switchTab('missing'); btn.disabled = false; btn.textContent = '✓ Alle ausgefüllten anlegen'; })
+        .catch(function (e) { alert(e.message); btn.disabled = false; btn.textContent = '✓ Alle ausgefüllten anlegen'; });
+    });
+
+    // Kategorie in alle noch leeren Felder übernehmen (nur lokal, kein Speichern)
+    el('missingFillBtn').addEventListener('click', function () {
+      var val = el('missingFillAll').value.trim();
+      if (!val) { alert('Bitte oben eine Kategorie eingeben.'); return; }
+      var n = 0;
+      Array.prototype.forEach.call(document.querySelectorAll('#missingTable .miss-cat'), function (c) {
+        if (!c.value.trim()) { c.value = val; n++; }
+      });
+      el('missingBulkHint').textContent = n + ' Felder gefüllt – jetzt „Alle ausgefüllten anlegen".';
     });
 
     el('catRuleAdd').addEventListener('click', function () {
