@@ -9,6 +9,8 @@
   var MONTHS = window.MONTHS_DE;
   var MANUAL_REASON = 'Manuell ausgeschlossen';   // Sentinel: einzeln ausgeschlossen
   var ADJUSTED_REASON = 'Angepasst';              // Sentinel: Betrag manuell angepasst (anteilig)
+  var CAT_PREFIX = 'cat:';                          // Sentinel-Prefix: Kategorie manuell gesetzt
+  function isManualCat(r) { return typeof r === 'string' && r.indexOf(CAT_PREFIX) === 0; }
   var lastMissing = [];                            // gerenderte Gruppen (für Aktionen)
 
   var state = {
@@ -597,19 +599,123 @@
     });
   }
 
+  // ── Buchungen (alle Transaktionen) ──────────────────────────────────────────
+  function allCategories() {
+    var s = {};
+    state.categoryRules.forEach(function (r) { s[r.category] = 1; });
+    Object.keys(state.settings).forEach(function (c) { s[c] = 1; });
+    state.transactions.forEach(function (t) { if (t.category) s[t.category] = 1; });
+    return Object.keys(s).sort();
+  }
+  function txStatusOf(t) {
+    if (t.excluded) return 'excluded';
+    if (t.exclude_reason === ADJUSTED_REASON) return 'adjusted';
+    if (isManualCat(t.exclude_reason)) return 'manualcat';
+    if (t.category == null) return 'uncat';
+    return 'ok';
+  }
+  function txById(id) { for (var i = 0; i < state.transactions.length; i++) if (state.transactions[i].id === id) return state.transactions[i]; return null; }
+
+  function renderTransactions() {
+    if (!el('txTable')) return;
+    var cats = allCategories();
+    var catSel = el('txCat');
+    if (catSel) {
+      var cur = catSel.value;
+      catSel.innerHTML = '<option value="">Alle Kategorien</option><option value="__uncat__">(unkategorisiert)</option>' +
+        cats.map(function (c) { return '<option value="' + esc(c) + '">' + esc(c) + '</option>'; }).join('');
+      catSel.value = cur;
+    }
+    var q = ((el('txSearch') && el('txSearch').value) || '').toLowerCase().trim();
+    var fCat = catSel ? catSel.value : '', fSrc = el('txSource') ? el('txSource').value : '', fStat = el('txStatus') ? el('txStatus').value : '';
+    var rows = state.transactions.filter(function (t) {
+      if (q && (t.description || '').toLowerCase().indexOf(q) === -1) return false;
+      if (fCat === '__uncat__') { if (t.category != null) return false; } else if (fCat && t.category !== fCat) return false;
+      if (fSrc && t.source !== fSrc) return false;
+      if (fStat && txStatusOf(t) !== fStat) return false;
+      return true;
+    }).sort(function (a, b) { return a.tx_date < b.tx_date ? 1 : (a.tx_date > b.tx_date ? -1 : 0); });
+
+    var LIMIT = 200, shown = rows.slice(0, LIMIT);
+    if (el('txCount')) el('txCount').textContent = rows.length + ' Buchungen' + (rows.length > LIMIT ? ' · zeige erste ' + LIMIT + ' (Suche eingrenzen)' : '');
+
+    var optsFor = function (sel) {
+      return '<option value="__auto__">↺ automatisch (Regel)</option>' +
+        cats.map(function (c) { return '<option value="' + esc(c) + '"' + (c === sel ? ' selected' : '') + '>' + esc(c) + '</option>'; }).join('');
+    };
+    var body = shown.map(function (t) {
+      var st = txStatusOf(t);
+      var badge = st === 'excluded' ? ' <span class="pill">ausgeschlossen</span>' : st === 'adjusted' ? ' <span class="pill">angepasst</span>' : st === 'manualcat' ? ' <span class="pill">📌 manuell</span>' : '';
+      var catCell = t.excluded ? '<span class="muted">—</span>' :
+        '<select class="tx-cat df-sel" data-id="' + t.id + '" style="padding:4px 6px;font-weight:400">' + optsFor(t.category) + '</select>';
+      var action = t.excluded ?
+        '<button class="btn btn-ghost btn-sm" data-tx-reinc="' + t.id + '">einrechnen</button>' :
+        '<button class="btn btn-secondary btn-sm" data-tx-adjust="' + t.id + '" title="Betrag anpassen">✎</button> ' +
+        '<button class="btn btn-ghost btn-sm" data-tx-excl="' + t.id + '" title="ausschließen">⊘</button>';
+      return '<tr><td>' + esc(t.tx_date) + '</td>' +
+        '<td>' + esc(vendorName(t).slice(0, 28)) + badge + '</td>' +
+        '<td class="muted" style="max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc((t.description || '').slice(0, 60)) + '</td>' +
+        '<td>' + catCell + '</td>' +
+        '<td class="muted">' + (t.source === 'kreissparkasse' ? 'Bank' : 'AMEX') + '</td>' +
+        '<td class="num cost">' + fmt(t.amount_net != null ? t.amount_net : t.amount_gross) + '</td>' +
+        '<td class="right" style="white-space:nowrap">' + action + '</td></tr>';
+    }).join('');
+    el('txTable').innerHTML =
+      '<thead><tr><th>Datum</th><th>Lieferant</th><th>Beschreibung</th><th>Kategorie</th><th>Quelle</th><th>Netto</th><th></th></tr></thead>' +
+      '<tbody>' + (body || '<tr><td colspan="7" class="muted">Keine Buchungen für diesen Filter.</td></tr>') + '</tbody>';
+
+    Array.prototype.forEach.call(el('txTable').querySelectorAll('.tx-cat'), function (s) {
+      s.addEventListener('change', function () {
+        var t = txById(s.dataset.id); if (!t) return; s.disabled = true;
+        var p = (s.value === '__auto__')
+          ? (function () { var en = E.enrich(t, rulesObj()); return window.db.cost.transactions.update(t.id, { category: en.category, amount_net: en.amount_net, excluded: en.excluded, exclude_reason: en.exclude_reason }); })()
+          : window.db.cost.transactions.update(t.id, { category: s.value, exclude_reason: CAT_PREFIX + s.value });
+        p.then(reloadAndRender).catch(function (e) { alert(e.message); s.disabled = false; });
+      });
+    });
+    Array.prototype.forEach.call(el('txTable').querySelectorAll('[data-tx-excl]'), function (b) {
+      b.addEventListener('click', function () {
+        var t = txById(b.dataset.txExcl); if (!t) return;
+        if (!confirm('„' + vendorName(t) + '" (' + fmt(t.amount_net) + ') ausschließen? Zählt dann nicht als Kosten.')) return;
+        b.disabled = true; window.db.cost.transactions.bulkExclude([t.id], true, MANUAL_REASON).then(reloadAndRender).catch(function (e) { alert(e.message); b.disabled = false; });
+      });
+    });
+    Array.prototype.forEach.call(el('txTable').querySelectorAll('[data-tx-reinc]'), function (b) {
+      b.addEventListener('click', function () { b.disabled = true; window.db.cost.transactions.bulkExclude([b.dataset.txReinc], false, null).then(reloadAndRender).catch(function (e) { alert(e.message); b.disabled = false; }); });
+    });
+    Array.prototype.forEach.call(el('txTable').querySelectorAll('[data-tx-adjust]'), function (b) {
+      b.addEventListener('click', function () { var t = txById(b.dataset.txAdjust); if (t) adjustSingle(t, b); });
+    });
+  }
+  function adjustSingle(t, btn) {
+    var orig = E.enrich(t, rulesObj()).amount_net;
+    var ans = prompt('Wie viel von „' + vendorName(t) + '" soll als Kosten zählen?\n\n• Bruch z.B.  1/3\n• Prozent z.B.  33%\n• oder Euro-Betrag z.B.  1332,00\n\nOriginal: ' + fmt(orig), '1/2');
+    if (ans == null) return; ans = ans.trim();
+    var frac = null, abs = null;
+    var mF = ans.match(/^(\d+(?:[.,]\d+)?)\s*\/\s*(\d+(?:[.,]\d+)?)$/), mP = ans.match(/^(\d+(?:[.,]\d+)?)\s*%$/);
+    if (mF) frac = parseFloat(mF[1].replace(',', '.')) / parseFloat(mF[2].replace(',', '.'));
+    else if (mP) frac = parseFloat(mP[1].replace(',', '.')) / 100;
+    else abs = parseFloat(ans.replace(/[^0-9,.-]/g, '').replace(/\.(?=\d{3}\b)/g, '').replace(',', '.'));
+    if (frac == null && !isFinite(abs)) { alert('Bitte „1/3", „33%" oder Euro-Betrag.'); return; }
+    var nn = frac != null ? Math.round(orig * frac * 100) / 100 : abs;
+    if (btn) btn.disabled = true;
+    window.db.cost.transactions.update(t.id, { amount_net: nn, exclude_reason: ADJUSTED_REASON }).then(reloadAndRender).catch(function (e) { alert(e.message); if (btn) btn.disabled = false; });
+  }
+
   // ── Regeln neu anwenden ────────────────────────────────────────────────────
   function reapplyRules() {
     var rules = rulesObj();
     var updates = state.transactions.map(function (t) {
       var manual = t.excluded && t.exclude_reason === MANUAL_REASON;        // einzeln ausgeschlossen
       var adjusted = !t.excluded && t.exclude_reason === ADJUSTED_REASON;   // Betrag angepasst
+      var manualCat = !t.excluded && isManualCat(t.exclude_reason);         // Kategorie manuell gesetzt
       var en = E.enrich(t, rules);
       var excluded = manual || en.excluded;
       var reason = manual ? MANUAL_REASON
-        : (en.excluded ? en.exclude_reason : (adjusted ? ADJUSTED_REASON : en.exclude_reason));
+        : (en.excluded ? en.exclude_reason : (adjusted ? ADJUSTED_REASON : (manualCat ? t.exclude_reason : en.exclude_reason)));
       var net = (adjusted && !en.excluded) ? t.amount_net : en.amount_net;  // angepassten Betrag halten
       return Object.assign({}, t, {
-        category: en.category, vat_rate: en.vat_rate, vat_amount: en.vat_amount, amount_net: net,
+        category: manualCat ? t.category : en.category, vat_rate: en.vat_rate, vat_amount: en.vat_amount, amount_net: net,
         excluded: excluded, exclude_reason: reason, updated_at: new Date().toISOString(),
       });
     });
@@ -627,7 +733,7 @@
   function reloadAndRender() { return loadAll().then(renderAll); }
   function renderAll() {
     renderProfitStats(); renderSpendStats();
-    renderImports(); renderMissing(); renderRules(); renderCategories();
+    renderImports(); renderMissing(); renderRules(); renderCategories(); renderTransactions();
     drawCharts(currentTab);
   }
 
@@ -645,6 +751,10 @@
       t.addEventListener('click', function () { switchTab(t.dataset.tab); });
     });
     el('csvFile').addEventListener('change', function (e) { handleFiles(e.target.files); });
+    ['txSearch', 'txCat', 'txSource', 'txStatus'].forEach(function (id) {
+      var e = el(id); if (!e) return;
+      e.addEventListener(id === 'txSearch' ? 'input' : 'change', function () { renderTransactions(); });
+    });
     var dz = el('dropzone');
     ['dragover', 'dragenter'].forEach(function (ev) { dz.addEventListener(ev, function (e) { e.preventDefault(); dz.style.borderColor = 'var(--primary,#2563eb)'; }); });
     ['dragleave', 'drop'].forEach(function (ev) { dz.addEventListener(ev, function (e) { e.preventDefault(); dz.style.borderColor = 'var(--border)'; }); });

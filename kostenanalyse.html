@@ -114,6 +114,7 @@
     <div class="ka-tabs">
       <button class="ka-tab active" data-tab="profit">📈 Profit</button>
       <button class="ka-tab" data-tab="spend">📊 Spend</button>
+      <button class="ka-tab" data-tab="transactions">🧾 Buchungen</button>
       <button class="ka-tab" data-tab="import">Import</button>
       <button class="ka-tab warn" data-tab="missing">Unkategorisiert <span class="count" id="missingCount">0</span></button>
       <button class="ka-tab" data-tab="rules">Regeln</button>
@@ -147,6 +148,18 @@
         <div class="chart-card"><div class="chart-head"><h3>Top-Lieferanten</h3><span class="chart-sub">Anteil am Gesamt</span></div><div class="card-body table-wrap" style="padding:0"><table class="ka" id="vendorTable"></table></div></div>
         <div class="chart-card"><div class="chart-head"><h3>Letzte Buchungen</h3></div><div class="card-body table-wrap" style="padding:0;max-height:360px;overflow:auto"><table class="ka" id="spendDetailTable"></table></div></div>
       </div>
+    </section>
+
+    <!-- Buchungen (alle Transaktionen) -->
+    <section class="ka-panel" data-panel="transactions">
+      <div class="dash-filter" style="gap:8px">
+        <input id="txSearch" class="df-sel" placeholder="Suche: Lieferant / Text …" style="min-width:240px;font-weight:400">
+        <select id="txCat" class="df-sel"></select>
+        <select id="txSource" class="df-sel"><option value="">Alle Quellen</option><option value="kreissparkasse">Bank</option><option value="amex">AMEX</option></select>
+        <select id="txStatus" class="df-sel"><option value="">Alle Status</option><option value="uncat">Nur unkategorisiert</option><option value="excluded">Nur ausgeschlossen</option><option value="adjusted">Nur angepasst</option><option value="manualcat">Nur manuell kategorisiert</option></select>
+        <span id="txCount" class="muted"></span>
+      </div>
+      <div class="card"><div class="card-body table-wrap"><table class="ka" id="txTable"></table></div></div>
     </section>
 
     <!-- Import -->
