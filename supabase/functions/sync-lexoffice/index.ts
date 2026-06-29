@@ -7,6 +7,16 @@ const CORS = {
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
+// Year*12+month index from an ISO date string, using the PRINTED calendar date
+// (ignoring time-of-day/timezone). Crucial: "2026-01-01T00:00:00.000+01:00" must
+// count as January — naive new Date()+getUTCMonth() would shift it to December.
+function calYM(s: string): number | null {
+  const m = String(s || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return parseInt(m[1]) * 12 + (parseInt(m[2]) - 1);
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? null : d.getUTCFullYear() * 12 + d.getUTCMonth();
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
 
@@ -97,32 +107,40 @@ Deno.serve(async (req) => {
         const lineItems: any[] = invoice.lineItems || [];
 
         // ── Determine which month(s) this invoice belongs to + split factor ──
-        const sd = invoice.serviceDate;
+        // Bucket by LEISTUNGSDATUM (service period) like DATEV — NOT by invoice date.
+        // LexOffice exposes the Leistungszeitraum under `shippingConditions`
+        // (shippingDate = start, shippingEndDate = end of service period). The legacy
+        // `serviceDate` field is kept as a fallback; voucherDate (Rechnungsdatum) is
+        // the last resort only when no service date is present at all.
+        const sc = invoice.shippingConditions || null;
+        const sd = invoice.serviceDate || null;
+        let startStr = '';
+        let endStr = '';
+        let dateSource = 'voucherDate';
+        if (sc && (sc.shippingDate || sc.shippingEndDate)) {
+          startStr   = sc.shippingDate || sc.shippingEndDate || '';
+          endStr     = sc.shippingEndDate || '';
+          dateSource = 'shippingConditions';
+        } else if (sd && (sd.date || sd.startDate || sd.endDate)) {
+          startStr   = sd.date || sd.startDate || '';
+          endStr     = sd.endDate || '';
+          dateSource = 'serviceDate';
+        }
+
         let belongs = false;
         let monthDivisor = 1;
         const targetYM = targetYear * 12 + (targetMonth - 1);
 
-        if (sd) {
-          const startStr: string = sd.date || sd.startDate || '';
-          const endStr: string   = sd.endDate || '';
-          if (startStr && endStr && startStr !== endStr) {
-            const start = new Date(startStr);
-            const end   = new Date(endStr);
-            if (!isNaN(start.getTime()) && !isNaN(end.getTime())) {
-              const startYM = start.getUTCFullYear() * 12 + start.getUTCMonth();
-              const endYM   = end.getUTCFullYear()   * 12 + end.getUTCMonth();
-              belongs      = targetYM >= startYM && targetYM <= endYM;
-              monthDivisor = endYM - startYM + 1;
-            }
-          } else if (startStr) {
-            const d = new Date(startStr);
-            if (!isNaN(d.getTime())) {
-              belongs = d.getUTCFullYear() === targetYear && d.getUTCMonth() + 1 === targetMonth;
-            }
+        if (startStr) {
+          const startYM = calYM(startStr);
+          const endYM   = endStr ? calYM(endStr) : startYM;
+          if (startYM !== null && endYM !== null) {
+            belongs      = targetYM >= startYM && targetYM <= endYM;
+            monthDivisor = Math.max(1, endYM - startYM + 1);
           }
         } else {
-          const vd = new Date(v.voucherDate || '');
-          belongs = vd.getUTCFullYear() === targetYear && vd.getUTCMonth() + 1 === targetMonth;
+          const vYM = calYM(v.voucherDate || '');
+          if (vYM !== null) belongs = vYM === targetYM;
         }
 
         // ── Q-pattern fallback ────────────────────────────────────────────────
@@ -205,6 +223,8 @@ Deno.serve(async (req) => {
             contact: contactName,
             voucherDate: v.voucherDate,
             serviceDate: sd,
+            shippingConditions: sc,
+            dateSource,
             belongs,
             gross: v.totalAmount,
             net: netAmountForMonth,
@@ -220,6 +240,10 @@ Deno.serve(async (req) => {
             contact: contactName,
             voucherDate: v.voucherDate,
             serviceDate: sd,
+            shippingConditions: sc,
+            dateSource,
+            startStr,
+            endStr,
             belongs: false,
             monthDivisor,
             gross: v.totalAmount,
