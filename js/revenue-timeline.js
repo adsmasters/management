@@ -154,9 +154,11 @@
     var revCmp   = doCompare ? periods.map(function (p) { return Math.round(p.cmp.rev); }) : null;
     var custMain = periods.map(function (p) { return p.cur.active; });
     var perCust  = periods.map(function (p) { return Math.round(p.cur.perCust); });
+    var custCmp  = doCompare ? periods.map(function (p) { return p.cmp.active; }) : null;
+    var perCustCmp = doCompare ? periods.map(function (p) { return Math.round(p.cmp.perCust); }) : null;
 
     buildRevChart(labels, revMain, revCmp);
-    buildCustChart(labels, custMain, perCust);
+    buildCustChart(labels, custMain, perCust, custCmp, perCustCmp);
 
     // ── Tabelle ───────────────────────────────────────────────────────
     document.querySelectorAll('th.cmp, td.cmp').forEach(function (e) { e.classList.toggle('hidden-col', !doCompare); });
@@ -193,14 +195,19 @@
     });
   }
 
-  function buildCustChart(labels, customers, perCust) {
+  function buildCustChart(labels, customers, perCust, customersCmp, perCustCmp) {
     var ctx = document.getElementById('customerChart').getContext('2d');
     if (custChart) custChart.destroy();
+    var ds = [
+      { type: 'bar', label: 'Aktive Kunden', data: customers, backgroundColor: '#10b981', borderRadius: 4, borderSkipped: false, yAxisID: 'y', order: 2 },
+      { type: 'line', label: 'Ø Umsatz / Kunde', data: perCust, borderColor: '#f59e0b', backgroundColor: '#f59e0b', tension: .3, yAxisID: 'y1', pointRadius: 3, order: 0 }
+    ];
+    if (customersCmp) {
+      ds.push({ type: 'bar', label: 'Aktive Kunden (Vorjahr)', data: customersCmp, backgroundColor: '#a7f3d0', borderRadius: 4, borderSkipped: false, yAxisID: 'y', order: 3 });
+      ds.push({ type: 'line', label: 'Ø/Kunde (Vorjahr)', data: perCustCmp, borderColor: '#fcd34d', backgroundColor: '#fcd34d', borderDash: [5, 4], tension: .3, yAxisID: 'y1', pointRadius: 2, order: 1 });
+    }
     custChart = new Chart(ctx, {
-      data: { labels: labels, datasets: [
-        { type: 'bar', label: 'Aktive Kunden', data: customers, backgroundColor: '#10b981', borderRadius: 4, borderSkipped: false, yAxisID: 'y' },
-        { type: 'line', label: 'Ø Umsatz / Kunde', data: perCust, borderColor: '#f59e0b', backgroundColor: '#f59e0b', tension: .3, yAxisID: 'y1', pointRadius: 3 }
-      ] },
+      data: { labels: labels, datasets: ds },
       options: { responsive: true, maintainAspectRatio: false,
         plugins: { legend: { position: 'top' }, tooltip: { callbacks: { label: function (c) { return c.dataset.type === 'line' ? ' Ø/Kunde: ' + fmt2(c.parsed.y) : ' Kunden: ' + c.parsed.y; } } } },
         scales: { x: { grid: { display: false } },
