@@ -346,9 +346,26 @@
       },
 
       transactions: {
-        // Alle Transaktionen (Agentur-Maßstab; Übersicht aggregiert clientseitig)
-        all: () =>
-          q(s => s.from('cost_transactions').select('*').order('tx_date', { ascending: false })),
+        // Alle Transaktionen (Agentur-Maßstab; Übersicht aggregiert clientseitig).
+        // Supabase liefert max ~1000 Zeilen/Request → paginieren, sonst fallen die
+        // ältesten Buchungen weg (z.B. Jan–Jul 2025 in der Datenabdeckung).
+        all: async () => {
+          var PAGE = 1000, out = [], from = 0, client = sb();
+          // eslint-disable-next-line no-constant-condition
+          while (true) {
+            var res = await client.from('cost_transactions')
+              .select('*')
+              .order('tx_date', { ascending: false })
+              .order('id', { ascending: false })
+              .range(from, from + PAGE - 1);
+            if (res.error) throw res.error;
+            var chunk = res.data || [];
+            out = out.concat(chunk);
+            if (chunk.length < PAGE) break;
+            from += PAGE;
+          }
+          return out;
+        },
         forImport: (importId) =>
           q(s => s.from('cost_transactions').select('*').eq('import_id', importId)),
         uncategorized: () =>
