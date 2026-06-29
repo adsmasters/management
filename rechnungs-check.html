@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Rechnungs-Check – Adsmasters Management</title>
+  <link rel="stylesheet" href="css/style.css">
+  <style>
+    .rc-controls { display:flex; gap:14px; align-items:center; flex-wrap:wrap; margin-bottom:14px; }
+    .rc-controls input[type="text"] { padding:6px 10px; border:1px solid var(--border); border-radius:var(--radius); font-size:13px; background:var(--surface); color:var(--text); min-width:200px; }
+    .rc-controls select { padding:6px 10px; border:1px solid var(--border); border-radius:var(--radius); font-size:13px; background:var(--surface); color:var(--text); }
+    .rc-controls label { display:flex; align-items:center; gap:6px; font-size:13px; color:var(--text-secondary); cursor:pointer; }
+    .rc-summary { font-size:13px; color:var(--text-secondary); }
+    .rc-legend { display:flex; gap:16px; align-items:center; font-size:12px; color:var(--text-secondary); margin-bottom:12px; flex-wrap:wrap; }
+    .rc-legend .chip { display:inline-flex; align-items:center; gap:6px; }
+    .rc-swatch { width:14px; height:14px; border-radius:3px; display:inline-block; }
+
+    .rc-wrap { overflow:auto; max-height: calc(100vh - 260px); border:1px solid var(--border); border-radius:var(--radius); background:var(--surface); }
+    table.rc { border-collapse:separate; border-spacing:0; font-size:12px; font-variant-numeric:tabular-nums; width:max-content; }
+    table.rc th, table.rc td { padding:6px 9px; white-space:nowrap; border-bottom:1px solid var(--border); }
+    table.rc thead th { position:sticky; top:0; background:var(--surface); z-index:2; text-align:right; font-weight:600; color:var(--text-secondary); border-bottom:2px solid var(--border); line-height:1.25; }
+    table.rc td.name, table.rc th.name { position:sticky; left:0; background:var(--surface); text-align:left; z-index:1; max-width:230px; overflow:hidden; text-overflow:ellipsis; }
+    table.rc thead th.name { z-index:3; text-align:left; }
+    table.rc tbody tr:hover td { background:var(--surface-hover, #f8fafc); }
+    td.num { text-align:right; }
+    td.empty { color:var(--border); text-align:center; }
+    td.cur, th.cur { color:var(--text-secondary); }
+    td.gap { background:#fff4e5; color:#b45309; font-weight:700; text-align:center; }
+    .gap-dot { display:inline-block; width:7px; height:7px; border-radius:50%; background:#f59e0b; margin-right:6px; vertical-align:middle; }
+  </style>
+</head>
+<body>
+
+<header class="header">
+  <div class="header-inner">
+    <a href="index.html" class="logo">Adsmasters <span>Management</span></a>
+    <nav>
+      <a href="index.html"            class="nav-link">Übersicht</a>
+      <a href="clients.html"          class="nav-link">Kunden</a>
+      <a href="employees.html"        class="nav-link">Mitarbeiter</a>
+      <a href="utilization.html"      class="nav-link">Auslastung</a>
+      <a href="profit.html"           class="nav-link">Profitabilität</a>
+      <a href="kostenanalyse.html"    class="nav-link">Kostenanalyse</a>
+      <a href="revenue-timeline.html" class="nav-link">Umsatz-Verlauf</a>
+      <a href="rechnungs-check.html"  class="nav-link active">Rechnungs-Check</a>
+      <a href="employee-revenue.html" class="nav-link">MA-Umsatz</a>
+      <a href="acquisition.html"      class="nav-link">Akquisition</a>
+      <a href="name-mapping.html"     class="nav-link">Zuordnung</a>
+      <a href="settings.html"         class="nav-link">Einstellungen</a>
+    </nav>
+  </div>
+</header>
+
+<main class="main">
+
+  <div id="error"></div>
+
+  <div class="page-header">
+    <div>
+      <h1>Rechnungs-Check</h1>
+      <div class="sub">Umsatz je Kunde &amp; Monat (nach Leistungsdatum). Eine markierte Lücke = Umsatz davor <strong>und</strong> danach, aber nicht in dem Monat.</div>
+    </div>
+  </div>
+
+  <div class="rc-controls">
+    <input type="text" id="search" placeholder="Kunde filtern…" autocomplete="off">
+    <label><input type="checkbox" id="onlyGaps"> Nur Kunden mit Lücken</label>
+    <select id="monthsBack">
+      <option value="12">Letzte 12 Monate</option>
+      <option value="15" selected>Letzte 15 Monate</option>
+      <option value="18">Letzte 18 Monate</option>
+      <option value="24">Letzte 24 Monate</option>
+    </select>
+    <span class="rc-summary" id="rcSummary"></span>
+  </div>
+
+  <div class="rc-legend">
+    <span class="chip"><span class="rc-swatch" style="background:#fff4e5;border:1px solid #f59e0b"></span> Lücke (selbst prüfen — kein automatisches „fehlt")</span>
+    <span class="chip"><span style="color:var(--border)">·</span> kein Umsatz (Rand/kein Vertrag)</span>
+    <span class="chip">„lfd." = laufender Monat (noch unvollständig, wird nie als Lücke markiert)</span>
+  </div>
+
+  <div id="loading">
+    <div class="loading-bar"><div class="spinner"></div>Daten werden geladen…</div>
+  </div>
+
+  <div id="content" class="hidden">
+    <div class="rc-wrap">
+      <table class="rc">
+        <thead id="rcHead"></thead>
+        <tbody id="rcBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/db.js"></script>
+<script src="js/utils.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/rechnungs-check.js"></script>
+<script defer src="https://adsmasters.github.io/hub/backlink.js"></script>
+</body>
+</html>
