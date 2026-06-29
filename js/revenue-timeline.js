@@ -30,6 +30,15 @@
 
   function fmt(n)  { return (Math.round(n)).toLocaleString('de-DE') + ' €'; }
   function fmt2(n) { return n.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'; }
+  // Tooltip-Titel: bei Vorjahres-Reihen das Vorjahr anzeigen (statt der aktuellen Periode).
+  function tipTitle(items) {
+    var it = items[0]; if (!it) return '';
+    var lbl = String((it.chart.data.labels || [])[it.dataIndex] || '');
+    if (/Vorjahr/i.test(it.dataset.label || '')) {
+      return lbl.replace(/\s*\(lfd\.\)\s*/i, '').replace(/(\d{4})/, function (y) { return (+y - 1); }) + ' (Vorjahr)';
+    }
+    return lbl;
+  }
   function showError(msg) { errorEl.innerHTML = '<div class="alert alert-danger">⚠️ ' + msg + '</div>'; }
 
   function getExcludeKeywords() {
@@ -190,7 +199,7 @@
     revChart = new Chart(ctx, {
       type: 'bar', data: { labels: labels, datasets: ds },
       options: { responsive: true, maintainAspectRatio: false,
-        plugins: { legend: { display: !!cmp, position: 'top' }, tooltip: { callbacks: { label: function (c) { return ' ' + fmt2(c.parsed.y); } } } },
+        plugins: { legend: { display: !!cmp, position: 'top' }, tooltip: { callbacks: { title: tipTitle, label: function (c) { return ' ' + fmt2(c.parsed.y); } } } },
         scales: { x: { grid: { display: false } }, y: { beginAtZero: true, ticks: { callback: function (v) { return (v / 1000).toLocaleString('de-DE', { maximumFractionDigits: 0 }) + ' k €'; } } } } }
     });
   }
@@ -209,7 +218,7 @@
     custChart = new Chart(ctx, {
       data: { labels: labels, datasets: ds },
       options: { responsive: true, maintainAspectRatio: false,
-        plugins: { legend: { position: 'top' }, tooltip: { callbacks: { label: function (c) { return c.dataset.type === 'line' ? ' Ø/Kunde: ' + fmt2(c.parsed.y) : ' Kunden: ' + c.parsed.y; } } } },
+        plugins: { legend: { position: 'top' }, tooltip: { callbacks: { title: tipTitle, label: function (c) { return c.dataset.type === 'line' ? ' Ø/Kunde: ' + fmt2(c.parsed.y) : ' Kunden: ' + c.parsed.y; } } } },
         scales: { x: { grid: { display: false } },
           y:  { beginAtZero: true, position: 'left',  title: { display: true, text: 'Kunden' }, ticks: { precision: 0 } },
           y1: { beginAtZero: true, position: 'right', title: { display: true, text: 'Ø/Kunde' }, grid: { drawOnChartArea: false }, ticks: { callback: function (v) { return (v / 1000).toFixed(0) + ' k'; } } } } }
