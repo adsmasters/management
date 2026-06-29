@@ -6,16 +6,17 @@
   <title>Rechnungs-Check – Adsmasters Management</title>
   <link rel="stylesheet" href="css/style.css">
   <style>
+    .rc-tabs { display:flex; gap:8px; margin-bottom:18px; }
     .rc-controls { display:flex; gap:14px; align-items:center; flex-wrap:wrap; margin-bottom:14px; }
-    .rc-controls input[type="text"] { padding:6px 10px; border:1px solid var(--border); border-radius:var(--radius); font-size:13px; background:var(--surface); color:var(--text); min-width:200px; }
-    .rc-controls select { padding:6px 10px; border:1px solid var(--border); border-radius:var(--radius); font-size:13px; background:var(--surface); color:var(--text); }
+    .rc-controls input[type="text"], .rc-controls select { padding:6px 10px; border:1px solid var(--border); border-radius:var(--radius); font-size:13px; background:var(--surface); color:var(--text); }
+    .rc-controls input[type="text"] { min-width:200px; }
     .rc-controls label { display:flex; align-items:center; gap:6px; font-size:13px; color:var(--text-secondary); cursor:pointer; }
     .rc-summary { font-size:13px; color:var(--text-secondary); }
     .rc-legend { display:flex; gap:16px; align-items:center; font-size:12px; color:var(--text-secondary); margin-bottom:12px; flex-wrap:wrap; }
     .rc-legend .chip { display:inline-flex; align-items:center; gap:6px; }
     .rc-swatch { width:14px; height:14px; border-radius:3px; display:inline-block; }
 
-    .rc-wrap { overflow:auto; max-height: calc(100vh - 260px); border:1px solid var(--border); border-radius:var(--radius); background:var(--surface); }
+    .rc-wrap { overflow:auto; max-height: calc(100vh - 300px); border:1px solid var(--border); border-radius:var(--radius); background:var(--surface); }
     table.rc { border-collapse:separate; border-spacing:0; font-size:12px; font-variant-numeric:tabular-nums; width:max-content; }
     table.rc th, table.rc td { padding:6px 9px; white-space:nowrap; border-bottom:1px solid var(--border); }
     table.rc thead th { position:sticky; top:0; background:var(--surface); z-index:2; text-align:right; font-weight:600; color:var(--text-secondary); border-bottom:2px solid var(--border); line-height:1.25; }
@@ -27,6 +28,26 @@
     td.cur, th.cur { color:var(--text-secondary); }
     td.gap { background:#fff4e5; color:#b45309; font-weight:700; text-align:center; }
     .gap-dot { display:inline-block; width:7px; height:7px; border-radius:50%; background:#f59e0b; margin-right:6px; vertical-align:middle; }
+
+    /* Abgleich */
+    .ab-grid { display:flex; gap:16px; flex-wrap:wrap; margin-bottom:18px; }
+    .ab-card { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:16px 18px; }
+    .ab-kpi { display:flex; gap:14px; flex-wrap:wrap; margin-bottom:16px; }
+    .ab-kpi .box { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:12px 16px; min-width:130px; }
+    .ab-kpi .box .l { font-size:11px; color:var(--text-secondary); text-transform:uppercase; letter-spacing:.04em; font-weight:600; }
+    .ab-kpi .box .v { font-size:20px; font-weight:700; margin-top:3px; }
+    textarea#abInput { width:100%; margin-top:8px; padding:10px; border:1px solid var(--border); border-radius:var(--radius); font-family:ui-monospace,Menlo,monospace; font-size:13px; background:var(--surface); color:var(--text); box-sizing:border-box; resize:vertical; }
+    table.ab { width:100%; border-collapse:collapse; font-size:13px; font-variant-numeric:tabular-nums; }
+    table.ab th, table.ab td { padding:8px 10px; border-bottom:1px solid var(--border); text-align:left; white-space:nowrap; }
+    table.ab th { font-size:12px; color:var(--text-secondary); text-transform:uppercase; letter-spacing:.03em; }
+    table.ab td.num { text-align:right; }
+    .st { font-weight:700; font-size:12px; padding:2px 8px; border-radius:10px; }
+    .st-ok   { background:#dcfce7; color:#166534; }
+    .st-warn { background:#fef9c3; color:#854d0e; }
+    .st-miss { background:#fee2e2; color:#991b1b; }
+    .st-extra{ background:#e0e7ff; color:#3730a3; }
+    .muted { color:var(--text-secondary); }
+    .hidden { display:none; }
   </style>
 </head>
 <body>
@@ -58,39 +79,60 @@
   <div class="page-header">
     <div>
       <h1>Rechnungs-Check</h1>
-      <div class="sub">Umsatz je Kunde &amp; Monat (nach Leistungsdatum). Eine markierte Lücke = Umsatz davor <strong>und</strong> danach, aber nicht in dem Monat.</div>
+      <div class="sub">Sehen, ob Rechnungen stimmen und abgerechnet sind — Umsatz aus LexOffice (nach Leistungsdatum).</div>
     </div>
-  </div>
-
-  <div class="rc-controls">
-    <input type="text" id="search" placeholder="Kunde filtern…" autocomplete="off">
-    <label><input type="checkbox" id="onlyGaps"> Nur Kunden mit Lücken</label>
-    <select id="monthsBack">
-      <option value="12">Letzte 12 Monate</option>
-      <option value="15" selected>Letzte 15 Monate</option>
-      <option value="18">Letzte 18 Monate</option>
-      <option value="24">Letzte 24 Monate</option>
-    </select>
-    <span class="rc-summary" id="rcSummary"></span>
-  </div>
-
-  <div class="rc-legend">
-    <span class="chip"><span class="rc-swatch" style="background:#fff4e5;border:1px solid #f59e0b"></span> Lücke (selbst prüfen — kein automatisches „fehlt")</span>
-    <span class="chip"><span style="color:var(--border)">·</span> kein Umsatz (Rand/kein Vertrag)</span>
-    <span class="chip">„lfd." = laufender Monat (noch unvollständig, wird nie als Lücke markiert)</span>
   </div>
 
   <div id="loading">
     <div class="loading-bar"><div class="spinner"></div>Daten werden geladen…</div>
   </div>
 
-  <div id="content" class="hidden">
+  <div id="tabs" class="rc-tabs hidden">
+    <button id="tabMatrix"   class="btn btn-primary btn-sm">Übersicht (Matrix)</button>
+    <button id="tabAbgleich" class="btn btn-secondary btn-sm">Abgleich (Soll/Ist)</button>
+  </div>
+
+  <!-- ── Matrix-Ansicht ─────────────────────────────────────────── -->
+  <div id="viewMatrix" class="hidden">
+    <div class="rc-controls">
+      <input type="text" id="search" placeholder="Kunde filtern…" autocomplete="off">
+      <label><input type="checkbox" id="onlyGaps"> Nur Kunden mit Lücken</label>
+      <select id="monthsBack">
+        <option value="12">Letzte 12 Monate</option>
+        <option value="15" selected>Letzte 15 Monate</option>
+        <option value="18">Letzte 18 Monate</option>
+        <option value="24">Letzte 24 Monate</option>
+      </select>
+      <span class="rc-summary" id="rcSummary"></span>
+    </div>
+    <div class="rc-legend">
+      <span class="chip"><span class="rc-swatch" style="background:#fff4e5;border:1px solid #f59e0b"></span> Lücke (selbst prüfen — kein automatisches „fehlt")</span>
+      <span class="chip"><span style="color:var(--border)">·</span> kein Umsatz (Rand/kein Vertrag)</span>
+      <span class="chip">„lfd." = laufender Monat (noch unvollständig, nie als Lücke markiert)</span>
+    </div>
     <div class="rc-wrap">
       <table class="rc">
         <thead id="rcHead"></thead>
         <tbody id="rcBody"></tbody>
       </table>
     </div>
+  </div>
+
+  <!-- ── Abgleich-Ansicht ───────────────────────────────────────── -->
+  <div id="viewAbgleich" class="hidden">
+    <div class="ab-card" style="margin-bottom:18px">
+      <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
+        <strong style="font-size:14px">Soll-Liste für</strong>
+        <select id="abMonth"></select>
+        <select id="abYear"></select>
+        <button id="abRun" class="btn btn-primary btn-sm">Abgleichen</button>
+        <button id="abClear" class="btn btn-ghost btn-sm">Leeren</button>
+        <span class="muted" style="font-size:12px">Toleranz ±1 €</span>
+      </div>
+      <div class="muted" style="font-size:13px">Eine Zeile pro Kunde: <strong>Betrag + Name</strong> (z.B. „2.500 EVIA GmbH"). Direkt aus deiner Google-Tabelle (Monatsspalte) kopierbar.</div>
+      <textarea id="abInput" rows="9" placeholder="2.500&#9;EVIA GmbH&#10;3.000&#9;Oli Lacke GmbH&#10;600&#9;Stefan Mädl&#10;…"></textarea>
+    </div>
+    <div id="abResult"></div>
   </div>
 
 </main>
