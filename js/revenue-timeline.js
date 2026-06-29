@@ -19,14 +19,19 @@
   var MONTHS_LABEL = ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
   var MONTHS_SHORT = ['Jan','Feb','Mär','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez'];
 
-  // Year selectors
-  for (var y = curYear - 3; y <= curYear + 1; y++) {
-    var o1 = document.createElement('option'); o1.value = y; o1.textContent = y; yearFrom.appendChild(o1);
-    var o2 = document.createElement('option'); o2.value = y; o2.textContent = y; yearTo.appendChild(o2);
+  // Monats-Selektoren (Wert = ym-Index: Jahr*12 + (Monat-1)) → z.B. "Jan 2026" → "Mai 2026"
+  for (var yy0 = curYear - 3; yy0 <= curYear + 1; yy0++) {
+    for (var mo0 = 1; mo0 <= 12; mo0++) {
+      var ymv = yy0 * 12 + (mo0 - 1);
+      var label0 = MONTHS_SHORT[mo0 - 1] + ' ' + yy0;
+      var o1 = document.createElement('option'); o1.value = ymv; o1.textContent = label0; yearFrom.appendChild(o1);
+      var o2 = document.createElement('option'); o2.value = ymv; o2.textContent = label0; yearTo.appendChild(o2);
+    }
   }
-  yearFrom.value = curYear; yearTo.value = curYear;
-  yearFrom.addEventListener('change', function () { if (parseInt(yearFrom.value) > parseInt(yearTo.value)) yearTo.value = yearFrom.value; });
-  yearTo.addEventListener('change',   function () { if (parseInt(yearTo.value) < parseInt(yearFrom.value)) yearFrom.value = yearTo.value; });
+  yearFrom.value = curYear * 12;   // Januar laufendes Jahr
+  yearTo.value   = curYM;          // laufender Monat
+  yearFrom.addEventListener('change', function () { if (parseInt(yearFrom.value) > parseInt(yearTo.value)) yearTo.value = yearFrom.value; render(); });
+  yearTo.addEventListener('change',   function () { if (parseInt(yearTo.value) < parseInt(yearFrom.value)) yearFrom.value = yearTo.value; render(); });
 
   function fmt(n)  { return (Math.round(n)).toLocaleString('de-DE') + ' €'; }
   function fmt2(n) { return n.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €'; }
@@ -97,25 +102,21 @@
   }
 
   // Baut die anzuzeigenden Perioden (Monat oder Quartal), ohne Zukunftsmonate
-  function buildPeriods(fromYear, toYear, gran) {
+  function buildPeriods(fromYM, toYM, gran) {
     var periods = [];
     if (gran === 'quarter') {
-      for (var yy = fromYear; yy <= toYear; yy++) {
-        for (var q = 1; q <= 4; q++) {
-          var startYM = yy * 12 + (q - 1) * 3;
-          if (startYM > curYM) continue; // Quartal noch nicht begonnen
-          var yms = [startYM, startYM + 1, startYM + 2];
-          var incomplete = (startYM + 2) >= curYM; // laufendes Quartal
-          periods.push({ key: 'Q' + q + ' ' + yy, label: 'Q' + q + ' ' + yy, yms: yms, year: yy, incomplete: incomplete, cmpYms: yms.map(function (x) { return x - 12; }) });
-        }
+      var qs = fromYM - ((fromYM % 12) % 3);   // auf Quartalsanfang ausrichten
+      for (var s = qs; s <= toYM; s += 3) {
+        if (s > curYM) break;
+        var yms = [s, s + 1, s + 2];
+        var yq = Math.floor(s / 12), qn = ((s % 12) / 3) + 1;
+        periods.push({ key: 'Q' + qn + ' ' + yq, label: 'Q' + qn + ' ' + yq, yms: yms, year: yq, incomplete: (s + 2) >= curYM, cmpYms: yms.map(function (x) { return x - 12; }) });
       }
     } else {
-      for (var y2 = fromYear; y2 <= toYear; y2++) {
-        for (var mo = 1; mo <= 12; mo++) {
-          var ym = y2 * 12 + (mo - 1);
-          if (ym > curYM) continue; // Zukunft nicht zeigen
-          periods.push({ key: ym, label: MONTHS_SHORT[mo - 1] + ' ' + y2, longLabel: MONTHS_LABEL[mo - 1] + ' ' + y2, yms: [ym], year: y2, month: mo, incomplete: ym === curYM, cmpYms: [ym - 12] });
-        }
+      for (var ym = fromYM; ym <= toYM; ym++) {
+        if (ym > curYM) break; // Zukunft nicht zeigen
+        var yy = Math.floor(ym / 12), mo = (ym % 12) + 1;
+        periods.push({ key: ym, label: MONTHS_SHORT[mo - 1] + ' ' + yy, longLabel: MONTHS_LABEL[mo - 1] + ' ' + yy, yms: [ym], year: yy, month: mo, incomplete: ym === curYM, cmpYms: [ym - 12] });
       }
     }
     return periods;
@@ -125,10 +126,10 @@
 
   function render() {
     if (!MONTHDATA) return;
-    var fromYear = parseInt(yearFrom.value), toYear = parseInt(yearTo.value);
+    var fromYM = parseInt(yearFrom.value), toYM = parseInt(yearTo.value);
     var gran = granEl.value, doCompare = compareToggle.checked;
 
-    var periods = buildPeriods(fromYear, toYear, gran);
+    var periods = buildPeriods(fromYM, toYM, gran);
     periods.forEach(function (p) {
       p.cur = aggregate(p.yms);
       p.cmp = doCompare ? aggregate(p.cmpYms) : null;
@@ -136,11 +137,12 @@
 
     // ── KPIs ──────────────────────────────────────────────────────────
     var completed = periods.filter(function (p) { return !p.incomplete; });
-    var totalCompleted = completed.reduce(function (s, p) { return s + p.cur.rev; }, 0);
+    var totalCompleted    = completed.reduce(function (s, p) { return s + p.cur.rev; }, 0);
+    var totalCompletedCmp = completed.reduce(function (s, p) { return s + (p.cmp ? p.cmp.rev : 0); }, 0);
 
     // Ø pro abgeschlossenem MONAT (immer monatsbasiert, stabil)
     var compMonths = [];
-    for (var yy = fromYear; yy <= toYear; yy++) for (var mm = 1; mm <= 12; mm++) { var z = yy * 12 + (mm - 1); if (z < curYM) compMonths.push(z); }
+    for (var z = fromYM; z <= toYM; z++) { if (z < curYM) compMonths.push(z); }
     var monthRevSum = compMonths.reduce(function (s, z) { return s + aggregate([z]).rev; }, 0);
     var avgMonth = compMonths.length ? monthRevSum / compMonths.length : 0;
 
@@ -149,13 +151,15 @@
     var lastCur = aggregate([lastYM]);
     var lastCmp = aggregate([lastYM - 12]);
 
+    var lastLbl = MONTHS_SHORT[((lastYM % 12))] + ' ' + Math.floor(lastYM / 12);
     document.getElementById('kpiTotal').textContent   = fmt(totalCompleted);
-    document.getElementById('kpiTotalSub').textContent= completed.length + ' abgeschl. ' + (gran === 'quarter' ? 'Quartale' : 'Monate');
+    document.getElementById('kpiTotalSub').innerHTML  = completed.length + ' abgeschl. ' + (gran === 'quarter' ? 'Quartale' : 'Monate') +
+      (doCompare && totalCompletedCmp > 0 ? ' · Vorjahr ' + fmt(totalCompletedCmp) + ' ' + pctHtml(totalCompleted, totalCompletedCmp) : '');
     document.getElementById('kpiAvg').textContent     = fmt(avgMonth);
     document.getElementById('kpiCustomers').textContent = lastCur.active + '';
-    document.getElementById('kpiCustomersSub').innerHTML = MONTHS_SHORT[((lastYM % 12))] + ' ' + Math.floor(lastYM / 12) + ' · ' + pctHtml(lastCur.active, lastCmp.active) + ' vs Vj';
+    document.getElementById('kpiCustomersSub').innerHTML = lastLbl + (doCompare ? ' · Vorjahr ' + lastCmp.active + ' · ' + pctHtml(lastCur.active, lastCmp.active) + ' vs Vj' : '');
     document.getElementById('kpiPerCustomer').textContent = fmt(lastCur.perCust);
-    document.getElementById('kpiPerCustomerSub').innerHTML = pctHtml(lastCur.perCust, lastCmp.perCust) + ' vs Vj';
+    document.getElementById('kpiPerCustomerSub').innerHTML = (doCompare ? 'Vorjahr ' + fmt(lastCmp.perCust) + ' · ' : '') + pctHtml(lastCur.perCust, lastCmp.perCust) + ' vs Vj';
 
     // ── Charts ────────────────────────────────────────────────────────
     var labels   = periods.map(function (p) { return p.label + (p.incomplete ? ' (lfd.)' : ''); });
@@ -176,15 +180,20 @@
     timelineBody.innerHTML = periods.map(function (p) {
       running += p.cur.rev;
       var c = p.cur, cm = p.cmp;
-      var cmpCell = function (cur, prev) { return doCompare ? '<td class="right cmp">' + pctHtml(cur, prev) + '</td>' : ''; };
+      var cmpCell = function (cur, prev, money) {
+        if (!doCompare) return '';
+        var pv = money ? fmt(prev) : ('' + prev);
+        return '<td class="right cmp"><div style="font-variant-numeric:tabular-nums;color:var(--text-secondary)">' + pv + '</div>' +
+          '<div style="font-size:11px">' + pctHtml(cur, prev) + '</div></td>';
+      };
       return '<tr' + (p.incomplete ? ' style="opacity:.6"' : '') + '>' +
         '<td>' + p.label + (p.incomplete ? ' <span class="delta-neutral" style="font-size:11px">(lfd.)</span>' : '') + '</td>' +
         '<td class="right" style="font-variant-numeric:tabular-nums">' + fmt2(c.rev) + '</td>' +
-        cmpCell(c.rev, cm ? cm.rev : 0) +
+        cmpCell(c.rev, cm ? cm.rev : 0, true) +
         '<td class="right">' + c.active + '</td>' +
-        cmpCell(c.active, cm ? cm.active : 0) +
+        cmpCell(c.active, cm ? cm.active : 0, false) +
         '<td class="right" style="font-variant-numeric:tabular-nums">' + fmt(c.perCust) + '</td>' +
-        cmpCell(c.perCust, cm ? cm.perCust : 0) +
+        cmpCell(c.perCust, cm ? cm.perCust : 0, true) +
         '<td class="right">' + (c.neu > 0 ? '<span class="delta-pos">+' + c.neu + '</span>' : '0') + '</td>' +
         '<td class="right" style="font-variant-numeric:tabular-nums;color:var(--text-secondary)">' + fmt(running) + '</td>' +
         '</tr>';
