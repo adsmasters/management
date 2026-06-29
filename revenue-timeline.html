@@ -13,6 +13,7 @@
     }
     .kpi-card .kpi-label { font-size: 12px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: .04em; font-weight: 600; }
     .kpi-card .kpi-value { font-size: 24px; font-weight: 700; margin-top: 4px; color: var(--text); }
+    .kpi-card .kpi-sub { font-size: 12px; margin-top: 4px; font-weight: 600; }
     .chart-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; margin-bottom: 20px; }
     .chart-wrap { position: relative; height: 320px; }
     .delta-pos { color: #065f46; font-weight: 500; }
@@ -61,13 +62,20 @@
         <label>Bis</label>
         <select id="yearTo" style="padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;background:var(--surface);color:var(--text)"></select>
       </div>
+      <div class="filter-group">
+        <label>Ansicht</label>
+        <select id="granularity" style="padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;background:var(--surface);color:var(--text)">
+          <option value="month" selected>Monat</option>
+          <option value="quarter">Quartal</option>
+        </select>
+      </div>
       <button id="loadBtn" class="btn btn-primary">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-4.3"/></svg>
         Laden
       </button>
       <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;margin-left:4px">
-        <input type="checkbox" id="compareToggle" style="accent-color:var(--primary);width:14px;height:14px">
-        Vergleichsjahr anzeigen
+        <input type="checkbox" id="compareToggle" checked style="accent-color:var(--primary);width:14px;height:14px">
+        Vorjahresvergleich (%)
       </label>
     </div>
   </div>
@@ -79,26 +87,37 @@
   <div id="content" class="hidden">
     <div class="summary-strip">
       <div class="kpi-card">
-        <div class="kpi-label">Gesamt</div>
+        <div class="kpi-label">Gesamt (abgeschl. Perioden)</div>
         <div class="kpi-value" id="kpiTotal">—</div>
+        <div class="kpi-sub" id="kpiTotalSub"></div>
       </div>
       <div class="kpi-card">
-        <div class="kpi-label">Ø pro Monat</div>
+        <div class="kpi-label">Ø pro abgeschl. Monat</div>
         <div class="kpi-value" id="kpiAvg">—</div>
       </div>
       <div class="kpi-card">
-        <div class="kpi-label">Bester Monat</div>
-        <div class="kpi-value" id="kpiBest">—</div>
+        <div class="kpi-label">Aktive Kunden (letzter Monat)</div>
+        <div class="kpi-value" id="kpiCustomers">—</div>
+        <div class="kpi-sub" id="kpiCustomersSub"></div>
       </div>
       <div class="kpi-card">
-        <div class="kpi-label">Aktueller Monat</div>
-        <div class="kpi-value" id="kpiCurrent">—</div>
+        <div class="kpi-label">Ø Umsatz / Kunde (letzter Monat)</div>
+        <div class="kpi-value" id="kpiPerCustomer">—</div>
+        <div class="kpi-sub" id="kpiPerCustomerSub"></div>
       </div>
     </div>
 
     <div class="chart-card">
+      <div style="font-size:13px;font-weight:600;color:var(--text-secondary);margin-bottom:8px">Umsatz pro Periode</div>
       <div class="chart-wrap">
         <canvas id="revenueChart"></canvas>
+      </div>
+    </div>
+
+    <div class="chart-card">
+      <div style="font-size:13px;font-weight:600;color:var(--text-secondary);margin-bottom:8px">Aktive Kunden &amp; Ø Umsatz/Kunde pro Periode</div>
+      <div class="chart-wrap">
+        <canvas id="customerChart"></canvas>
       </div>
     </div>
 
@@ -107,10 +126,15 @@
         <table id="timelineTable">
           <thead>
             <tr>
-              <th style="min-width:140px">Monat</th>
-              <th class="right" style="min-width:160px">Umsatz</th>
-              <th class="right hidden-col" id="thDelta" style="min-width:140px">vs. Vorjahr</th>
-              <th class="right" style="min-width:160px">Laufende Summe</th>
+              <th style="min-width:120px">Periode</th>
+              <th class="right" style="min-width:130px">Umsatz</th>
+              <th class="right hidden-col cmp" style="min-width:90px">vs. Vj</th>
+              <th class="right" style="min-width:90px">Aktive Kunden</th>
+              <th class="right hidden-col cmp" style="min-width:80px">vs. Vj</th>
+              <th class="right" style="min-width:120px">Ø / Kunde</th>
+              <th class="right hidden-col cmp" style="min-width:80px">vs. Vj</th>
+              <th class="right" style="min-width:90px">Neukunden</th>
+              <th class="right" style="min-width:140px">Laufende Summe</th>
             </tr>
           </thead>
           <tbody id="timelineBody"></tbody>
