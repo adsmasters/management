@@ -226,7 +226,9 @@
       if (a > 0) ist.push({ name: name, amount: a });
     });
 
-    // Greedy-Matching: beste Paare zuerst
+    // Matching: jede Soll-Zeile bekommt ihren besten Ist-Kontakt. Ein Kontakt darf
+    // MEHRERE Soll-Zeilen aufnehmen (gleicher Kunde z.B. in PPC + Full-Service
+    // aufgeteilt) – die Beträge werden dann summiert und gegen die Ist-Summe verglichen.
     var pairs = [];
     soll.forEach(function (s, si) {
       ist.forEach(function (it, ii) {
@@ -235,22 +237,37 @@
       });
     });
     pairs.sort(function (a, b) { return b.sc - a.sc; });
-    var sollMatch = {}, istUsed = {};
-    pairs.forEach(function (p) {
-      if (sollMatch[p.si] === undefined && !istUsed[p.ii]) { sollMatch[p.si] = p.ii; istUsed[p.ii] = true; }
-    });
+    var sollAssign = {};   // si -> ii (bester Kontakt; darf geteilt werden)
+    pairs.forEach(function (p) { if (sollAssign[p.si] === undefined) sollAssign[p.si] = p.ii; });
 
     var TOL = 1;
-    var rows = soll.map(function (s, si) {
-      var mi = sollMatch[si];
-      if (mi === undefined) return { s: s, status: 'miss', istName: null, istAmount: 0, diff: (s.soll || 0) ? -(s.soll) : 0 };
-      var it = ist[mi];
-      var diff = (s.soll != null) ? (it.amount - s.soll) : null;
-      var status = (s.soll == null) ? 'ok' : (Math.abs(diff) <= TOL ? 'ok' : 'warn');
-      return { s: s, status: status, istName: it.name, istAmount: it.amount, diff: diff };
+    var byIst = {};        // ii -> { ii, sollSum, names:[], hasAmount }
+    var unmatched = [];
+    soll.forEach(function (s, si) {
+      var ii = sollAssign[si];
+      if (ii === undefined) { unmatched.push(s); return; }
+      if (!byIst[ii]) byIst[ii] = { ii: ii, sollSum: 0, names: [], hasAmount: false };
+      var g = byIst[ii];
+      g.sollSum += (s.soll || 0);
+      g.names.push(s.name);
+      if (s.soll != null) g.hasAmount = true;
     });
 
-    var extra = ist.filter(function (it, ii) { return !istUsed[ii]; })
+    var rows = [];
+    Object.keys(byIst).forEach(function (k) {
+      var g = byIst[k], it = ist[g.ii];
+      var dispName = g.names.length > 1 ? g.names[0] + ' (+' + (g.names.length - 1) + ' Pos.)' : g.names[0];
+      var diff = g.hasAmount ? (it.amount - g.sollSum) : null;
+      var status = !g.hasAmount ? 'ok' : (Math.abs(diff) <= TOL ? 'ok' : 'warn');
+      rows.push({ s: { name: dispName, soll: g.hasAmount ? g.sollSum : null }, parts: g.names, status: status, istName: it.name, istAmount: it.amount, diff: diff });
+    });
+    unmatched.forEach(function (s) {
+      rows.push({ s: s, parts: [s.name], status: 'miss', istName: null, istAmount: 0, diff: (s.soll || 0) ? -(s.soll) : null });
+    });
+
+    var matchedIi = {};
+    Object.keys(byIst).forEach(function (k) { matchedIi[byIst[k].ii] = true; });
+    var extra = ist.filter(function (it, ii) { return !matchedIi[ii]; })
                    .sort(function (a, b) { return b.amount - a.amount; });
 
     // KPIs
@@ -281,7 +298,7 @@
              : '<span class="st st-miss">❌ fehlt</span>';
       html += '<tr>' +
         '<td>' + st + '</td>' +
-        '<td>' + escHtml(r.s.name) + '</td>' +
+        '<td' + (r.parts && r.parts.length > 1 ? ' title="' + escHtml(r.parts.join(' + ')) + '"' : '') + '>' + escHtml(r.s.name) + '</td>' +
         '<td class="num">' + (r.s.soll != null ? fmtEur2(r.s.soll) : '<span class="muted">—</span>') + '</td>' +
         '<td>' + (r.istName ? escHtml(r.istName) : '<span class="muted">—</span>') + '</td>' +
         '<td class="num">' + (r.istName ? fmtEur2(r.istAmount) : '<span class="muted">—</span>') + '</td>' +
