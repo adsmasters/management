@@ -274,8 +274,11 @@
             <select id="excRuleType"><option value="contains">enthält</option><option value="equals">ist genau</option></select>
             <input id="excRulePattern" placeholder="Text (z.B. Red Bull)" size="26">
             <input id="excRuleReason" placeholder="Grund (optional)" size="24">
+            <label class="muted" style="font-size:12px;display:inline-flex;align-items:center;gap:4px">ab <input id="excRuleStart" type="date" title="gültig ab (optional) – Buchungen ab diesem Datum werden ausgeschlossen"></label>
+            <label class="muted" style="font-size:12px;display:inline-flex;align-items:center;gap:4px">bis <input id="excRuleEnd" type="date" title="gültig bis (optional)"></label>
             <button id="excRuleAdd" class="btn btn-primary btn-sm">+ Regel</button>
           </div>
+          <div class="muted" style="font-size:12px;margin:2px 0 6px">Ohne Datum gilt die Regel für alle Buchungen. Mit „ab" werden nur Buchungen <strong>ab</strong> dem Datum ausgeschlossen – ältere bleiben als Kosten erhalten (z.&nbsp;B. Mitarbeiter:in im Mutterschutz ab 01.04.).</div>
           <div class="table-wrap"><table class="ka" id="excRulesTable"></table></div>
         </div>
       </div>

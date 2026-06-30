@@ -624,10 +624,17 @@
       return '<td>' + esc(r.match_type) + '</td><td>' + esc(r.pattern) + '</td><td class="num">' + (Number(r.vat_rate) * 100).toFixed(0) + ' %</td>';
     }, 'vat', ['Typ', 'Lieferant', 'MwSt']);
     // Ausschluss
+    var deDate = function (s) { if (!s) return ''; var p = String(s).split('-'); return p.length === 3 ? p[2] + '.' + p[1] + '.' + p[0] : s; };
+    var fmtRange = function (r) {
+      if (!r.start_date && !r.end_date) return '<span class="muted">immer</span>';
+      if (r.start_date && r.end_date) return 'ab ' + deDate(r.start_date) + ' bis ' + deDate(r.end_date);
+      if (r.start_date) return 'ab ' + deDate(r.start_date);
+      return 'bis ' + deDate(r.end_date);
+    };
     el('excRulesTable').innerHTML = ruleTable(state.excludeRules, function (r) {
       return '<td>' + esc(r.match_type) + '</td><td>' + esc(r.pattern) + (r.builtin ? ' <span class="pill">System</span>' : '') +
-        '</td><td>' + esc(r.reason || '') + '</td>';
-    }, 'exc', ['Typ', 'Text', 'Grund']);
+        '</td><td>' + esc(r.reason || '') + '</td><td>' + fmtRange(r) + '</td>';
+    }, 'exc', ['Typ', 'Text', 'Grund', 'Zeitraum']);
 
     // datalist Kategorien
     var cats = {};
@@ -1053,9 +1060,13 @@
     });
     el('excRuleAdd').addEventListener('click', function () {
       var p = el('excRulePattern').value.trim(), reason = el('excRuleReason').value.trim();
+      var start = el('excRuleStart').value || null, end = el('excRuleEnd').value || null;
       if (!p) return alert('Text angeben.');
-      window.db.cost.excludeRules.add(el('excRuleType').value, p, reason).then(function () {
-        el('excRulePattern').value = ''; el('excRuleReason').value = ''; return reloadAndRender();
+      if (start && end && end < start) return alert('„bis" darf nicht vor „ab" liegen.');
+      window.db.cost.excludeRules.add(el('excRuleType').value, p, reason, start, end).then(function () {
+        el('excRulePattern').value = ''; el('excRuleReason').value = '';
+        el('excRuleStart').value = ''; el('excRuleEnd').value = '';
+        return reloadAndRender();
       }).catch(function (e) { alert(e.message); });
     });
   }
