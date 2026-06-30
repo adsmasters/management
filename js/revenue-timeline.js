@@ -68,11 +68,17 @@
   // ── Data store (alle Buchungen) ───────────────────────────────────────
   var MONTHDATA = null; // ym → { contact → amount }
   var FIRSTSEEN = null; // contact → frühester ym mit Umsatz
+  var SERVICEROWS = null; // [{ ym, contact, service, amount }]
 
   function loadAll() {
     errorEl.innerHTML = '';
     loadingEl.classList.remove('hidden'); contentEl.classList.add('hidden');
-    window.db.revenue.allRows().then(function (rows) {
+    Promise.all([
+      window.db.revenue.allRows(),
+      // Service-Aufteilung ist additiv – fehlt sie (noch), Feature sauber leer lassen
+      (window.db.revenueServices ? window.db.revenueServices.allRows() : Promise.resolve([])).catch(function () { return []; })
+    ]).then(function (res) {
+      var rows = res[0], svc = res[1] || [];
       var md = {}, first = {};
       rows.forEach(function (r) {
         if (!r.contact_name || isExcluded(r.contact_name)) return;
@@ -83,6 +89,11 @@
         if (first[r.contact_name] === undefined || ym < first[r.contact_name]) first[r.contact_name] = ym;
       });
       MONTHDATA = md; FIRSTSEEN = first;
+      SERVICEROWS = svc.filter(function (r) {
+        return r.contact_name && !isExcluded(r.contact_name) && Number(r.amount);
+      }).map(function (r) {
+        return { ym: r.year * 12 + (r.month - 1), contact: r.contact_name, service: r.service || 'Andere', amount: Number(r.amount) || 0 };
+      });
       loadingEl.classList.add('hidden'); contentEl.classList.remove('hidden');
       render();
     }).catch(function (e) { loadingEl.classList.add('hidden'); showError(e.message); });
@@ -173,6 +184,11 @@
     buildRevChart(labels, revMain, revCmp);
     buildCustChart(labels, custMain, perCust, custCmp, perCustCmp);
 
+    // ── Service-Verteilung über alle sichtbaren Monate des Zeitraums ──────
+    var allYms = [];
+    periods.forEach(function (p) { p.yms.forEach(function (y) { if (y <= curYM && allYms.indexOf(y) === -1) allYms.push(y); }); });
+    renderServices(allYms);
+
     // ── Tabelle ───────────────────────────────────────────────────────
     document.querySelectorAll('th.cmp, td.cmp').forEach(function (e) { e.classList.toggle('hidden-col', !doCompare); });
 
@@ -232,6 +248,93 @@
           y:  { beginAtZero: true, position: 'left',  title: { display: true, text: 'Kunden' }, ticks: { precision: 0 } },
           y1: { beginAtZero: true, position: 'right', title: { display: true, text: 'Ø/Kunde' }, grid: { drawOnChartArea: false }, ticks: { callback: function (v) { return (v / 1000).toFixed(0) + ' k'; } } } } }
     });
+  }
+
+  // ── Service-Verteilung ────────────────────────────────────────────────
+  var SERVICE_ORDER  = ['PPC', 'Full Service', 'Starter-Programm', 'Masterclass', 'Bilder', 'Andere'];
+  var SERVICE_COLORS = { 'PPC': '#4f46e5', 'Full Service': '#10b981', 'Starter-Programm': '#f59e0b', 'Masterclass': '#ef4444', 'Bilder': '#06b6d4', 'Andere': '#94a3b8' };
+  var svcColor = function (s) { return SERVICE_COLORS[s] || '#94a3b8'; };
+  var serviceShareChart = null, serviceRevenueChart = null, serviceCustomerChart = null;
+
+  function renderServices(yms) {
+    var emptyEl  = document.getElementById('serviceEmpty');
+    var chartsEl = document.getElementById('serviceCharts');
+    var tableBody = document.getElementById('serviceTableBody');
+    if (!SERVICEROWS) return;
+
+    var ymSet = {}; yms.forEach(function (y) { ymSet[y] = true; });
+    var agg = {}; // service → { rev, contacts:{} }
+    SERVICEROWS.forEach(function (r) {
+      if (!ymSet[r.ym]) return;
+      if (!agg[r.service]) agg[r.service] = { rev: 0, contacts: {} };
+      agg[r.service].rev += r.amount;
+      agg[r.service].contacts[r.contact] = true;
+    });
+
+    var services = SERVICE_ORDER.filter(function (s) { return agg[s]; });
+    Object.keys(agg).forEach(function (s) { if (services.indexOf(s) === -1) services.push(s); });
+    var total = services.reduce(function (sum, s) { return sum + agg[s].rev; }, 0);
+
+    if (services.length === 0 || total <= 0) {
+      emptyEl.classList.remove('hidden');
+      chartsEl.style.display = 'none';
+      tableBody.innerHTML = '';
+      document.getElementById('serviceRangeLabel').textContent = '';
+      return;
+    }
+    emptyEl.classList.add('hidden');
+    chartsEl.style.display = 'grid';
+    document.getElementById('serviceRangeLabel').textContent = '· Gesamt ' + fmt(total);
+
+    var labels  = services;
+    var revData = services.map(function (s) { return Math.round(agg[s].rev); });
+    var custData = services.map(function (s) { return Object.keys(agg[s].contacts).length; });
+    var colors  = services.map(svcColor);
+
+    buildServiceShareChart(labels, revData, colors, total);
+    buildServiceBarChart('serviceRevenueChart', labels, revData, colors, false);
+    buildServiceBarChart('serviceCustomerChart', labels, custData, colors, true);
+
+    tableBody.innerHTML = services.map(function (s) {
+      var pct = total > 0 ? (agg[s].rev / total * 100) : 0;
+      return '<tr>' +
+        '<td><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:' + svcColor(s) + ';margin-right:6px"></span>' + s + '</td>' +
+        '<td class="right" style="font-variant-numeric:tabular-nums">' + fmt2(agg[s].rev) + '</td>' +
+        '<td class="right">' + pct.toFixed(1) + '%</td>' +
+        '<td class="right">' + Object.keys(agg[s].contacts).length + '</td>' +
+        '</tr>';
+    }).join('');
+  }
+
+  function buildServiceShareChart(labels, data, colors, total) {
+    var ctx = document.getElementById('serviceShareChart').getContext('2d');
+    if (serviceShareChart) serviceShareChart.destroy();
+    serviceShareChart = new Chart(ctx, {
+      type: 'doughnut',
+      data: { labels: labels, datasets: [{ data: data, backgroundColor: colors, borderColor: '#fff', borderWidth: 1 }] },
+      options: { responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { position: 'right' }, tooltip: { callbacks: { label: function (c) {
+          var p = total > 0 ? (c.parsed / total * 100) : 0; return ' ' + c.label + ': ' + fmt2(c.parsed) + ' (' + p.toFixed(1) + '%)';
+        } } } } }
+    });
+  }
+
+  function buildServiceBarChart(canvasId, labels, data, colors, horizontal) {
+    var ctx = document.getElementById(canvasId).getContext('2d');
+    var existing = canvasId === 'serviceRevenueChart' ? serviceRevenueChart : serviceCustomerChart;
+    if (existing) existing.destroy();
+    var chart = new Chart(ctx, {
+      type: 'bar',
+      data: { labels: labels, datasets: [{ data: data, backgroundColor: colors, borderRadius: 4, borderSkipped: false }] },
+      options: { indexAxis: horizontal ? 'y' : 'x', responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false }, tooltip: { callbacks: { label: function (c) {
+          return horizontal ? ' ' + c.parsed.x + ' Kunden' : ' ' + fmt2(c.parsed.y);
+        } } } },
+        scales: horizontal
+          ? { x: { beginAtZero: true, ticks: { precision: 0 } }, y: { grid: { display: false } } }
+          : { x: { grid: { display: false } }, y: { beginAtZero: true, ticks: { callback: function (v) { return (v / 1000).toLocaleString('de-DE', { maximumFractionDigits: 0 }) + ' k €'; } } } } }
+    });
+    if (canvasId === 'serviceRevenueChart') serviceRevenueChart = chart; else serviceCustomerChart = chart;
   }
 
   loadBtn.addEventListener('click', render);
