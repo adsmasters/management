@@ -242,19 +242,7 @@
 
     <!-- Regeln -->
     <section class="ka-panel" data-panel="rules">
-      <div class="card"><div class="card-header"><h2>📖 Kategorie-Regeln (Dictionary)</h2></div>
-        <div class="card-body">
-          <div class="rule-row">
-            <select id="catRuleType"><option value="contains">enthält</option><option value="equals">ist genau</option></select>
-            <input id="catRulePattern" placeholder="Text (z.B. UPWORK)" size="28">
-            <input id="catRuleCategory" placeholder="Kategorie (z.B. Freelancer/Externe)" size="22" list="catList">
-            <button id="catRuleAdd" class="btn btn-primary btn-sm">+ Regel</button>
-          </div>
-          <div class="table-wrap"><table class="ka" id="catRulesTable"></table></div>
-        </div>
-      </div>
-
-      <div class="card" style="margin-top:18px"><div class="card-header"><h2>🧾 MwSt-Regeln</h2></div>
+      <div class="card"><div class="card-header"><h2>🧾 MwSt-Regeln</h2></div>
         <div class="card-body">
           <div class="alert alert-info" style="margin-bottom:14px">Für gelistete Lieferanten wird die enthaltene MwSt herausgerechnet (Netto-Kosten). Ausländische Anbieter ohne deutsche MwSt einfach nicht eintragen.</div>
           <div class="rule-row">
@@ -301,6 +289,18 @@
         <div class="card-body">
           <div class="alert alert-info" style="margin-bottom:14px">Das Finanzamt zieht Umsatzsteuer + Lohnsteuer in <strong>einer</strong> Lastschrift ein. Automatisch zählt nur die <strong>Lohnsteuer</strong> als Kosten; der Umsatzsteuer-Anteil ist Durchlauf und zählt nicht. Gilt für alle künftigen Importe automatisch.</div>
           <div class="table-wrap"><table class="ka" id="bundleTable"></table></div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-top:18px"><div class="card-header"><h2>📖 Kategorie-Regeln (Dictionary)</h2></div>
+        <div class="card-body">
+          <div class="rule-row">
+            <select id="catRuleType"><option value="contains">enthält</option><option value="equals">ist genau</option></select>
+            <input id="catRulePattern" placeholder="Text (z.B. UPWORK)" size="28">
+            <input id="catRuleCategory" placeholder="Kategorie (z.B. Freelancer/Externe)" size="22" list="catList">
+            <button id="catRuleAdd" class="btn btn-primary btn-sm">+ Regel</button>
+          </div>
+          <div class="table-wrap"><table class="ka" id="catRulesTable"></table></div>
         </div>
       </div>
     </section>
