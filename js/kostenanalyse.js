@@ -979,6 +979,71 @@
     drawCharts(name);   // Charts erst zeichnen, wenn Panel sichtbar (korrekte Größe)
   }
 
+  // ── Umsatz-Sync aus Lexoffice ───────────────────────────────────────────────
+  function lexKey() { return localStorage.getItem('lexofficeKey') || ''; }
+  function supaUrl() { return localStorage.getItem('supabaseUrl') || 'https://lgrnmiszhhahfcmctmwo.supabase.co'; }
+  function supaKey() { return localStorage.getItem('supabaseKey') || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imxncm5taXN6aGhhaGZjbWN0bXdvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM2NjE2NDksImV4cCI6MjA4OTIzNzY0OX0.FDZRGMESves7XbAMs_oMLWmvnywMlVqe8p7f1kt06qk'; }
+  function excludeKw() { return (localStorage.getItem('revenueExcludeKeywords') || '').split('\n').map(function (k) { return k.trim(); }).filter(Boolean); }
+  function syncTargetMonths() {   // laufender Monat + 2 zurück (fängt späte Rechnungen)
+    var d = new Date(), y = d.getFullYear(), m = d.getMonth() + 1, out = [];
+    for (var k = 0; k < 3; k++) { var yy = y, mm = m - k; while (mm < 1) { mm += 12; yy--; } out.push({ year: yy, month: mm }); }
+    return out;
+  }
+  function updateSyncInfo() {
+    if (!el('syncRevInfo')) return;
+    var t = localStorage.getItem('kaLexSyncedAt');
+    el('syncRevInfo').textContent = t
+      ? 'Umsatz zuletzt aktualisiert: ' + new Date(t).toLocaleString('de-DE', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })
+      : 'Umsatz noch nicht synchronisiert';
+  }
+  var syncRunning = false;
+  function doRevenueSync(silent) {
+    if (syncRunning) return Promise.resolve();
+    var key = lexKey();
+    if (!key) { if (!silent) alert('Lexoffice ist nicht verbunden. Bitte in den Einstellungen den API-Key eintragen.'); return Promise.resolve(); }
+    syncRunning = true;
+    var btn = el('syncRevBtn'), months = syncTargetMonths(), kw = excludeKw();
+    var url = supaUrl(), skey = supaKey();
+    if (btn) { btn.disabled = true; }
+    return months.reduce(function (p, m, i) {
+      return p.then(function () {
+        if (btn) btn.textContent = 'Sync ' + monthLabel(m.year, m.month) + '… (' + (i + 1) + '/' + months.length + ')';
+        return fetch(url + '/functions/v1/sync-lexoffice', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + skey, 'apikey': skey },
+          body: JSON.stringify({ lexofficeKey: key, year: m.year, month: m.month, excludeKeywords: kw }),
+        }).then(function (r) { return r.json(); }).then(function (data) {
+          if (data && data.error) {
+            if (String(data.error).indexOf('429') !== -1 || /rate limit/i.test(data.error)) {
+              if (btn) btn.textContent = 'Rate-Limit – warte 15s…';
+              return new Promise(function (res) { setTimeout(res, 15000); }).then(function () {
+                return fetch(url + '/functions/v1/sync-lexoffice', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + skey, 'apikey': skey }, body: JSON.stringify({ lexofficeKey: key, year: m.year, month: m.month, excludeKeywords: kw }) }).then(function (r) { return r.json(); }).then(function (d2) { if (d2 && d2.error) throw new Error(d2.error); });
+              });
+            }
+            throw new Error(data.error);
+          }
+        }).then(function () { return new Promise(function (res) { setTimeout(res, 1500); }); });
+      });
+    }, Promise.resolve()).then(function () {
+      localStorage.setItem('kaLexSyncedAt', new Date().toISOString());
+      syncRunning = false;
+      if (btn) { btn.disabled = false; btn.textContent = '↻ Umsatz aktualisieren'; }
+      updateSyncInfo();
+      return loadRevenue().then(function () { renderProfitStats(); renderSpendStats(); renderCompare(); drawCharts(currentTab); });
+    }).catch(function (e) {
+      syncRunning = false;
+      if (btn) { btn.disabled = false; btn.textContent = '↻ Umsatz aktualisieren'; }
+      if (!silent) alert('Lexoffice-Sync Fehler: ' + e.message);
+    });
+  }
+  function maybeAutoSync() {   // still im Hintergrund, max. 1× pro Tag
+    if (!lexKey()) return;
+    var t = localStorage.getItem('kaLexSyncedAt');
+    var today = new Date().toISOString().slice(0, 10);
+    if (t && t.slice(0, 10) === today) return;
+    doRevenueSync(true);
+  }
+
   function bindStatic() {
     Array.prototype.forEach.call(document.querySelectorAll('.ka-tab'), function (t) {
       t.addEventListener('click', function () { switchTab(t.dataset.tab); });
@@ -995,6 +1060,8 @@
     ['dragover', 'dragenter'].forEach(function (ev) { dz.addEventListener(ev, function (e) { e.preventDefault(); dz.style.borderColor = 'var(--primary,#2563eb)'; }); });
     ['dragleave', 'drop'].forEach(function (ev) { dz.addEventListener(ev, function (e) { e.preventDefault(); dz.style.borderColor = 'var(--border)'; }); });
     dz.addEventListener('drop', function (e) { if (e.dataTransfer && e.dataTransfer.files) handleFiles(e.dataTransfer.files); });
+
+    if (el('syncRevBtn')) el('syncRevBtn').addEventListener('click', function () { doRevenueSync(false); });
 
     el('reapplyBtn').addEventListener('click', function () {
       el('reapplyBtn').disabled = true; el('reapplyBtn').textContent = '↻ wird angewendet …';
@@ -1067,6 +1134,8 @@
       el('loading').style.display = 'none';
       el('app').style.display = '';
       renderAll();
+      updateSyncInfo();
+      maybeAutoSync();   // Umsatz still aktualisieren, max. 1×/Tag
     }).catch(function (e) { showError(e.message); });
   }
 
