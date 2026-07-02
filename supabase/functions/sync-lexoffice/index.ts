@@ -21,8 +21,15 @@ Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
 
   try {
-    const { lexofficeKey, year, month, excludeKeywords, debugContact, dryRun } = await req.json();
+    const body = await req.json().catch(() => ({} as any));
+    let { lexofficeKey, year, month } = body;
+    const { excludeKeywords, debugContact, dryRun } = body;
+    // Server-Fallbacks (für Cron/Automatik ohne Browser):
+    //   - Key aus Secret LEXOFFICE_KEY, wenn nicht im Body
+    //   - Monat = aktueller Monat, wenn nicht übergeben
+    if (!lexofficeKey) lexofficeKey = Deno.env.get('LEXOFFICE_KEY') || '';
     if (!lexofficeKey) throw new Error('LexOffice API Key fehlt');
+    if (!year || !month) { const _n = new Date(); year = _n.getUTCFullYear(); month = _n.getUTCMonth() + 1; }
     const debugContactLower: string = (debugContact || '').toLowerCase().trim();
 
     // Hardcoded defaults: advertising pass-through invoices ("Media-Budget",
@@ -30,8 +37,10 @@ Deno.serve(async (req) => {
     // Amazon and are NOT agency revenue — always exclude them, regardless of
     // what the user has configured in Settings. User keywords are added on top.
     const DEFAULT_EXCLUDE = ['media-budget', 'mediabudget', 'zweckgebundener ausgleich'];
+    // Ausschluss-Keywords: Body (Browser) ODER Secret REVENUE_EXCLUDE_KEYWORDS (Cron), kommagetrennt.
+    const envExclude: string[] = (Deno.env.get('REVENUE_EXCLUDE_KEYWORDS') || '').split(',').map((k) => k.toLowerCase().trim()).filter(Boolean);
     const userExclude: string[] = (excludeKeywords || []).map((k: string) => k.toLowerCase().trim()).filter(Boolean);
-    const excludeLower: string[] = [...new Set([...DEFAULT_EXCLUDE, ...userExclude])];
+    const excludeLower: string[] = [...new Set([...DEFAULT_EXCLUDE, ...envExclude, ...userExclude])];
 
     const targetYear  = year as number;
     const targetMonth = month as number; // 1-based
