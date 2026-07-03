@@ -293,6 +293,25 @@
           .delete().eq('contact_name', contactName)),
     },
 
+    revenueServices: {
+      // Umsatz je Kunde je Leistung (PPC, Full Service, Bilder, Andere …)
+      forMonth: (year, month) =>
+        q(s => s.from('revenue_services').select('contact_name,service,amount').eq('year', year).eq('month', month)),
+    },
+
+    revenueServiceAssignments: {
+      // Regel: eine Leistung eines Kunden wird gezielt Mitarbeiter(n) zugerechnet
+      // (statt nach Stunden über alle). Gilt dauerhaft (monatsübergreifend).
+      listAll: () =>
+        q(s => s.from('revenue_service_assignments').select('client_id,service,employee_id')),
+      add: (clientId, service, employeeId) =>
+        q(s => s.from('revenue_service_assignments')
+          .insert({ client_id: clientId, service: service, employee_id: employeeId }).select().single()),
+      remove: (clientId, service, employeeId) =>
+        q(s => s.from('revenue_service_assignments')
+          .delete().eq('client_id', clientId).eq('service', service).eq('employee_id', employeeId)),
+    },
+
     acquisitionContactLinks: {
       listForCost: (costId) =>
         q(s => s.from('acquisition_contact_links').select('*').eq('acquisition_cost_id', costId)),
