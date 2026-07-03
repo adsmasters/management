@@ -45,11 +45,13 @@ Deno.serve(async (req) => {
     const targetYear  = year as number;
     const targetMonth = month as number; // 1-based
 
-    // Window: 3 months back -> 15th of following month.
-    // Wide enough to catch quarterly invoices (dated at/near the start of their
-    // quarter), but trimmed to keep the per-invoice fetch count (and thus runtime)
-    // low so the function doesn't hit the execution timeout.
-    const from = new Date(Date.UTC(targetYear, targetMonth - 4, 1)).toISOString().substring(0, 10);
+    // Window: ~2 calendar months back -> 15th of following month. Wide enough to
+    // catch quarterly invoices dated at/near their quarter start. Runtime safety
+    // no longer depends on a tight window: the newest-first ordering + 120s time
+    // budget below guarantee the target month's own invoices are always fetched
+    // and written before the 150s limit, and only the oldest lookback invoices
+    // (least likely to touch the target month) are dropped when volume is high.
+    const from = new Date(Date.UTC(targetYear, targetMonth - 3, 1)).toISOString().substring(0, 10);
     const to   = new Date(Date.UTC(targetYear, targetMonth, 15)).toISOString().substring(0, 10);
 
     // Robust GET with retry on rate-limit (429) and transient server errors (5xx).
@@ -89,12 +91,26 @@ Deno.serve(async (req) => {
       allVouchers.push(...(data.content || []));
     }
 
+    // Process NEWEST invoices first (by voucherDate). The target month's own
+    // invoices (and next-month invoices billed for it) are the newest in the
+    // window, so priority-ordering guarantees they're fetched before any older
+    // quarterly-lookback invoices — critical for the time-budget guard below.
+    allVouchers.sort((a, b) => String(b.voucherDate || '').localeCompare(String(a.voucherDate || '')));
+
+    // Hard time budget: Supabase kills the request at 150s. Stop fetching new
+    // invoice details at 120s (leaving margin for the DB write) and persist what
+    // we already have. Because of newest-first ordering, the target month is done.
+    const startedAt = Date.now();
+    const TIME_BUDGET_MS = 120000;
+    let timeBudgetHit = false;
+
     const map: Record<string, number> = {};
     const debugRows: any[] = [];
     let syncIncomplete = false; // true if any invoice detail couldn't be fetched
 
     for (let i = 0; i < allVouchers.length; i++) {
       const v = allVouchers[i];
+      if (Date.now() - startedAt > TIME_BUDGET_MS) { timeBudgetHit = true; break; }
       // Throttle between invoice fetches. ~400ms keeps runtime down; the 429
       // retry/backoff in lexGet absorbs the occasional rate-limit hit.
       if (i > 0) await sleep(400);
@@ -320,7 +336,7 @@ Deno.serve(async (req) => {
     }
 
     return new Response(
-      JSON.stringify({ ok: true, count: rows.length, debug: debugRows }),
+      JSON.stringify({ ok: true, count: rows.length, timeBudgetHit, processed: debugRows.length, totalVouchers: allVouchers.length, debug: debugRows }),
       { headers: { ...CORS, 'Content-Type': 'application/json' } }
     );
 
