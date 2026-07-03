@@ -88,12 +88,14 @@
       Promise.all(monthNums.map(function (m) { return window.db.revenue.forMonth(year, m); })),
       Promise.all(monthNums.map(function (m) { return window.db.adjustments.forMonth(year, m).catch(function () { return []; }); })),
       window.db.revenueExclusions.listAll().catch(function () { return []; }),
+      window.db.maRevenueExclusions.listAll().catch(function () { return []; }),
     ]).then(function (r) {
       DATA = {
         year: year,
         employees: r[0], clients: r[1], entries: r[2], mappings: r[3],
         utilHours: r[4], absences: r[5], revenueByMonth: r[6], adjByMonth: r[7],
         exclusions: r[8] || [],
+        maExclusions: r[9] || [],
       };
       loadingEl.classList.add('hidden');
       contentEl.classList.remove('hidden');
@@ -116,9 +118,16 @@
       (mappingsByClient[mp.client_id] = mappingsByClient[mp.client_id] || []).push(mp.lexoffice_name);
     });
 
+    // Rechnungen (LexOffice-Kontakte), die NICHT auf Mitarbeiter zugerechnet
+    // werden (z.B. eine von zwei Rechnungen eines Kunden, die der Inhaber macht).
+    // Der Umsatz bleibt im Kunden-Gesamt/Profitabilität, fällt nur hier raus.
+    var maExclSet = {};
+    (DATA.maExclusions || []).forEach(function (x) { maExclSet[norm(x.contact_name)] = true; });
+
     // Umsatz je Kunde je Monat (Ist) ------------------------------------
     // revenueMap[m] = { normContact → betrag }
-    var clientRevMonth = {}; // clientId → {m → revenue}
+    var clientRevMonth = {}; // clientId → {m → revenue} (MA-zurechenbar, ohne ausgeschlossene Rechnungen)
+    var revMapByMonth = {};  // m → { normContact → betrag }  (für Modal-Rechnungsliste)
     for (var m = 1; m <= 12; m++) {
       var revMap = {};
       (DATA.revenueByMonth[m - 1] || []).forEach(function (row) {
@@ -126,6 +135,7 @@
         var key = norm(row.contact_name);
         revMap[key] = (revMap[key] || 0) + (row.total_amount || 0);
       });
+      revMapByMonth[m] = revMap;
       // Kunden-Umsatzkorrektur (adjustments.revenue_deduction) je Kunde
       var dedByClient = {};
       (DATA.adjByMonth[m - 1] || []).forEach(function (a) {
@@ -134,8 +144,12 @@
       clients.forEach(function (c) {
         var rev = 0;
         var mapped = mappingsByClient[c.id] || [];
-        if (mapped.length) mapped.forEach(function (lx) { rev += revMap[norm(lx)] || 0; });
-        else rev = revMap[norm(c.lexoffice_name || c.name)] || revMap[norm(c.name)] || 0;
+        if (mapped.length) {
+          mapped.forEach(function (lx) { if (maExclSet[norm(lx)]) return; rev += revMap[norm(lx)] || 0; });
+        } else {
+          var cn = norm(c.lexoffice_name || c.name), cn2 = norm(c.name);
+          if (!maExclSet[cn] && !maExclSet[cn2]) rev = revMap[cn] || revMap[cn2] || 0;
+        }
         rev += dedByClient[c.id] || 0;
         (clientRevMonth[c.id] = clientRevMonth[c.id] || {})[m] = rev;
       });
@@ -302,6 +316,9 @@
       clientRevMonth: clientRevMonth,
       empClientRevMonth: empClientRevMonth,
       excludedSet: excludedSet,
+      mappingsByClient: mappingsByClient,
+      revMapByMonth: revMapByMonth,
+      maExclSet: maExclSet,
     };
 
     render({
@@ -540,14 +557,59 @@
           '</div>';
         }).join('');
 
+        // Rechnungen (LexOffice-Kontakte) dieses Kunden im Zeitraum
+        var contacts = (COMP.mappingsByClient[cid] || []).slice();
+        if (!contacts.length) { var cc0 = clientsById[cid] || {}; contacts = [cc0.lexoffice_name || cc0.name].filter(Boolean); }
+        var invSeen = {}, invoices = [];
+        contacts.forEach(function (cn) {
+          var key = norm(cn); if (invSeen[key]) return; invSeen[key] = true;
+          var amt = 0;
+          monthsInScope().forEach(function (m) { amt += (COMP.revMapByMonth[m] || {})[key] || 0; });
+          var excl = !!COMP.maExclSet[key];
+          if (amt > 0 || excl) invoices.push({ name: cn, key: key, amt: amt, excl: excl });
+        });
+        var showInv = invoices.length >= 2 || invoices.some(function (x) { return x.excl; });
+        var invHtml = '';
+        if (showInv) {
+          invHtml = '<div style="font-size:11px;color:var(--text-secondary);margin:10px 0 4px">Rechnungen dieses Kunden – auf Mitarbeiter zurechnen?</div>' +
+            invoices.map(function (iv) {
+              return '<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:3px 0;border-bottom:1px solid var(--border)' + (iv.excl ? ';opacity:.6' : '') + '">' +
+                '<span>' + iv.name + (iv.excl ? ' <span style="color:var(--danger);font-size:10px;font-weight:600">· nicht zugerechnet</span>' : '') + '</span>' +
+                '<span style="display:flex;align-items:center;gap:10px;white-space:nowrap">' +
+                  '<span style="color:var(--text-secondary);font-variant-numeric:tabular-nums">' + fmtEur(iv.amt) + '</span>' +
+                  '<button class="ma-inv-toggle" data-contact="' + encodeURIComponent(iv.name) + '" style="background:none;border:1px solid var(--border);border-radius:4px;cursor:pointer;padding:1px 7px;font-size:11px;color:' + (iv.excl ? 'var(--primary)' : 'var(--text-secondary)') + '">' + (iv.excl ? '↩ zurechnen' : '🚫 nicht zurechnen') + '</button>' +
+                '</span>' +
+              '</div>';
+            }).join('') +
+            '<div style="font-size:10px;color:var(--text-secondary);margin-top:5px">Nicht zugerechnete Rechnungen bleiben im Gesamtumsatz &amp; in der Profitabilität — sie fallen nur aus der Mitarbeiter-Verteilung (z.B. Inhaber-Betreuung).</div>';
+        }
+
         var dtr = document.createElement('tr');
         dtr.className = 'cli-detail';
         dtr.setAttribute('data-cid', cid);
         dtr.innerHTML = '<td colspan="' + colspan + '" style="background:var(--surface-hover,#f8fafc);padding:8px 14px 10px 26px">' +
           '<div style="font-size:11px;color:var(--text-secondary);margin-bottom:4px">Alle Mitarbeiter an diesem Kunden (Stunden · MA-Umsatz):</div>' +
-          (inner || '<div class="muted" style="font-size:12px">Keine weiteren.</div>') + '</td>';
+          (inner || '<div class="muted" style="font-size:12px">Keine weiteren.</div>') + invHtml + '</td>';
         tr.parentNode.insertBefore(dtr, tr.nextSibling);
         caret.textContent = '▾';
+
+        // Schalter: einzelne Rechnung auf MA zurechnen / nicht zurechnen
+        dtr.querySelectorAll('.ma-inv-toggle').forEach(function (b) {
+          b.addEventListener('click', function () {
+            var contact = decodeURIComponent(b.getAttribute('data-contact'));
+            var k = norm(contact);
+            var isExcl = !!COMP.maExclSet[k];
+            b.disabled = true; b.textContent = '…';
+            var op = isExcl ? window.db.maRevenueExclusions.remove(contact)
+                            : window.db.maRevenueExclusions.add(contact, null);
+            op.then(function () {
+              if (isExcl) DATA.maExclusions = (DATA.maExclusions || []).filter(function (x) { return norm(x.contact_name) !== k; });
+              else        (DATA.maExclusions = DATA.maExclusions || []).push({ contact_name: contact });
+              compute();          // Grid + COMP neu berechnen
+              renderModalBody();  // Modal aktualisieren
+            }).catch(function (e) { alert('Fehler: ' + e.message); b.disabled = false; });
+          });
+        });
       });
     });
   }
