@@ -89,6 +89,8 @@
       Promise.all(monthNums.map(function (m) { return window.db.adjustments.forMonth(year, m).catch(function () { return []; }); })),
       window.db.revenueExclusions.listAll().catch(function () { return []; }),
       window.db.maRevenueExclusions.listAll().catch(function () { return []; }),
+      Promise.all(monthNums.map(function (m) { return window.db.revenueServices.forMonth(year, m).catch(function () { return []; }); })),
+      window.db.revenueServiceAssignments.listAll().catch(function () { return []; }),
     ]).then(function (r) {
       DATA = {
         year: year,
@@ -96,6 +98,8 @@
         utilHours: r[4], absences: r[5], revenueByMonth: r[6], adjByMonth: r[7],
         exclusions: r[8] || [],
         maExclusions: r[9] || [],
+        svcByMonth: r[10] || [],
+        svcAssignments: r[11] || [],
       };
       loadingEl.classList.add('hidden');
       contentEl.classList.remove('hidden');
@@ -155,6 +159,34 @@
       });
     }
 
+    // Leistungs-Umsatz je Kunde je Monat (aus revenue_services) ----------
+    var clientSvcMonth = {}; // cid → { m → { service → amount } }
+    for (var ms = 1; ms <= 12; ms++) {
+      var byContactSvc = {};   // normContact → { service → amount }
+      (DATA.svcByMonth[ms - 1] || []).forEach(function (r) {
+        if (isExcluded(r.contact_name)) return;
+        var kc = norm(r.contact_name);
+        (byContactSvc[kc] = byContactSvc[kc] || {});
+        byContactSvc[kc][r.service] = (byContactSvc[kc][r.service] || 0) + (r.amount || 0);
+      });
+      clients.forEach(function (c) {
+        var mapped = mappingsByClient[c.id] || [c.lexoffice_name || c.name];
+        var agg = {};
+        mapped.forEach(function (lx) {
+          if (maExclSet[norm(lx)]) return;            // Kontakt-Ausschluss respektieren
+          var cm = byContactSvc[norm(lx)]; if (!cm) return;
+          Object.keys(cm).forEach(function (sv) { agg[sv] = (agg[sv] || 0) + cm[sv]; });
+        });
+        (clientSvcMonth[c.id] = clientSvcMonth[c.id] || {})[ms] = agg;
+      });
+    }
+    // Leistungs-Zuweisungen: cid → service → [employee_id]
+    var svcAssign = {};
+    (DATA.svcAssignments || []).forEach(function (a) {
+      var cc = (svcAssign[a.client_id] = svcAssign[a.client_id] || {});
+      (cc[a.service] = cc[a.service] || []).push(a.employee_id);
+    });
+
     // Stunden je Kunde je Monat + je (Kunde,MA) -------------------------
     var clientHoursMonth = {}; // clientId → {m → totalHours}
     var entryByClientEmpMonth = {}; // clientId → m → empId → hours
@@ -200,6 +232,31 @@
         // Stunden immer tracken (auch ausgeschlossene – sie haben gearbeitet)
         for (var eidH in emps) addHrs(eidH, mo, emps[eidH]);
         if (!rev) continue;
+
+        // ── Leistungs-Zuweisung: bestimmte Leistungen gezielt zurechnen ──
+        // Zugewiesene Leistungen werden aus dem Kundenumsatz herausgelöst und
+        // NUR unter den zugewiesenen MA verteilt (nach deren Stunden am Kunden;
+        // haben sie keine Stunden → gleichmäßig). Der Rest läuft unten wie
+        // bisher nach Stunden über alle.
+        var svcRule = svcAssign[cid];
+        if (svcRule) {
+          var svcAmts = (clientSvcMonth[cid] || {})[mo] || {};
+          var assignedTotal = 0;
+          Object.keys(svcRule).forEach(function (sv) {
+            var eids = svcRule[sv];
+            var amt = svcAmts[sv] || 0;
+            if (!eids.length || amt <= 0) return;
+            var hrsSum = eids.reduce(function (s, e) { return s + (emps[e] || 0); }, 0);
+            eids.forEach(function (e) {
+              var share = hrsSum > 0 ? (emps[e] || 0) / hrsSum : 1 / eids.length;
+              var v = amt * share;
+              addRev(e, mo, v); addClientRev(cid, mo, e, v);
+            });
+            assignedTotal += amt;
+          });
+          rev = Math.max(0, rev - assignedTotal);
+          if (!rev) continue;
+        }
 
         // Teilnehmer für die Umsatzverteilung (Ausgeschlossene raus)
         var freelancers = [], owners = [], ownerHrs = 0, claimSum = 0;
@@ -319,6 +376,8 @@
       mappingsByClient: mappingsByClient,
       revMapByMonth: revMapByMonth,
       maExclSet: maExclSet,
+      clientSvcMonth: clientSvcMonth,
+      svcAssign: svcAssign,
     };
 
     render({
@@ -584,12 +643,44 @@
             '<div style="font-size:10px;color:var(--text-secondary);margin-top:5px">Nicht zugerechnete Rechnungen bleiben im Gesamtumsatz &amp; in der Profitabilität — sie fallen nur aus der Mitarbeiter-Verteilung (z.B. Inhaber-Betreuung).</div>';
         }
 
+        // ── Leistungen dieses Kunden (gezielte Zuweisung) ──
+        var svcAgg = {};
+        monthsInScope().forEach(function (m) {
+          var sm = (COMP.clientSvcMonth[cid] || {})[m] || {};
+          Object.keys(sm).forEach(function (sv) { svcAgg[sv] = (svcAgg[sv] || 0) + sm[sv]; });
+        });
+        var svcNames = Object.keys(svcAgg).filter(function (sv) { return svcAgg[sv] > 0.5; });
+        var svcHtml = '';
+        if (svcNames.length >= 2) {   // nur bei mehreren Leistungen sinnvoll
+          var assignForCid = COMP.svcAssign[cid] || {};
+          var empOptions = COMP.employees.map(function (e) { return '<option value="' + e.id + '">' + e.name + '</option>'; }).join('');
+          svcHtml = '<div style="font-size:11px;color:var(--text-secondary);margin:10px 0 4px">Leistungen dieses Kunden – gezielt zurechnen?</div>' +
+            svcNames.sort(function (a, b) { return svcAgg[b] - svcAgg[a]; }).map(function (sv) {
+              var eids = assignForCid[sv] || [];
+              var chips = eids.map(function (eid) {
+                return '<span style="display:inline-flex;align-items:center;gap:4px;background:#eef2ff;color:var(--primary);border-radius:10px;padding:1px 8px;font-size:11px;font-weight:600">' +
+                  (empNameById[eid] || '?') +
+                  ' <span class="svc-unassign" data-cid="' + cid + '" data-svc="' + encodeURIComponent(sv) + '" data-eid="' + eid + '" title="Entfernen" style="cursor:pointer">×</span></span>';
+              }).join(' ');
+              var status = eids.length ? chips : '<span class="muted" style="font-size:11px">nach Stunden (Standard)</span>';
+              return '<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:4px 0;border-bottom:1px solid var(--border)">' +
+                '<span>' + sv + '</span>' +
+                '<span style="display:flex;align-items:center;gap:10px;white-space:nowrap;flex-wrap:wrap;justify-content:flex-end">' +
+                  '<span style="color:var(--text-secondary);font-variant-numeric:tabular-nums">' + fmtEur(svcAgg[sv]) + '</span>' +
+                  status +
+                  '<select class="svc-assign" data-cid="' + cid + '" data-svc="' + encodeURIComponent(sv) + '" style="font-size:11px;border:1px solid var(--border);border-radius:4px;padding:1px 4px;color:var(--text-secondary)"><option value="">+ zuweisen…</option>' + empOptions + '</select>' +
+                '</span>' +
+              '</div>';
+            }).join('') +
+            '<div style="font-size:10px;color:var(--text-secondary);margin-top:5px">Zugewiesene Leistungen gehen nur an die gewählten MA. Nicht zugewiesene laufen wie bisher nach Stunden über alle. Gilt dauerhaft.</div>';
+        }
+
         var dtr = document.createElement('tr');
         dtr.className = 'cli-detail';
         dtr.setAttribute('data-cid', cid);
         dtr.innerHTML = '<td colspan="' + colspan + '" style="background:var(--surface-hover,#f8fafc);padding:8px 14px 10px 26px">' +
           '<div style="font-size:11px;color:var(--text-secondary);margin-bottom:4px">Alle Mitarbeiter an diesem Kunden (Stunden · MA-Umsatz):</div>' +
-          (inner || '<div class="muted" style="font-size:12px">Keine weiteren.</div>') + invHtml + '</td>';
+          (inner || '<div class="muted" style="font-size:12px">Keine weiteren.</div>') + invHtml + svcHtml + '</td>';
         tr.parentNode.insertBefore(dtr, tr.nextSibling);
         caret.textContent = '▾';
 
@@ -608,6 +699,34 @@
               compute();          // Grid + COMP neu berechnen
               renderModalBody();  // Modal aktualisieren
             }).catch(function (e) { alert('Fehler: ' + e.message); b.disabled = false; });
+          });
+        });
+
+        // Leistungs-Zuweisung: Mitarbeiter zuweisen / entfernen
+        dtr.querySelectorAll('.svc-assign').forEach(function (sel) {
+          sel.addEventListener('change', function () {
+            var eid = sel.value; if (!eid) return;
+            var cid2 = sel.getAttribute('data-cid');
+            var sv = decodeURIComponent(sel.getAttribute('data-svc'));
+            // Doppelte Zuweisung vermeiden
+            var exists = (DATA.svcAssignments || []).some(function (a) { return String(a.client_id) === String(cid2) && a.service === sv && String(a.employee_id) === String(eid); });
+            if (exists) { sel.value = ''; return; }
+            sel.disabled = true;
+            window.db.revenueServiceAssignments.add(cid2, sv, eid).then(function () {
+              (DATA.svcAssignments = DATA.svcAssignments || []).push({ client_id: cid2, service: sv, employee_id: eid });
+              compute(); renderModalBody();
+            }).catch(function (e) { alert('Fehler: ' + e.message); sel.disabled = false; });
+          });
+        });
+        dtr.querySelectorAll('.svc-unassign').forEach(function (x) {
+          x.addEventListener('click', function () {
+            var cid2 = x.getAttribute('data-cid');
+            var sv = decodeURIComponent(x.getAttribute('data-svc'));
+            var eid = x.getAttribute('data-eid');
+            window.db.revenueServiceAssignments.remove(cid2, sv, eid).then(function () {
+              DATA.svcAssignments = (DATA.svcAssignments || []).filter(function (a) { return !(String(a.client_id) === String(cid2) && a.service === sv && String(a.employee_id) === String(eid)); });
+              compute(); renderModalBody();
+            }).catch(function (e) { alert('Fehler: ' + e.message); });
           });
         });
       });
