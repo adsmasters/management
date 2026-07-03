@@ -121,6 +121,41 @@
       </div>
     </div>
 
+    <!-- ── Umsatzverteilung nach Service (LexOffice-Positionen) ─────────── -->
+    <div class="chart-card" id="serviceSection">
+      <div style="font-size:13px;font-weight:600;color:var(--text-secondary);margin-bottom:2px">
+        Umsatzverteilung nach Service <span id="serviceRangeLabel" style="font-weight:400"></span>
+      </div>
+      <div id="serviceEmpty" class="hidden" style="font-size:12px;color:var(--text-secondary);padding:14px 0">
+        Noch keine Service-Daten für diesen Zeitraum. Bitte in den Einstellungen die Monate (neu) synchronisieren – der Sync klassifiziert die LexOffice-Positionen nach Service.
+      </div>
+      <div id="serviceCharts" style="display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:10px">
+        <div style="grid-column:1 / 2">
+          <div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px">Prozentuale Umsatzverteilung</div>
+          <div class="chart-wrap" style="height:300px"><canvas id="serviceShareChart"></canvas></div>
+        </div>
+        <div style="grid-column:2 / 3">
+          <div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px">Umsatz pro Service</div>
+          <div class="chart-wrap" style="height:300px"><canvas id="serviceRevenueChart"></canvas></div>
+        </div>
+        <div style="grid-column:1 / 3">
+          <div style="font-size:12px;color:var(--text-secondary);margin-bottom:6px">Kundenverteilung nach Service (Anzahl Kunden mit Umsatz im Service)</div>
+          <div class="chart-wrap" style="height:280px"><canvas id="serviceCustomerChart"></canvas></div>
+        </div>
+      </div>
+      <div class="table-wrap" style="margin-top:14px">
+        <table id="serviceTable">
+          <thead><tr>
+            <th>Service</th>
+            <th class="right" style="min-width:130px">Umsatz</th>
+            <th class="right" style="min-width:80px">Anteil</th>
+            <th class="right" style="min-width:90px">Kunden</th>
+          </tr></thead>
+          <tbody id="serviceTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+
     <div class="card">
       <div class="table-wrap">
         <table id="timelineTable">
@@ -150,7 +185,7 @@
 <script src="js/db.js"></script>
 <script src="js/utils.js"></script>
 <script src="js/auth.js"></script>
-<script src="js/revenue-timeline.js?v=3"></script>
+<script src="js/revenue-timeline.js?v=5"></script>
   <script defer src="https://adsmasters.github.io/hub/backlink.js"></script>
 </body>
 </html>

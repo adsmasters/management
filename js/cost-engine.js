@@ -217,9 +217,13 @@
 
   function applyExclude(tx, excludeRules) {
     for (var i = 0; i < excludeRules.length; i++) {
-      if (ruleMatches(tx.description, excludeRules[i])) {
-        return { excluded: true, exclude_reason: excludeRules[i].reason || excludeRules[i].pattern };
-      }
+      var r = excludeRules[i];
+      if (!ruleMatches(tx.description, r)) continue;
+      // Optionales Gültigkeitsfenster (wie bei MwSt-Regeln): z.B. Mitarbeiterin im
+      // Mutterschutz ab 01.04. ausschließen, Buchungen davor aber behalten.
+      if (r.start_date && tx.tx_date < r.start_date) continue;
+      if (r.end_date && tx.tx_date > r.end_date) continue;
+      return { excluded: true, exclude_reason: r.reason || r.pattern };
     }
     return { excluded: false, exclude_reason: null };
   }

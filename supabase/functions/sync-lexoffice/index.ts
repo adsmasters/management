@@ -17,6 +17,24 @@ function calYM(s: string): number | null {
   return isNaN(d.getTime()) ? null : d.getUTCFullYear() * 12 + d.getUTCMonth();
 }
 
+// ── Service-Klassifizierung ───────────────────────────────────────────────
+// Klassifiziert nach der POSITIONS-ÜBERSCHRIFT (lineItem.name), NICHT der
+// Beschreibung — denn in der Beschreibung tauchen z.B. bei Full Service auch
+// PPC-Begriffe auf, was sonst zu Fehlzuordnungen führt. Reihenfolge = Priorität.
+// Findet der Positionsname nichts, wird ersatzweise der Rechnungstitel geprüft.
+function matchService(s: string): string | null {
+  const n = (s || '').toLowerCase();
+  if (/full\s*service/.test(n)) return 'Full Service';
+  if (/masterclass/.test(n)) return 'Masterclass';
+  if (/starter[\s-]*programm/.test(n)) return 'Starter-Programm';
+  if (/\bppc\b/.test(n) || /advertising\s*betreuung/.test(n) || /ppc[\s-]*betreuung/.test(n)) return 'PPC';
+  if (/\bbilder\b/.test(n) || /a\s*\+\s*inhalte/.test(n) || /a\s*\+\s*content/.test(n)) return 'Bilder';
+  return null;
+}
+function classifyService(name: string, fallbackTitle: string): string {
+  return matchService(name) || matchService(fallbackTitle) || 'Andere';
+}
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
 
@@ -105,6 +123,8 @@ Deno.serve(async (req) => {
     let timeBudgetHit = false;
 
     const map: Record<string, number> = {};
+    // Additiv: Umsatz pro Kunde × Service (verändert die map/revenue-Logik NICHT)
+    const serviceMap: Record<string, Record<string, number>> = {};
     const debugRows: any[] = [];
     let syncIncomplete = false; // true if any invoice detail couldn't be fetched
 
@@ -215,6 +235,9 @@ Deno.serve(async (req) => {
             continue;
           }
 
+          // Per-Service-Netto dieser Rechnung (vor Monats-Split). Wird parallel zur
+          // bestehenden Summenlogik gefüllt, damit die Service-Summe == Gesamtsumme.
+          const svcNet: Record<string, number> = {};
           if (excludeLower.length > 0 && lineItems.length > 0) {
             // Sum only line items whose name/description doesn't match any exclude keyword
             netAmount = lineItems.reduce((sum: number, item: any) => {
@@ -229,20 +252,32 @@ Deno.serve(async (req) => {
               } else {
                 lineNet = Number(item.unitPrice?.netAmount ?? 0) * Number(item.quantity ?? 1);
               }
-              return sum + (isNaN(lineNet) ? 0 : lineNet);
+              if (isNaN(lineNet)) lineNet = 0;
+              // Service NUR aus der Positions-Überschrift (name), nicht der Beschreibung
+              const svc = classifyService(item.name || '', invoiceTitle);
+              svcNet[svc] = (svcNet[svc] || 0) + lineNet;
+              return sum + lineNet;
             }, 0);
           } else if (tp.totalNetAmount != null) {
             // Prefer totalNetAmount — the only reliable net field in LexOffice API
             netAmount = Number(tp.totalNetAmount);
             usedNet = true;
+            svcNet[classifyService(invoiceTitle, invoiceTitle)] = netAmount;
           } else {
             // Fallback: estimate net from gross (same as error fallback)
             netAmount = Math.round((v.totalAmount || 0) / 1.19 * 100) / 100;
+            svcNet[classifyService(invoiceTitle, invoiceTitle)] = netAmount;
           }
           // Split across months if multi-month service period
           const netAmountForMonth = monthDivisor > 1 ? Math.round(netAmount / monthDivisor * 100) / 100 : netAmount;
           if (netAmountForMonth > 0) {
             map[contactName] = (map[contactName] || 0) + netAmountForMonth;
+            // Service-Aufteilung mit identischem Monats-Split akkumulieren
+            if (!serviceMap[contactName]) serviceMap[contactName] = {};
+            for (const svc of Object.keys(svcNet)) {
+              const split = monthDivisor > 1 ? Math.round(svcNet[svc] / monthDivisor * 100) / 100 : svcNet[svc];
+              if (split) serviceMap[contactName][svc] = (serviceMap[contactName][svc] || 0) + split;
+            }
           }
           debugRows.push({
             contact: contactName,
@@ -305,10 +340,19 @@ Deno.serve(async (req) => {
       voucher_id: `agg_${targetYear}_${targetMonth}_${contact_name.toLowerCase().replace(/[^a-z0-9]/g, '_').substring(0, 40)}`,
     }));
 
+    // Per-Service-Zeilen (additiv, eigene Tabelle revenue_services)
+    const serviceRows: any[] = [];
+    for (const contact_name of Object.keys(serviceMap)) {
+      for (const service of Object.keys(serviceMap[contact_name])) {
+        const amount = Math.round(serviceMap[contact_name][service] * 100) / 100;
+        if (amount !== 0) serviceRows.push({ year: targetYear, month: targetMonth, contact_name, service, amount });
+      }
+    }
+
     // dryRun: inspect classification without touching the revenue table
     if (dryRun) {
       return new Response(
-        JSON.stringify({ ok: true, dryRun: true, syncIncomplete, wouldWrite: rows, debug: debugRows }),
+        JSON.stringify({ ok: true, dryRun: true, syncIncomplete, wouldWrite: rows, wouldWriteServices: serviceRows, debug: debugRows }),
         { headers: { ...CORS, 'Content-Type': 'application/json' } }
       );
     }
@@ -335,8 +379,19 @@ Deno.serve(async (req) => {
       if (insErr) throw insErr;
     }
 
+    // Additiv: Service-Aufteilung schreiben. In try/catch gekapselt, damit ein
+    // Fehler hier den (bereits erfolgreichen) Haupt-Sync NIE umwirft.
+    let serviceCount = 0;
+    try {
+      await sb.from('revenue_services').delete().eq('year', targetYear).eq('month', targetMonth);
+      if (serviceRows.length > 0) {
+        const { error: svcErr } = await sb.from('revenue_services').insert(serviceRows);
+        if (!svcErr) serviceCount = serviceRows.length;
+      }
+    } catch (_) { /* Service-Aufteilung optional – Haupt-Sync bleibt gültig */ }
+
     return new Response(
-      JSON.stringify({ ok: true, count: rows.length, timeBudgetHit, processed: debugRows.length, totalVouchers: allVouchers.length, debug: debugRows }),
+      JSON.stringify({ ok: true, count: rows.length, serviceCount, timeBudgetHit, processed: debugRows.length, totalVouchers: allVouchers.length, debug: debugRows }),
       { headers: { ...CORS, 'Content-Type': 'application/json' } }
     );
 

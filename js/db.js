@@ -193,6 +193,26 @@
         )),
     },
 
+    // Umsatz pro Kunde × Service (befüllt vom LexOffice-Sync, additiv zu revenue)
+    revenueServices: {
+      allRows: async () => {
+        var PAGE = 1000, all = [], from = 0, client = sb();
+        // eslint-disable-next-line no-constant-condition
+        while (true) {
+          var res = await client.from('revenue_services')
+            .select('contact_name,service,amount,year,month')
+            .order('id', { ascending: true })
+            .range(from, from + PAGE - 1);
+          if (res.error) throw res.error;
+          var chunk = res.data || [];
+          all = all.concat(chunk);
+          if (chunk.length < PAGE) break;
+          from += PAGE;
+        }
+        return all;
+      },
+    },
+
     employeeRates: {
       listAll: () =>
         q(s => s.from('employee_rates').select('*').order('effective_from')),
@@ -440,9 +460,10 @@
       excludeRules: {
         list: () =>
           q(s => s.from('cost_exclude_rules').select('*').order('builtin', { ascending: false })),
-        add: (matchType, pattern, reason) =>
+        add: (matchType, pattern, reason, startDate, endDate) =>
           q(s => s.from('cost_exclude_rules')
-            .insert({ match_type: matchType || 'contains', pattern, reason: reason || null, builtin: false })
+            .insert({ match_type: matchType || 'contains', pattern, reason: reason || null, builtin: false,
+                      start_date: startDate || null, end_date: endDate || null })
             .select().single()),
         delete: (id) =>
           q(s => s.from('cost_exclude_rules').delete().eq('id', id)),
