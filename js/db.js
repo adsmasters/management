@@ -259,6 +259,20 @@
           .delete().eq('client_id', clientId).eq('employee_id', employeeId)),
     },
 
+    maRevenueExclusions: {
+      // Einzelne LexOffice-Kontakte (Rechnungen), die NICHT auf Mitarbeiter
+      // zugerechnet werden. Der Umsatz bleibt im Kunden-Gesamt/Profitabilität,
+      // fällt aber aus der MA-Umsatz-Verteilung raus (z.B. Betreuung durch Inhaber).
+      listAll: () =>
+        q(s => s.from('ma_revenue_exclusions').select('contact_name')),
+      add: (contactName, note) =>
+        q(s => s.from('ma_revenue_exclusions')
+          .insert({ contact_name: contactName, note: note || null }).select().single()),
+      remove: (contactName) =>
+        q(s => s.from('ma_revenue_exclusions')
+          .delete().eq('contact_name', contactName)),
+    },
+
     acquisitionContactLinks: {
       listForCost: (costId) =>
         q(s => s.from('acquisition_contact_links').select('*').eq('acquisition_cost_id', costId)),
