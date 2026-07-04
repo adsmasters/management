@@ -505,7 +505,8 @@
         }).join('');
         totalOpen += r.sum;
         var action = r.orphan
-          ? '<a href="name-mapping.html" style="font-size:12px;color:#b45309;font-weight:700;text-decoration:underline;white-space:nowrap">→ Kunde zuordnen</a>'
+          ? '<a href="name-mapping.html" style="font-size:12px;color:#b45309;font-weight:700;text-decoration:underline;white-space:nowrap">→ Kunde</a>' +
+            ' <button class="ua-exclude" data-name="' + encodeURIComponent(r.name) + '" style="font-size:11px;border:1px solid #fca5a5;background:#fee2e2;color:#991b1b;border-radius:4px;padding:1px 7px;cursor:pointer;white-space:nowrap" title="Als kein Umsatz ausschließen (z.B. Event-Rechnung)">🚫 ausschließen</button>'
           : '<select class="res-assign" data-cid="' + r.cid + '" style="font-size:12px;border:1px solid var(--border);border-radius:var(--radius);padding:3px 6px;background:var(--surface);color:var(--text)"><option value="">→ zuweisen an…</option>' + empOptions + '</select>';
         var nameCell = r.name + (r.orphan ? ' <span style="font-size:10px;color:#b45309;font-weight:600;white-space:nowrap">· kein Kunde</span>' : '');
         return '<tr><td style="padding:7px 12px;white-space:nowrap;font-weight:600">' + nameCell + '</td>' + monthCells +
@@ -559,6 +560,17 @@
           uaToast('✓ ' + clientName + ' → ' + empName + ' zugewiesen (unter „Bereits zugeordnet")');
           compute();
         }).catch(function (e) { alert('Fehler: ' + e.message); sel.disabled = false; });
+      });
+    });
+    wrap.querySelectorAll('.ua-exclude').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var name = decodeURIComponent(b.getAttribute('data-name'));
+        b.disabled = true;
+        window.db.contactOverrides.set(name, 'excluded').then(function () {
+          EXCLUDED_CONTACTS[norm(name)] = 1;
+          uaToast('🚫 ' + name + ' ausgeschlossen – zählt nirgends mehr als Umsatz');
+          compute();
+        }).catch(function (e) { alert('Fehler: ' + e.message); b.disabled = false; });
       });
     });
     wrap.querySelectorAll('.res-unassign').forEach(function (x) {
