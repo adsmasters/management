@@ -211,6 +211,8 @@
         }
         return all;
       },
+      forMonth: (year, month) =>
+        q(s => s.from('revenue_services').select('contact_name,service,amount').eq('year', year).eq('month', month)),
     },
 
     employeeRates: {
@@ -291,12 +293,6 @@
       remove: (contactName) =>
         q(s => s.from('ma_revenue_exclusions')
           .delete().eq('contact_name', contactName)),
-    },
-
-    revenueServices: {
-      // Umsatz je Kunde je Leistung (PPC, Full Service, Bilder, Andere …)
-      forMonth: (year, month) =>
-        q(s => s.from('revenue_services').select('contact_name,service,amount').eq('year', year).eq('month', month)),
     },
 
     revenueServiceAssignments: {
