@@ -429,62 +429,72 @@
     var empNameById = {};
     COMP.employees.forEach(function (e) { empNameById[e.id] = e.name; });
 
-    // Rest je Kunde JE MONAT sammeln (nur Monate mit offenem/zugewiesenem Rest)
+    // Rest je Kunde JE MONAT sammeln, dann in OFFEN vs. BEREITS ZUGEORDNET trennen
     var MS = ['Jan', 'Feb', 'Mär', 'Apr', 'Mai', 'Jun', 'Jul', 'Aug', 'Sep', 'Okt', 'Nov', 'Dez'];
     var rbc = COMP.residualByClientMonth || {};
-    var monthSet = {}, perClient = {};
+    var allRows = [];
     Object.keys(rbc).forEach(function (cid) {
       var byM = rbc[cid] || {}, sum = 0, months = {};
-      Object.keys(byM).forEach(function (m) { var v = byM[m] || 0; if (v > 0.5) { months[m] = v; sum += v; monthSet[m] = 1; } });
-      if (sum > 0.5) perClient[cid] = { months: months, sum: sum };
+      Object.keys(byM).forEach(function (m) { var v = byM[m] || 0; if (v > 0.5) { months[m] = v; sum += v; } });
+      if (sum > 0.5) allRows.push({ cid: cid, name: (clientsById[cid] || {}).name || '?', months: months, sum: sum, owner: COMP.ownerAssign[cid] || null });
     });
-    var monthCols = Object.keys(monthSet).map(Number).sort(function (a, b) { return a - b; });
-    var rows = Object.keys(perClient).map(function (cid) {
-      return { cid: cid, name: (clientsById[cid] || {}).name || '?', months: perClient[cid].months, sum: perClient[cid].sum, owner: COMP.ownerAssign[cid] || null };
-    }).sort(function (a, b) { return b.sum - a.sum; });
+    var openRows = allRows.filter(function (r) { return !r.owner; }).sort(function (a, b) { return b.sum - a.sum; });
+    var assignedRows = allRows.filter(function (r) { return r.owner; }).sort(function (a, b) { return b.sum - a.sum; });
 
-    if (!rows.length) {
+    if (!openRows.length && !assignedRows.length) {
       wrap.innerHTML = '<h2 style="font-size:16px;font-weight:700;margin:0 0 10px">Nicht zugeordneter Umsatz</h2>' +
         '<div class="card" style="padding:14px;color:var(--text-secondary);font-size:13px">✓ Für ' + COMP.year + ' ist der gesamte Umsatz einem Mitarbeiter zugeordnet.</div>';
       return;
     }
 
     var empOptions = COMP.employees.map(function (e) { return '<option value="' + e.id + '">' + e.name + '</option>'; }).join('');
-    var footOpen = {}; var totalOpen = 0;
-    monthCols.forEach(function (m) { footOpen[m] = 0; });
 
-    var body = rows.map(function (r) {
-      var monthCells = monthCols.map(function (m) {
-        var v = r.months[m] || 0;
-        if (!r.owner) footOpen[m] += v;
-        return '<td class="right" style="padding:7px 10px;font-variant-numeric:tabular-nums;color:' + (v ? 'var(--text)' : 'var(--text-muted,#9aa4b2)') + '">' + (v ? fmtEur(v) : '–') + '</td>';
+    // ── Offene Posten (mit Monatsspalten) ──
+    var monthSet = {}; openRows.forEach(function (r) { Object.keys(r.months).forEach(function (m) { monthSet[m] = 1; }); });
+    var monthCols = Object.keys(monthSet).map(Number).sort(function (a, b) { return a - b; });
+    var footOpen = {}; monthCols.forEach(function (m) { footOpen[m] = 0; }); var totalOpen = 0;
+    var openHtml;
+    if (openRows.length) {
+      var body = openRows.map(function (r) {
+        var monthCells = monthCols.map(function (m) {
+          var v = r.months[m] || 0; footOpen[m] += v;
+          return '<td class="right" style="padding:7px 10px;font-variant-numeric:tabular-nums;color:' + (v ? 'var(--text)' : 'var(--text-muted,#9aa4b2)') + '">' + (v ? fmtEur(v) : '–') + '</td>';
+        }).join('');
+        totalOpen += r.sum;
+        var action = '<select class="res-assign" data-cid="' + r.cid + '" style="font-size:12px;border:1px solid var(--border);border-radius:var(--radius);padding:3px 6px;background:var(--surface);color:var(--text)"><option value="">→ zuweisen an…</option>' + empOptions + '</select>';
+        return '<tr><td style="padding:7px 12px;white-space:nowrap;font-weight:600">' + r.name + '</td>' + monthCells +
+          '<td class="right" style="padding:7px 12px;font-variant-numeric:tabular-nums;font-weight:700">' + fmtEur(r.sum) + '</td>' +
+          '<td class="right" style="padding:7px 12px">' + action + '</td></tr>';
       }).join('');
-      if (!r.owner) totalOpen += r.sum;
-      var action;
-      if (r.owner) {
-        action = '<span style="display:inline-flex;align-items:center;gap:6px;background:#eef2ff;color:var(--primary);border-radius:10px;padding:2px 10px;font-size:12px;font-weight:600;white-space:nowrap">→ ' +
-          (empNameById[r.owner] || '?') +
-          ' <span class="res-unassign" data-cid="' + r.cid + '" title="Zuweisung entfernen" style="cursor:pointer">×</span></span>';
-      } else {
-        action = '<select class="res-assign" data-cid="' + r.cid + '" style="font-size:12px;border:1px solid var(--border);border-radius:var(--radius);padding:3px 6px;background:var(--surface);color:var(--text)"><option value="">→ zuweisen an…</option>' + empOptions + '</select>';
-      }
-      return '<tr><td style="padding:7px 12px;white-space:nowrap;font-weight:600">' + r.name + '</td>' + monthCells +
-        '<td class="right" style="padding:7px 12px;font-variant-numeric:tabular-nums;font-weight:700">' + fmtEur(r.sum) + '</td>' +
-        '<td class="right" style="padding:7px 12px">' + action + '</td></tr>';
-    }).join('');
+      var monthHead = monthCols.map(function (m) { return '<th class="right" style="padding:6px 10px">' + MS[(m - 1) % 12] + '</th>'; }).join('');
+      var footCells = monthCols.map(function (m) { return '<td class="right" style="padding:8px 10px;font-variant-numeric:tabular-nums">' + (footOpen[m] > 0.5 ? fmtEur(footOpen[m]) : '–') + '</td>'; }).join('');
+      openHtml = '<div style="padding:10px 12px;font-size:12px;color:var(--text-secondary);border-bottom:1px solid var(--border)">Umsatz, der auf keinem Mitarbeiter landet (keine Stunden gebucht, bewusst ausgeschlossene Rechnungen, oder Zurechnungs-Rest) – nach Monat. Weise ihn z.B. dir selbst zu (gilt für alle betroffenen Monate).</div>' +
+        '<table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="text-align:left;color:var(--text-secondary);font-size:11px;text-transform:uppercase">' +
+        '<th style="padding:6px 12px">Kunde</th>' + monthHead + '<th class="right" style="padding:6px 12px">Summe</th><th class="right" style="padding:6px 12px">Zuweisen</th></tr></thead>' +
+        '<tbody>' + body + '</tbody>' +
+        '<tfoot><tr style="font-weight:700;border-top:2px solid var(--border)"><td style="padding:8px 12px">Summe offen</td>' + footCells +
+        '<td class="right" style="padding:8px 12px;font-variant-numeric:tabular-nums">' + fmtEur(totalOpen) + '</td><td></td></tr></tfoot></table>';
+    } else {
+      openHtml = '<div style="padding:16px 12px;color:#16a34a;font-size:13px;font-weight:600">✓ Aktuell kein offener Umsatz – alles zugeordnet.</div>';
+    }
 
-    var monthHead = monthCols.map(function (m) { return '<th class="right" style="padding:6px 10px">' + MS[(m - 1) % 12] + '</th>'; }).join('');
-    var footCells = monthCols.map(function (m) { return '<td class="right" style="padding:8px 10px;font-variant-numeric:tabular-nums">' + (footOpen[m] > 0.5 ? fmtEur(footOpen[m]) : '–') + '</td>'; }).join('');
+    // ── Bereits zugeordnet (kompakt, mit Rückgängig) ──
+    var assignedHtml = '';
+    if (assignedRows.length) {
+      var items = assignedRows.map(function (r) {
+        return '<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:6px 12px;border-top:1px solid var(--border)">' +
+          '<span style="font-weight:600">' + r.name + '</span>' +
+          '<span style="display:flex;align-items:center;gap:10px;white-space:nowrap">' +
+          '<span style="color:var(--text-secondary);font-variant-numeric:tabular-nums">' + fmtEur(r.sum) + '</span>' +
+          '<span style="display:inline-flex;align-items:center;gap:6px;background:#eef2ff;color:var(--primary);border-radius:10px;padding:2px 10px;font-size:12px;font-weight:600">→ ' + (empNameById[r.owner] || '?') +
+          ' <span class="res-unassign" data-cid="' + r.cid + '" title="Zuweisung aufheben" style="cursor:pointer;font-weight:700">×</span></span>' +
+          '</span></div>';
+      }).join('');
+      assignedHtml = '<div style="padding:9px 12px;font-size:11px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.04em;background:var(--surface-hover,#f8fafc);border-top:1px solid var(--border)">Bereits zugeordnet (' + assignedRows.length + ')</div>' + items;
+    }
 
     wrap.innerHTML = '<h2 style="font-size:16px;font-weight:700;margin:0 0 10px">Nicht zugeordneter Umsatz <span style="font-weight:400;font-size:13px;color:var(--text-secondary)">· ' + COMP.year + ' (Ist) · je Monat</span></h2>' +
-      '<div class="card" style="padding:0;overflow-x:auto">' +
-      '<div style="padding:10px 12px;font-size:12px;color:var(--text-secondary);border-bottom:1px solid var(--border)">Umsatz, der auf keinem Mitarbeiter landet (keine Stunden gebucht, bewusst ausgeschlossene Rechnungen, oder Zurechnungs-Rest) – aufgeschlüsselt nach Monat. Weise ihn z.B. dir selbst zu (gilt für alle betroffenen Monate). Gesamtumsatz &amp; Profitabilität bleiben unberührt.</div>' +
-      '<table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="text-align:left;color:var(--text-secondary);font-size:11px;text-transform:uppercase">' +
-      '<th style="padding:6px 12px">Kunde</th>' + monthHead + '<th class="right" style="padding:6px 12px">Summe</th><th class="right" style="padding:6px 12px">Zuweisen</th></tr></thead>' +
-      '<tbody>' + body + '</tbody>' +
-      '<tfoot><tr style="font-weight:700;border-top:2px solid var(--border)"><td style="padding:8px 12px">Summe offen</td>' + footCells +
-      '<td class="right" style="padding:8px 12px;font-variant-numeric:tabular-nums">' + fmtEur(totalOpen) + '</td><td></td></tr></tfoot>' +
-      '</table></div>';
+      '<div class="card" style="padding:0;overflow-x:auto">' + openHtml + assignedHtml + '</div>';
 
     wrap.querySelectorAll('.res-assign').forEach(function (sel) {
       sel.addEventListener('change', function () {
