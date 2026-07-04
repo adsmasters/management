@@ -71,6 +71,21 @@
   function fmt(n) {
     return n.toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
   }
+
+  // Warnhinweis: Umsatz von nicht zugeordneten Kontakten (fehlt in der Profitabilität)
+  function renderUnmappedWarning(unmapped) {
+    var el = document.getElementById('unmappedWarn');
+    if (!el) return;
+    if (!unmapped || !unmapped.length) { el.innerHTML = ''; return; }
+    var total = unmapped.reduce(function (s, u) { return s + u.amount; }, 0);
+    var list = unmapped.slice(0, 8).map(function (u) { return u.name + ' (' + fmt(u.amount) + ')'; }).join(', ');
+    var more = unmapped.length > 8 ? ' u. a.' : '';
+    el.innerHTML = '<div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:var(--radius);padding:12px 16px;margin-bottom:16px;font-size:13px;color:#92400e;line-height:1.5">' +
+      '<strong>⚠️ ' + fmt(total) + ' Umsatz fehlt in dieser Ansicht.</strong> ' +
+      unmapped.length + ' Kontakt(e) sind <strong>keinem Kunden zugeordnet</strong> und zählen daher nicht in der Profitabilität (im Umsatz-Verlauf/Kostenanalyse aber schon): ' +
+      list + more + '. ' +
+      '<a href="name-mapping.html" style="color:#92400e;font-weight:700;text-decoration:underline">→ Jetzt zuordnen</a></div>';
+  }
   function norm(str) { return (str || '').trim().toLowerCase(); }
   function showError(msg) {
     errorEl.innerHTML = '<div class="alert alert-danger">⚠️ ' + msg + '</div>';
@@ -265,13 +280,25 @@
 
       // Aggregate revenue across all months (excluding configured keywords)
       var revenueMap = {};
+      var revenueNames = {}; // normKey → originaler Kontaktname (für Warnhinweis)
       revenueMonths.forEach(function (rows) {
         rows.forEach(function (row) {
           if (isExcluded(row.contact_name)) return;
           var key = norm(row.contact_name || '');
           revenueMap[key] = (revenueMap[key] || 0) + (row.total_amount || 0);
+          if (!revenueNames[key]) revenueNames[key] = row.contact_name;
         });
       });
+
+      // ── Warnung: Umsatz von Kontakten, die KEINEM Kunden zugeordnet sind ──
+      // Diese Rechnungen fallen aus der Profitabilität (nur zugeordnete zählen).
+      var mappedKeys = {};
+      Object.keys(mappingsByClient).forEach(function (cid) { mappingsByClient[cid].forEach(function (lx) { mappedKeys[norm(lx)] = 1; }); });
+      clients.forEach(function (c) { if (c.lexoffice_name) mappedKeys[norm(c.lexoffice_name)] = 1; mappedKeys[norm(c.name)] = 1; });
+      var unmapped = [];
+      Object.keys(revenueMap).forEach(function (k) { if (!mappedKeys[k] && revenueMap[k] > 0.5) unmapped.push({ name: revenueNames[k] || k, amount: revenueMap[k] }); });
+      unmapped.sort(function (a, b) { return b.amount - a.amount; });
+      renderUnmappedWarning(unmapped);
 
       // Build deductions map: clientId → total revenue_deduction across months
       var deductionsMap = {}; // clientId → amount
