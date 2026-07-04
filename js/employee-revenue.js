@@ -490,7 +490,10 @@
           ' <span class="res-unassign" data-cid="' + r.cid + '" title="Zuweisung aufheben" style="cursor:pointer;font-weight:700">×</span></span>' +
           '</span></div>';
       }).join('');
-      assignedHtml = '<div style="padding:9px 12px;font-size:11px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.04em;background:var(--surface-hover,#f8fafc);border-top:1px solid var(--border)">Bereits zugeordnet (' + assignedRows.length + ')</div>' + items;
+      assignedHtml = '<div style="border-top:1px solid var(--border)">' +
+        '<button class="res-toggle" style="width:100%;text-align:left;background:none;border:none;cursor:pointer;padding:9px 12px;font-size:11px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.04em">▸ Bereits zugeordnet (' + assignedRows.length + ') – anzeigen</button>' +
+        '<div class="res-assigned-list" style="display:none">' + items + '</div>' +
+      '</div>';
     }
 
     wrap.innerHTML = '<h2 style="font-size:16px;font-weight:700;margin:0 0 10px">Nicht zugeordneter Umsatz <span style="font-weight:400;font-size:13px;color:var(--text-secondary)">· ' + COMP.year + ' (Ist) · je Monat</span></h2>' +
@@ -517,6 +520,14 @@
         }).catch(function (e) { alert('Fehler: ' + e.message); });
       });
     });
+    var tog = wrap.querySelector('.res-toggle');
+    if (tog) tog.addEventListener('click', function () {
+      var list = wrap.querySelector('.res-assigned-list');
+      var isOpen = list.style.display !== 'none';
+      list.style.display = isOpen ? 'none' : 'block';
+      tog.textContent = (isOpen ? '▸' : '▾') + ' Bereits zugeordnet (' + tog.getAttribute('data-n') + ')' + (isOpen ? ' – anzeigen' : ' – ausblenden');
+    });
+    if (tog) tog.setAttribute('data-n', String(assignedRows.length));
   }
 
   // ── Rendering Hauptgrid ───────────────────────────────────────────────
