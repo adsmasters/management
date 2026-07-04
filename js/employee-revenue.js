@@ -446,6 +446,15 @@
     renderUnattributed();
   }
 
+  // Kurze Bestätigung (Toast), damit Zuweisungen sichtbar quittiert werden
+  function uaToast(msg) {
+    var t = document.createElement('div');
+    t.textContent = msg;
+    t.style.cssText = 'position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:#065f46;color:#fff;padding:10px 18px;border-radius:8px;font-size:13px;font-weight:600;z-index:99999;box-shadow:0 10px 30px rgba(0,0,0,.25)';
+    document.body.appendChild(t);
+    setTimeout(function () { t.style.transition = 'opacity .4s'; t.style.opacity = '0'; setTimeout(function () { if (t.parentNode) t.parentNode.removeChild(t); }, 400); }, 2400);
+  }
+
   // ── Nicht zugeordneter Umsatz (Panel) ─────────────────────────────────
   function renderUnattributed() {
     var wrap = document.getElementById('unattributedWrap');
@@ -540,10 +549,14 @@
       sel.addEventListener('change', function () {
         var eid = sel.value; if (!eid) return;
         var cid = sel.getAttribute('data-cid');
+        var trEl = sel.closest('tr');
+        var clientName = (trEl && trEl.children[0]) ? trEl.children[0].textContent.trim() : 'Kunde';
+        var empName = (sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].text : '').replace(/^→\s*/, '');
         sel.disabled = true;
         window.db.residualAssignments.set(cid, eid).then(function () {
           DATA.residualAssignments = (DATA.residualAssignments || []).filter(function (a) { return String(a.client_id) !== String(cid); });
           DATA.residualAssignments.push({ client_id: cid, employee_id: eid });
+          uaToast('✓ ' + clientName + ' → ' + empName + ' zugewiesen (unter „Bereits zugeordnet")');
           compute();
         }).catch(function (e) { alert('Fehler: ' + e.message); sel.disabled = false; });
       });
@@ -553,6 +566,7 @@
         var cid = x.getAttribute('data-cid');
         window.db.residualAssignments.remove(cid).then(function () {
           DATA.residualAssignments = (DATA.residualAssignments || []).filter(function (a) { return String(a.client_id) !== String(cid); });
+          uaToast('Zuweisung aufgehoben – Posten wieder offen');
           compute();
         }).catch(function (e) { alert('Fehler: ' + e.message); });
       });
