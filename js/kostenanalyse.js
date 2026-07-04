@@ -79,9 +79,10 @@
   }
 
   function isExcludedRevenue(name) {
+    var n = (name || '').trim().toLowerCase();
+    if (state.excludedContacts && state.excludedContacts[n]) return true;   // zentraler Ausschluss
     var kws = (localStorage.getItem('revenueExcludeKeywords') || '')
       .split('\n').map(function (k) { return k.trim().toLowerCase(); }).filter(Boolean);
-    var n = (name || '').toLowerCase();
     return kws.some(function (k) { return n.indexOf(k) !== -1; });
   }
 
@@ -99,6 +100,7 @@
       window.db.cost.categorySettings.list(),
       window.db.cost.transactions.all(),
       window.db.cost.imports.list(),
+      (window.db.contactOverrides ? window.db.contactOverrides.listAll() : Promise.resolve([])).catch(function () { return []; }),
     ]).then(function (r) {
       state.categoryRules = r[0] || [];
       state.vatRules      = r[1] || [];
@@ -107,6 +109,8 @@
       (r[3] || []).forEach(function (s) { state.settings[s.category] = s.include_in_profit; });
       state.transactions = r[4] || [];
       state.imports      = r[5] || [];
+      state.excludedContacts = {};
+      (r[6] || []).forEach(function (o) { if (o.status === 'excluded') state.excludedContacts[(o.contact_name || '').trim().toLowerCase()] = 1; });
       return loadRevenue();
     });
   }

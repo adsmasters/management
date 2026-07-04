@@ -308,6 +308,17 @@
           .delete().eq('client_id', clientId).eq('service', service).eq('employee_id', employeeId)),
     },
 
+    contactOverrides: {
+      // Zentraler Status je LexOffice-Kontakt (teamweit). status='excluded' = kein Umsatz.
+      listAll: () =>
+        q(s => s.from('contact_overrides').select('contact_name,status')),
+      set: (contactName, status) =>
+        q(s => s.from('contact_overrides')
+          .upsert({ contact_name: contactName, status: status }, { onConflict: 'contact_name' }).select().single()),
+      remove: (contactName) =>
+        q(s => s.from('contact_overrides').delete().eq('contact_name', contactName)),
+    },
+
     residualAssignments: {
       // Nicht zugeordneter (Rest-)Umsatz eines Kunden → einem Mitarbeiter gutschreiben
       // (z.B. Inhaber). Umfasst Umsatz ohne gebuchte Stunden + bewusst ausgeschlossene

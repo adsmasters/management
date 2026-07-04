@@ -11,6 +11,7 @@
   var allClients       = [];
   var allMappings      = [];
   var allLexNames      = [];
+  var allOverrides     = []; // contact_overrides ({contact_name, status})
   var mappingsByClient = {}; // clientId → [{ id, lexoffice_name }]
 
   function showError(msg) {
@@ -31,11 +32,13 @@
       window.db.clients.list(),
       window.db.mappings.list(),
       window.db.revenue.allContactNames(),
+      (window.db.contactOverrides ? window.db.contactOverrides.listAll() : Promise.resolve([])).catch(function () { return []; }),
     ])
     .then(function (results) {
-      allClients  = results[0];
-      allMappings = results[1];
-      allLexNames = results[2];
+      allClients   = results[0];
+      allMappings  = results[1];
+      allLexNames  = results[2];
+      allOverrides = results[3] || [];
 
       mappingsByClient = {};
       allMappings.forEach(function (m) {
@@ -187,39 +190,59 @@
       if (c.lexoffice_name) mappedNorms.add(norm(c.lexoffice_name));
       mappedNorms.add(norm(c.name));
     });
+    var excludedSet = new Set();
+    allOverrides.forEach(function (o) { if (o.status === 'excluded') excludedSet.add(norm(o.contact_name)); });
 
-    var unmapped = allLexNames.filter(function (n) { return !mappedNorms.has(norm(n)); });
+    var unmapped = allLexNames.filter(function (n) { return !mappedNorms.has(norm(n)) && !excludedSet.has(norm(n)); });
+    var excludedNames = allLexNames.filter(function (n) { return excludedSet.has(norm(n)); });
 
+    var html = '';
     if (unmapped.length === 0) {
-      unmappedEl.innerHTML = '<p style="color:var(--text-muted);font-size:13px">Alle LexOffice-Namen sind zugeordnet.</p>';
-      return;
+      html += '<p style="color:var(--text-muted);font-size:13px">Alle LexOffice-Namen sind zugeordnet oder ausgeschlossen.</p>';
+    } else {
+      html += '<p style="color:var(--text-muted);font-size:12px;margin:0 0 10px">Klick einen Namen an → einem Kunden zuordnen, oder als „kein Umsatz" ausschließen (z.B. Event-Rechnung). Nicht zugeordnete zählen als Sammelumsatz mit.</p>' +
+        unmapped.map(function (n) {
+          return '<span class="unmapped-tag" data-name="' + escHtml(n) + '" style="cursor:pointer" title="Klick: zuordnen oder ausschließen">' + escHtml(n) + ' <span style="opacity:.55">▾</span></span>';
+        }).join('');
     }
+    if (excludedNames.length) {
+      html += '<div style="margin-top:18px"><p style="color:var(--text-muted);font-size:12px;margin:0 0 8px">🚫 Ausgeschlossen (zählen nirgends als Umsatz) – × nimmt den Ausschluss zurück:</p>' +
+        excludedNames.map(function (n) {
+          return '<span class="unmapped-tag" style="background:#fee2e2;border-color:#fca5a5;color:#991b1b">' + escHtml(n) + ' <span class="excl-undo" data-name="' + escHtml(n) + '" style="cursor:pointer;font-weight:700" title="Ausschluss zurücknehmen">×</span></span>';
+        }).join('') + '</div>';
+    }
+    unmappedEl.innerHTML = html;
 
     var clientOpts = allClients.slice().sort(function (a, b) { return (a.name || '').localeCompare(b.name || ''); })
-      .map(function (c) { return '<option value="' + c.id + '">' + escHtml(c.name) + '</option>'; }).join('');
+      .map(function (c) { return '<option value="c:' + c.id + '">' + escHtml(c.name) + '</option>'; }).join('');
 
-    unmappedEl.innerHTML = '<p style="color:var(--text-muted);font-size:12px;margin:0 0 10px">Klick einen Namen an, um ihn einem Kunden zuzuordnen:</p>' +
-      unmapped.map(function (n) {
-        return '<span class="unmapped-tag" data-name="' + escHtml(n) + '" style="cursor:pointer" title="Klick: einem Kunden zuordnen">' + escHtml(n) + ' <span style="opacity:.55">▾</span></span>';
-      }).join('');
-
-    unmappedEl.querySelectorAll('.unmapped-tag').forEach(function (tag) {
+    unmappedEl.querySelectorAll('.unmapped-tag[data-name]').forEach(function (tag) {
       tag.addEventListener('click', function () {
-        if (tag.querySelector('select')) return; // Auswahl schon offen
+        if (tag.querySelector('select')) return; // schon offen
         var name = tag.getAttribute('data-name');
         var sel = document.createElement('select');
-        sel.innerHTML = '<option value="">→ Kunde wählen…</option>' + clientOpts;
-        sel.style.cssText = 'margin-left:6px;font-size:12px;max-width:220px;border:1px solid var(--border);border-radius:6px;padding:2px 4px;background:var(--surface);color:var(--text)';
+        sel.innerHTML = '<option value="">→ wählen…</option>' + clientOpts + '<option value="__x__">🚫 Nicht als Umsatz (ausschließen)</option>';
+        sel.style.cssText = 'margin-left:6px;font-size:12px;max-width:240px;border:1px solid var(--border);border-radius:6px;padding:2px 4px;background:var(--surface);color:var(--text)';
         tag.appendChild(sel);
         sel.focus();
         sel.addEventListener('change', function () {
-          var cid = sel.value; if (!cid) return;
+          var v = sel.value; if (!v) return;
           sel.disabled = true;
-          window.db.mappings.add(cid, name).then(load).catch(function (e) {
+          var op = v === '__x__'
+            ? window.db.contactOverrides.set(name, 'excluded')
+            : window.db.mappings.add(v.slice(2), name);
+          op.then(load).catch(function (e) {
             showError(e.message && e.message.indexOf('unique') !== -1 ? '„' + name + '" ist bereits zugeordnet.' : e.message);
             sel.disabled = false;
           });
         });
+      });
+    });
+
+    unmappedEl.querySelectorAll('.excl-undo').forEach(function (x) {
+      x.addEventListener('click', function () {
+        var name = x.getAttribute('data-name');
+        window.db.contactOverrides.remove(name).then(load).catch(function (e) { showError(e.message); });
       });
     });
   }
