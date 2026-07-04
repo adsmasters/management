@@ -19,10 +19,12 @@
   var MONTHS_LABEL = ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
   var MONTHS_SHORT = ['Jan','Feb','Mär','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez'];
 
-  // Monats-Selektoren (Wert = ym-Index: Jahr*12 + (Monat-1)) → z.B. "Jan 2026" → "Mai 2026"
-  for (var yy0 = curYear - 3; yy0 <= curYear + 1; yy0++) {
+  // Monats-Selektoren (Wert = ym-Index: Jahr*12 + (Monat-1)) → z.B. "Jan 2026" → "Mai 2026".
+  // Nur bis zum laufenden Monat – ein Umsatzverlauf hat keine Zukunftsmonate.
+  for (var yy0 = curYear - 3; yy0 <= curYear; yy0++) {
     for (var mo0 = 1; mo0 <= 12; mo0++) {
       var ymv = yy0 * 12 + (mo0 - 1);
+      if (ymv > curYM) continue;   // Zukunftsmonate ausblenden
       var label0 = MONTHS_SHORT[mo0 - 1] + ' ' + yy0;
       var o1 = document.createElement('option'); o1.value = ymv; o1.textContent = label0; yearFrom.appendChild(o1);
       var o2 = document.createElement('option'); o2.value = ymv; o2.textContent = label0; yearTo.appendChild(o2);
