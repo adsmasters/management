@@ -195,9 +195,33 @@
       return;
     }
 
-    unmappedEl.innerHTML = unmapped.map(function (n) {
-      return '<span class="unmapped-tag">' + escHtml(n) + '</span>';
-    }).join('');
+    var clientOpts = allClients.slice().sort(function (a, b) { return (a.name || '').localeCompare(b.name || ''); })
+      .map(function (c) { return '<option value="' + c.id + '">' + escHtml(c.name) + '</option>'; }).join('');
+
+    unmappedEl.innerHTML = '<p style="color:var(--text-muted);font-size:12px;margin:0 0 10px">Klick einen Namen an, um ihn einem Kunden zuzuordnen:</p>' +
+      unmapped.map(function (n) {
+        return '<span class="unmapped-tag" data-name="' + escHtml(n) + '" style="cursor:pointer" title="Klick: einem Kunden zuordnen">' + escHtml(n) + ' <span style="opacity:.55">▾</span></span>';
+      }).join('');
+
+    unmappedEl.querySelectorAll('.unmapped-tag').forEach(function (tag) {
+      tag.addEventListener('click', function () {
+        if (tag.querySelector('select')) return; // Auswahl schon offen
+        var name = tag.getAttribute('data-name');
+        var sel = document.createElement('select');
+        sel.innerHTML = '<option value="">→ Kunde wählen…</option>' + clientOpts;
+        sel.style.cssText = 'margin-left:6px;font-size:12px;max-width:220px;border:1px solid var(--border);border-radius:6px;padding:2px 4px;background:var(--surface);color:var(--text)';
+        tag.appendChild(sel);
+        sel.focus();
+        sel.addEventListener('change', function () {
+          var cid = sel.value; if (!cid) return;
+          sel.disabled = true;
+          window.db.mappings.add(cid, name).then(load).catch(function (e) {
+            showError(e.message && e.message.indexOf('unique') !== -1 ? '„' + name + '" ist bereits zugeordnet.' : e.message);
+            sel.disabled = false;
+          });
+        });
+      });
+    });
   }
 
   // ── Auto-Match ────────────────────────────────────────────────────────
