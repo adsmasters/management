@@ -312,6 +312,19 @@
           .delete().eq('client_id', clientId).eq('service', service).eq('employee_id', employeeId)),
     },
 
+    residualAssignments: {
+      // Nicht zugeordneter (Rest-)Umsatz eines Kunden → einem Mitarbeiter gutschreiben
+      // (z.B. Inhaber). Umfasst Umsatz ohne gebuchte Stunden + bewusst ausgeschlossene
+      // Rechnungen + Zurechnungs-Rest. Ein MA je Kunde.
+      listAll: () =>
+        q(s => s.from('client_residual_assignments').select('client_id,employee_id')),
+      set: (clientId, employeeId) =>
+        q(s => s.from('client_residual_assignments')
+          .upsert({ client_id: clientId, employee_id: employeeId }, { onConflict: 'client_id' }).select().single()),
+      remove: (clientId) =>
+        q(s => s.from('client_residual_assignments').delete().eq('client_id', clientId)),
+    },
+
     acquisitionContactLinks: {
       listForCost: (costId) =>
         q(s => s.from('acquisition_contact_links').select('*').eq('acquisition_cost_id', costId)),
