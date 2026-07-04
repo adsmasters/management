@@ -135,12 +135,14 @@
     var clientRevMonth = {}; // clientId → {m → revenue} (MA-zurechenbar, ohne ausgeschlossene Rechnungen)
     var revMapByMonth = {};  // m → { normContact → betrag }  (für Modal-Rechnungsliste)
     var maExclRevByMonth = {}; // clientId → {m → ausgeschlossener (Inhaber-)Umsatz}
+    var revNamesByKey = {};    // normContact → originaler Kontaktname
     for (var m = 1; m <= 12; m++) {
       var revMap = {};
       (DATA.revenueByMonth[m - 1] || []).forEach(function (row) {
         if (isExcluded(row.contact_name)) return;
         var key = norm(row.contact_name);
         revMap[key] = (revMap[key] || 0) + (row.total_amount || 0);
+        if (!revNamesByKey[key]) revNamesByKey[key] = row.contact_name;
       });
       revMapByMonth[m] = revMap;
       // Kunden-Umsatzkorrektur (adjustments.revenue_deduction) je Kunde
@@ -316,6 +318,24 @@
       }
     });
 
+    // ── Orphan-Umsatz: Kontakte, die KEINEM Kunden zugeordnet sind ──────
+    // Fehlen komplett (kein Kunde, keine Stunden) → voller Umsatz „offen".
+    // Nicht MA-zuweisbar (kein Kunde) → müssen erst in der Zuordnung angelegt werden.
+    var mappedKeys = {};
+    Object.keys(mappingsByClient).forEach(function (cid) { mappingsByClient[cid].forEach(function (lx) { mappedKeys[norm(lx)] = 1; }); });
+    clients.forEach(function (c) { if (c.lexoffice_name) mappedKeys[norm(c.lexoffice_name)] = 1; mappedKeys[norm(c.name)] = 1; });
+    var orphanContactMonth = {}; // originalName → { m → amount }
+    for (var om = 1; om <= 12; om++) {
+      if (isFuture(year, om)) continue;
+      var rmO = revMapByMonth[om] || {};
+      Object.keys(rmO).forEach(function (k) {
+        if (mappedKeys[k]) return;         // einem Kunden zugeordnet → nicht orphan
+        var amt = rmO[k]; if (amt <= 0.5) return;
+        var nm = revNamesByKey[k] || k;
+        (orphanContactMonth[nm] = orphanContactMonth[nm] || {})[om] = amt;
+      });
+    }
+
     // Kapazität: verfügbare Stunden je MA je Monat ----------------------
     var holiday = holidayWorkdaysByMonth(year);
     var availBase = {};
@@ -409,6 +429,7 @@
       residualByClientMonth: residualByClientMonth,
       ownerAssign: ownerAssign,
       maExclRevByMonth: maExclRevByMonth,
+      orphanContactMonth: orphanContactMonth,
     };
 
     render({
@@ -438,8 +459,16 @@
       Object.keys(byM).forEach(function (m) { var v = byM[m] || 0; if (v > 0.5) { months[m] = v; sum += v; } });
       if (sum > 0.5) allRows.push({ cid: cid, name: (clientsById[cid] || {}).name || '?', months: months, sum: sum, owner: COMP.ownerAssign[cid] || null });
     });
-    var openRows = allRows.filter(function (r) { return !r.owner; }).sort(function (a, b) { return b.sum - a.sum; });
+    var openList = allRows.filter(function (r) { return !r.owner; });
     var assignedRows = allRows.filter(function (r) { return r.owner; }).sort(function (a, b) { return b.sum - a.sum; });
+    // Orphan-Kontakte (KEINEM Kunden zugeordnet) ebenfalls als offene Posten anzeigen
+    var ocm = COMP.orphanContactMonth || {};
+    Object.keys(ocm).forEach(function (nm) {
+      var byM = ocm[nm], sum = 0, months = {};
+      Object.keys(byM).forEach(function (m) { var v = byM[m] || 0; if (v > 0.5) { months[m] = v; sum += v; } });
+      if (sum > 0.5) openList.push({ cid: null, name: nm, months: months, sum: sum, owner: null, orphan: true });
+    });
+    var openRows = openList.sort(function (a, b) { return b.sum - a.sum; });
 
     if (!openRows.length && !assignedRows.length) {
       wrap.innerHTML = '<h2 style="font-size:16px;font-weight:700;margin:0 0 10px">Nicht zugeordneter Umsatz</h2>' +
@@ -461,14 +490,17 @@
           return '<td class="right" style="padding:7px 10px;font-variant-numeric:tabular-nums;color:' + (v ? 'var(--text)' : 'var(--text-muted,#9aa4b2)') + '">' + (v ? fmtEur(v) : '–') + '</td>';
         }).join('');
         totalOpen += r.sum;
-        var action = '<select class="res-assign" data-cid="' + r.cid + '" style="font-size:12px;border:1px solid var(--border);border-radius:var(--radius);padding:3px 6px;background:var(--surface);color:var(--text)"><option value="">→ zuweisen an…</option>' + empOptions + '</select>';
-        return '<tr><td style="padding:7px 12px;white-space:nowrap;font-weight:600">' + r.name + '</td>' + monthCells +
+        var action = r.orphan
+          ? '<a href="name-mapping.html" style="font-size:12px;color:#b45309;font-weight:700;text-decoration:underline;white-space:nowrap">→ Kunde zuordnen</a>'
+          : '<select class="res-assign" data-cid="' + r.cid + '" style="font-size:12px;border:1px solid var(--border);border-radius:var(--radius);padding:3px 6px;background:var(--surface);color:var(--text)"><option value="">→ zuweisen an…</option>' + empOptions + '</select>';
+        var nameCell = r.name + (r.orphan ? ' <span style="font-size:10px;color:#b45309;font-weight:600;white-space:nowrap">· kein Kunde</span>' : '');
+        return '<tr><td style="padding:7px 12px;white-space:nowrap;font-weight:600">' + nameCell + '</td>' + monthCells +
           '<td class="right" style="padding:7px 12px;font-variant-numeric:tabular-nums;font-weight:700">' + fmtEur(r.sum) + '</td>' +
           '<td class="right" style="padding:7px 12px">' + action + '</td></tr>';
       }).join('');
       var monthHead = monthCols.map(function (m) { return '<th class="right" style="padding:6px 10px">' + MS[(m - 1) % 12] + '</th>'; }).join('');
       var footCells = monthCols.map(function (m) { return '<td class="right" style="padding:8px 10px;font-variant-numeric:tabular-nums">' + (footOpen[m] > 0.5 ? fmtEur(footOpen[m]) : '–') + '</td>'; }).join('');
-      openHtml = '<div style="padding:10px 12px;font-size:12px;color:var(--text-secondary);border-bottom:1px solid var(--border)">Umsatz, der auf keinem Mitarbeiter landet (keine Stunden gebucht, bewusst ausgeschlossene Rechnungen, oder Zurechnungs-Rest) – nach Monat. Weise ihn z.B. dir selbst zu (gilt für alle betroffenen Monate).</div>' +
+      openHtml = '<div style="padding:10px 12px;font-size:12px;color:var(--text-secondary);border-bottom:1px solid var(--border)">Umsatz, der auf keinem Mitarbeiter landet (keine Stunden gebucht, bewusst ausgeschlossene Rechnungen, Zurechnungs-Rest, oder <strong>kein Kunde zugeordnet</strong>) – nach Monat. „kein Kunde" muss erst in der <a href="name-mapping.html" style="color:inherit;text-decoration:underline">Zuordnung</a> angelegt werden; alles andere kannst du hier direkt einem MA zuweisen.</div>' +
         '<table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="text-align:left;color:var(--text-secondary);font-size:11px;text-transform:uppercase">' +
         '<th style="padding:6px 12px">Kunde</th>' + monthHead + '<th class="right" style="padding:6px 12px">Summe</th><th class="right" style="padding:6px 12px">Zuweisen</th></tr></thead>' +
         '<tbody>' + body + '</tbody>' +
