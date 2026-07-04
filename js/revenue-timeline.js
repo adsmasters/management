@@ -48,11 +48,14 @@
   }
   function showError(msg) { errorEl.innerHTML = '<div class="alert alert-danger">⚠️ ' + msg + '</div>'; }
 
+  var EXCLUDED_CONTACTS = {}; // zentral ausgeschlossene Kontakte (contact_overrides)
+  function normC(s) { return (s || '').trim().toLowerCase(); }
   function getExcludeKeywords() {
     return (localStorage.getItem('revenueExcludeKeywords') || '')
       .split('\n').map(function (k) { return k.trim().toLowerCase(); }).filter(function (k) { return k.length > 0; });
   }
   function isExcluded(name) {
+    if (EXCLUDED_CONTACTS[normC(name)]) return true;   // zentraler Ausschluss
     var kws = getExcludeKeywords(); if (!kws.length) return false;
     var n = (name || '').toLowerCase(); return kws.some(function (kw) { return n.indexOf(kw) !== -1; });
   }
@@ -78,9 +81,12 @@
     Promise.all([
       window.db.revenue.allRows(),
       // Service-Aufteilung ist additiv – fehlt sie (noch), Feature sauber leer lassen
-      (window.db.revenueServices ? window.db.revenueServices.allRows() : Promise.resolve([])).catch(function () { return []; })
+      (window.db.revenueServices ? window.db.revenueServices.allRows() : Promise.resolve([])).catch(function () { return []; }),
+      (window.db.contactOverrides ? window.db.contactOverrides.listAll() : Promise.resolve([])).catch(function () { return []; })
     ]).then(function (res) {
       var rows = res[0], svc = res[1] || [];
+      EXCLUDED_CONTACTS = {};
+      (res[2] || []).forEach(function (o) { if (o.status === 'excluded') EXCLUDED_CONTACTS[normC(o.contact_name)] = 1; });
       var md = {}, first = {};
       rows.forEach(function (r) {
         if (!r.contact_name || isExcluded(r.contact_name)) return;

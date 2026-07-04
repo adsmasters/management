@@ -11,6 +11,7 @@
   var errorEl    = document.getElementById('error');
   var profitBody = document.getElementById('profitBody');
   var setupHint  = document.getElementById('setupHint');
+  var gUnmapped = [], gUnmappedTotal = 0; // nicht zugeordneter (Sammel-)Umsatz
 
   // ── Populate month/year selects ───────────────────────────────────────
   var MONTHS_LABEL = ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
@@ -81,10 +82,10 @@
     var list = unmapped.slice(0, 8).map(function (u) { return u.name + ' (' + fmt(u.amount) + ')'; }).join(', ');
     var more = unmapped.length > 8 ? ' u. a.' : '';
     el.innerHTML = '<div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:var(--radius);padding:12px 16px;margin-bottom:16px;font-size:13px;color:#92400e;line-height:1.5">' +
-      '<strong>⚠️ ' + fmt(total) + ' Umsatz fehlt in dieser Ansicht.</strong> ' +
-      unmapped.length + ' Kontakt(e) sind <strong>keinem Kunden zugeordnet</strong> und zählen daher nicht in der Profitabilität (im Umsatz-Verlauf/Kostenanalyse aber schon): ' +
-      list + more + '. ' +
-      '<a href="name-mapping.html" style="color:#92400e;font-weight:700;text-decoration:underline">→ Jetzt zuordnen</a></div>';
+      '<strong>ℹ️ ' + fmt(total) + ' Umsatz ohne Kunden-Zuordnung</strong> – als Sammelposten „Ohne Zuordnung" im Gesamtumsatz <strong>enthalten</strong>. ' +
+      unmapped.length + ' Kontakt(e): ' + list + more + '. ' +
+      'Optional einem Kunden zuordnen – oder Nicht-Umsätze (z.B. Event-Rechnungen) ausschließen: ' +
+      '<a href="name-mapping.html" style="color:#92400e;font-weight:700;text-decoration:underline">→ Zuordnung</a></div>';
   }
   function norm(str) { return (str || '').trim().toLowerCase(); }
   function showError(msg) {
@@ -214,6 +215,7 @@
       Promise.all(months.map(function (m) { return window.db.adjustments.forMonth(m.year, m.month); })),
       Promise.all(months.map(function (m) { return window.db.manualCosts.forMonth(m.year, m.month); })),
       window.db.employeeRates.listAll(),
+      window.db.contactOverrides.listAll().catch(function () { return []; }),
     ])
     .then(function (results) {
       var clients          = results[0];
@@ -224,6 +226,11 @@
       var adjustmentMonths = results[5];
       var manualCostMonths = results[6];
       var employeeRates    = results[7];
+      var contactOverrides = results[8] || [];
+
+      // Zentral ausgeschlossene Kontakte (zählen NIRGENDS als Umsatz)
+      var excludedContacts = {};
+      contactOverrides.forEach(function (o) { if (o.status === 'excluded') excludedContacts[norm(o.contact_name)] = 1; });
 
       // Sätze nach Mitarbeiter gruppieren
       var ratesByEmp = {};
@@ -273,6 +280,7 @@
         .filter(function (k) { return k.length > 0; });
 
       function isExcluded(contactName) {
+        if (excludedContacts[norm(contactName)]) return true;   // zentraler Ausschluss
         if (!excludeKeywords.length) return false;
         var n = (contactName || '').toLowerCase();
         return excludeKeywords.some(function (kw) { return n.includes(kw); });
@@ -290,15 +298,16 @@
         });
       });
 
-      // ── Warnung: Umsatz von Kontakten, die KEINEM Kunden zugeordnet sind ──
-      // Diese Rechnungen fallen aus der Profitabilität (nur zugeordnete zählen).
+      // ── Nicht zugeordneter Umsatz (Sammelumsatz): zählt mit, ohne Kunde ──
       var mappedKeys = {};
       Object.keys(mappingsByClient).forEach(function (cid) { mappingsByClient[cid].forEach(function (lx) { mappedKeys[norm(lx)] = 1; }); });
       clients.forEach(function (c) { if (c.lexoffice_name) mappedKeys[norm(c.lexoffice_name)] = 1; mappedKeys[norm(c.name)] = 1; });
-      var unmapped = [];
-      Object.keys(revenueMap).forEach(function (k) { if (!mappedKeys[k] && revenueMap[k] > 0.5) unmapped.push({ name: revenueNames[k] || k, amount: revenueMap[k] }); });
-      unmapped.sort(function (a, b) { return b.amount - a.amount; });
-      renderUnmappedWarning(unmapped);
+      gUnmapped = [];
+      gUnmappedTotal = 0;
+      Object.keys(revenueMap).forEach(function (k) {
+        if (!mappedKeys[k] && revenueMap[k] > 0.5) { gUnmapped.push({ name: revenueNames[k] || k, amount: revenueMap[k] }); gUnmappedTotal += revenueMap[k]; }
+      });
+      gUnmapped.sort(function (a, b) { return b.amount - a.amount; });
 
       // Build deductions map: clientId → total revenue_deduction across months
       var deductionsMap = {}; // clientId → amount
@@ -386,6 +395,10 @@
                   deduction: correction, cost, profit, margin,
                   hours: totalClientHours, hasRevenue: revenueNet > 0 });
     });
+
+    // Nicht zugeordneter Umsatz zählt mit (als Sammelposten „Ohne Zuordnung")
+    totalRevenue += gUnmappedTotal;
+    renderUnmappedWarning(gUnmapped);
 
     rows.sort(function (a, b) {
       if (a.hasRevenue !== b.hasRevenue) return a.hasRevenue ? -1 : 1;
@@ -540,6 +553,19 @@
 
       profitBody.appendChild(tr);
     });
+
+    // Sammelposten: nicht zugeordneter Umsatz (zählt im Gesamtumsatz mit)
+    if (gUnmappedTotal > 0.5) {
+      var uTr = document.createElement('tr');
+      uTr.innerHTML =
+        '<td style="font-weight:500;color:#92400e">Ohne Zuordnung <span style="font-size:11px;color:var(--text-secondary)">(Sammelumsatz · ' + gUnmapped.length + ' Kontakte)</span></td>' +
+        '<td class="right revenue">' + fmt(gUnmappedTotal) + '</td>' +
+        '<td class="right cost"><span class="no-lexoffice">—</span></td>' +
+        '<td class="right"><span class="no-lexoffice">—</span></td>' +
+        '<td><span class="no-lexoffice">—</span></td>' +
+        '<td class="right hours-cell">—</td>';
+      profitBody.appendChild(uTr);
+    }
 
     var totalProfit = totalRevenue - totalCost;
     var avgMargin   = totalRevenue > 0 ? (totalProfit / totalRevenue) * 100 : null;
