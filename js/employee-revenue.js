@@ -91,6 +91,7 @@
       window.db.maRevenueExclusions.listAll().catch(function () { return []; }),
       Promise.all(monthNums.map(function (m) { return window.db.revenueServices.forMonth(year, m).catch(function () { return []; }); })),
       window.db.revenueServiceAssignments.listAll().catch(function () { return []; }),
+      window.db.residualAssignments.listAll().catch(function () { return []; }),
     ]).then(function (r) {
       DATA = {
         year: year,
@@ -100,6 +101,7 @@
         maExclusions: r[9] || [],
         svcByMonth: r[10] || [],
         svcAssignments: r[11] || [],
+        residualAssignments: r[12] || [],
       };
       loadingEl.classList.add('hidden');
       contentEl.classList.remove('hidden');
@@ -132,6 +134,7 @@
     // revenueMap[m] = { normContact → betrag }
     var clientRevMonth = {}; // clientId → {m → revenue} (MA-zurechenbar, ohne ausgeschlossene Rechnungen)
     var revMapByMonth = {};  // m → { normContact → betrag }  (für Modal-Rechnungsliste)
+    var maExclRevByMonth = {}; // clientId → {m → ausgeschlossener (Inhaber-)Umsatz}
     for (var m = 1; m <= 12; m++) {
       var revMap = {};
       (DATA.revenueByMonth[m - 1] || []).forEach(function (row) {
@@ -146,16 +149,18 @@
         dedByClient[a.client_id] = (dedByClient[a.client_id] || 0) + (a.revenue_deduction || 0);
       });
       clients.forEach(function (c) {
-        var rev = 0;
+        var rev = 0, maExclRev = 0;
         var mapped = mappingsByClient[c.id] || [];
         if (mapped.length) {
-          mapped.forEach(function (lx) { if (maExclSet[norm(lx)]) return; rev += revMap[norm(lx)] || 0; });
+          mapped.forEach(function (lx) { var v = revMap[norm(lx)] || 0; if (maExclSet[norm(lx)]) maExclRev += v; else rev += v; });
         } else {
           var cn = norm(c.lexoffice_name || c.name), cn2 = norm(c.name);
-          if (!maExclSet[cn] && !maExclSet[cn2]) rev = revMap[cn] || revMap[cn2] || 0;
+          var v0 = revMap[cn] || revMap[cn2] || 0;
+          if (maExclSet[cn] || maExclSet[cn2]) maExclRev += v0; else rev = v0;
         }
         rev += dedByClient[c.id] || 0;
         (clientRevMonth[c.id] = clientRevMonth[c.id] || {})[m] = rev;
+        (maExclRevByMonth[c.id] = maExclRevByMonth[c.id] || {})[m] = maExclRev;
       });
     }
 
@@ -288,6 +293,29 @@
       }
     }
 
+    // ── Nicht zugeordneter (Rest-)Umsatz je Kunde je Monat ──────────────
+    // Voller Kundenumsatz (inkl. bewusst ausgeschlossener Rechnungen) minus was
+    // Mitarbeiter tatsächlich bekommen haben = nicht zugeordnet. Ist der Kunde
+    // einem MA/Inhaber zugewiesen, wird dieser Rest ihm gutgeschrieben.
+    var ownerAssign = {}; // cid → eid
+    (DATA.residualAssignments || []).forEach(function (a) { ownerAssign[a.client_id] = a.employee_id; });
+    var residualByClientMonth = {}; // cid → { m → rest }
+    clients.forEach(function (c) {
+      for (var rm = 1; rm <= 12; rm++) {
+        if (isFuture(year, rm)) continue; // nur Ist-Monate
+        var full = ((clientRevMonth[c.id] || {})[rm] || 0) + ((maExclRevByMonth[c.id] || {})[rm] || 0);
+        if (full <= 0) continue;
+        var attr = 0;
+        var ecm = (empClientRevMonth[c.id] || {})[rm] || {};
+        Object.keys(ecm).forEach(function (e) { attr += ecm[e] || 0; });
+        var resid = full - attr;
+        if (resid < 0.5) resid = 0;
+        (residualByClientMonth[c.id] = residualByClientMonth[c.id] || {})[rm] = resid;
+        var owner = ownerAssign[c.id];
+        if (owner && resid > 0) { addRev(owner, rm, resid); addClientRev(c.id, rm, owner, resid); }
+      }
+    });
+
     // Kapazität: verfügbare Stunden je MA je Monat ----------------------
     var holiday = holidayWorkdaysByMonth(year);
     var availBase = {};
@@ -378,6 +406,9 @@
       maExclSet: maExclSet,
       clientSvcMonth: clientSvcMonth,
       svcAssign: svcAssign,
+      residualByClientMonth: residualByClientMonth,
+      ownerAssign: ownerAssign,
+      maExclRevByMonth: maExclRevByMonth,
     };
 
     render({
@@ -386,6 +417,84 @@
       fcRev: fcRev, fcHours: fcHours, available: available, avgHrs: avgHrs,
     });
     renderScenario(clients, employees);
+    renderUnattributed();
+  }
+
+  // ── Nicht zugeordneter Umsatz (Panel) ─────────────────────────────────
+  function renderUnattributed() {
+    var wrap = document.getElementById('unattributedWrap');
+    if (!wrap || !COMP) return;
+    var clientsById = {};
+    COMP.clients.forEach(function (c) { clientsById[c.id] = c; });
+    var empNameById = {};
+    COMP.employees.forEach(function (e) { empNameById[e.id] = e.name; });
+
+    // Rest je Kunde über alle Ist-Monate summieren
+    var rows = [];
+    var totalOpen = 0, totalAssigned = 0;
+    Object.keys(COMP.residualByClientMonth || {}).forEach(function (cid) {
+      var byM = COMP.residualByClientMonth[cid] || {};
+      var sum = 0;
+      Object.keys(byM).forEach(function (m) { sum += byM[m] || 0; });
+      if (sum < 0.5) return;
+      var owner = COMP.ownerAssign[cid] || null;
+      rows.push({ cid: cid, name: (clientsById[cid] || {}).name || '?', sum: sum, owner: owner });
+      if (owner) totalAssigned += sum; else totalOpen += sum;
+    });
+    rows.sort(function (a, b) { return b.sum - a.sum; });
+
+    if (!rows.length) {
+      wrap.innerHTML = '<h2 style="font-size:16px;font-weight:700;margin:0 0 10px">Nicht zugeordneter Umsatz</h2>' +
+        '<div class="card" style="padding:14px;color:var(--text-secondary);font-size:13px">✓ Für ' + COMP.year + ' ist der gesamte Umsatz einem Mitarbeiter zugeordnet.</div>';
+      return;
+    }
+
+    var empOptions = COMP.employees.map(function (e) { return '<option value="' + e.id + '">' + e.name + '</option>'; }).join('');
+    var body = rows.map(function (r) {
+      var action;
+      if (r.owner) {
+        action = '<span style="display:inline-flex;align-items:center;gap:6px;background:#eef2ff;color:var(--primary);border-radius:10px;padding:2px 10px;font-size:12px;font-weight:600">→ ' +
+          (empNameById[r.owner] || '?') +
+          ' <span class="res-unassign" data-cid="' + r.cid + '" title="Zuweisung entfernen" style="cursor:pointer">×</span></span>';
+      } else {
+        action = '<select class="res-assign" data-cid="' + r.cid + '" style="font-size:12px;border:1px solid var(--border);border-radius:var(--radius);padding:3px 6px;background:var(--surface);color:var(--text)"><option value="">→ zuweisen an…</option>' + empOptions + '</select>';
+      }
+      return '<tr><td style="padding:7px 12px">' + r.name + '</td>' +
+        '<td class="right" style="padding:7px 12px;font-variant-numeric:tabular-nums;font-weight:600">' + fmtEur(r.sum) + '</td>' +
+        '<td class="right" style="padding:7px 12px">' + action + '</td></tr>';
+    }).join('');
+
+    wrap.innerHTML = '<h2 style="font-size:16px;font-weight:700;margin:0 0 10px">Nicht zugeordneter Umsatz <span style="font-weight:400;font-size:13px;color:var(--text-secondary)">· ' + COMP.year + ' (Ist)</span></h2>' +
+      '<div class="card" style="padding:0;overflow:hidden">' +
+      '<div style="padding:10px 12px;font-size:12px;color:var(--text-secondary);border-bottom:1px solid var(--border)">Umsatz, der auf keinem Mitarbeiter landet (keine Stunden gebucht, bewusst ausgeschlossene Rechnungen, oder Zurechnungs-Rest). Weise ihn z.B. dir selbst zu. Gesamtumsatz &amp; Profitabilität bleiben unberührt.</div>' +
+      '<table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="text-align:left;color:var(--text-secondary);font-size:11px;text-transform:uppercase">' +
+      '<th style="padding:6px 12px">Kunde</th><th class="right" style="padding:6px 12px">Nicht zugeordnet</th><th class="right" style="padding:6px 12px">Zuweisen</th></tr></thead>' +
+      '<tbody>' + body + '</tbody>' +
+      '<tfoot><tr style="font-weight:700;border-top:2px solid var(--border)"><td style="padding:8px 12px">Summe offen</td>' +
+      '<td class="right" style="padding:8px 12px;font-variant-numeric:tabular-nums">' + fmtEur(totalOpen) + '</td><td></td></tr></tfoot>' +
+      '</table></div>';
+
+    wrap.querySelectorAll('.res-assign').forEach(function (sel) {
+      sel.addEventListener('change', function () {
+        var eid = sel.value; if (!eid) return;
+        var cid = sel.getAttribute('data-cid');
+        sel.disabled = true;
+        window.db.residualAssignments.set(cid, eid).then(function () {
+          DATA.residualAssignments = (DATA.residualAssignments || []).filter(function (a) { return String(a.client_id) !== String(cid); });
+          DATA.residualAssignments.push({ client_id: cid, employee_id: eid });
+          compute();
+        }).catch(function (e) { alert('Fehler: ' + e.message); sel.disabled = false; });
+      });
+    });
+    wrap.querySelectorAll('.res-unassign').forEach(function (x) {
+      x.addEventListener('click', function () {
+        var cid = x.getAttribute('data-cid');
+        window.db.residualAssignments.remove(cid).then(function () {
+          DATA.residualAssignments = (DATA.residualAssignments || []).filter(function (a) { return String(a.client_id) !== String(cid); });
+          compute();
+        }).catch(function (e) { alert('Fehler: ' + e.message); });
+      });
+    });
   }
 
   // ── Rendering Hauptgrid ───────────────────────────────────────────────
