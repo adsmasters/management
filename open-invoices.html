@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Offene Rechnungen – Adsmasters Management</title>
+  <link rel="stylesheet" href="css/style.css">
+  <style>
+    .summary-strip { display:flex; gap:16px; flex-wrap:wrap; margin-bottom:20px; }
+    .kpi-card { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:16px 20px; flex:1; min-width:170px; }
+    .kpi-card .kpi-label { font-size:12px; color:var(--text-secondary); text-transform:uppercase; letter-spacing:.04em; font-weight:600; }
+    .kpi-card .kpi-value { font-size:26px; font-weight:700; margin-top:4px; color:var(--text); }
+    .kpi-card .kpi-sub { font-size:12px; margin-top:4px; color:var(--text-secondary); }
+    .kpi-card.warn { border-color:#f59e0b; }
+    .kpi-card.warn .kpi-value { color:#b45309; }
+    .card { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:0; margin-bottom:20px; }
+    .aging-wrap { display:grid; grid-template-columns: 260px 1fr; gap:20px; padding:18px 20px; align-items:center; }
+    @media (max-width:820px){ .aging-wrap{ grid-template-columns:1fr; } }
+    .aging-bars { display:flex; flex-direction:column; gap:10px; }
+    .aging-row { display:flex; align-items:center; gap:10px; font-size:13px; }
+    .aging-row .lbl { width:130px; color:var(--text-secondary); }
+    .aging-row .bar { height:16px; border-radius:4px; }
+    .aging-row .amt { font-variant-numeric:tabular-nums; font-weight:600; }
+    table.oi { width:100%; border-collapse:collapse; font-size:13px; }
+    table.oi thead th { text-align:left; font-size:11px; text-transform:uppercase; letter-spacing:.04em; color:var(--text-secondary); border-bottom:2px solid var(--border); padding:8px 12px; cursor:pointer; user-select:none; white-space:nowrap; }
+    table.oi tbody td { padding:8px 12px; border-bottom:1px solid var(--border); }
+    table.oi tbody tr:hover td { background:#f8fafc; }
+    table.oi .right { text-align:right; font-variant-numeric:tabular-nums; }
+    .pill { display:inline-block; padding:1px 9px; border-radius:10px; font-size:11px; font-weight:600; white-space:nowrap; }
+    .p-future { background:#dcfce7; color:#065f46; }
+    .p-1 { background:#fef9c3; color:#854d0e; }
+    .p-2 { background:#fed7aa; color:#9a3412; }
+    .p-3 { background:#fecaca; color:#991b1b; }
+    .toolbar-inp { padding:6px 10px; border:1px solid var(--border); border-radius:var(--radius); font-size:13px; background:var(--surface); color:var(--text); }
+  </style>
+</head>
+<body>
+<header class="header">
+  <div class="header-inner">
+    <a href="index.html" class="logo">Adsmasters <span>Management</span></a>
+    <nav>
+      <a href="index.html"            class="nav-link">Übersicht</a>
+      <a href="clients.html"          class="nav-link">Kunden</a>
+      <a href="employees.html"        class="nav-link">Mitarbeiter</a>
+      <a href="utilization.html"      class="nav-link">Auslastung</a>
+      <a href="profit.html"           class="nav-link">Profitabilität</a>
+      <a href="kostenanalyse.html"    class="nav-link">Kostenanalyse</a>
+      <a href="revenue-timeline.html" class="nav-link">Umsatz-Verlauf</a>
+      <a href="open-invoices.html"    class="nav-link active">Offene Rechnungen</a>
+      <a href="rechnungs-check.html"  class="nav-link">Rechnungs-Check</a>
+      <a href="employee-revenue.html" class="nav-link">MA-Umsatz</a>
+      <a href="acquisition.html"      class="nav-link">Akquisition</a>
+      <a href="name-mapping.html"     class="nav-link">Zuordnung</a>
+      <a href="settings.html"         class="nav-link">Einstellungen</a>
+    </nav>
+  </div>
+</header>
+
+<main class="main">
+  <div id="error"></div>
+
+  <div class="page-header" style="flex-wrap:wrap;gap:12px">
+    <div>
+      <h1>Offene Rechnungen</h1>
+      <div class="sub">Ausstehender Umsatz aus LexOffice – offen &amp; überfällig, mit Fälligkeit</div>
+    </div>
+    <div class="toolbar">
+      <input id="search" class="toolbar-inp" type="text" placeholder="Kunde suchen…" style="min-width:180px">
+      <select id="filter" class="toolbar-inp">
+        <option value="all">Alle offenen</option>
+        <option value="overdue">Nur überfällig</option>
+      </select>
+      <button id="reloadBtn" class="btn btn-primary">↻ Aus LexOffice laden</button>
+      <span id="stamp" style="font-size:12px;color:var(--text-secondary)"></span>
+    </div>
+  </div>
+
+  <div id="loading" class="hidden"><div class="loading-bar"><div class="spinner"></div>Rechnungen werden aus LexOffice geladen…</div></div>
+
+  <div id="content" class="hidden">
+    <div class="summary-strip">
+      <div class="kpi-card"><div class="kpi-label">Offener Betrag (gesamt)</div><div class="kpi-value" id="kSum">—</div><div class="kpi-sub" id="kSumSub"></div></div>
+      <div class="kpi-card"><div class="kpi-label">Offene Rechnungen</div><div class="kpi-value" id="kCount">—</div></div>
+      <div class="kpi-card"><div class="kpi-label">Betroffene Kunden</div><div class="kpi-value" id="kClients">—</div></div>
+      <div class="kpi-card warn"><div class="kpi-label">Davon überfällig</div><div class="kpi-value" id="kOverdue">—</div><div class="kpi-sub" id="kOverdueSub"></div></div>
+    </div>
+
+    <div class="card">
+      <div style="padding:12px 20px 0;font-size:13px;font-weight:600;color:var(--text-secondary)">Offener Betrag nach Fälligkeit (Aging)</div>
+      <div class="aging-wrap">
+        <div style="position:relative;height:200px"><canvas id="agingChart"></canvas></div>
+        <div class="aging-bars" id="agingBars"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="table-wrap" style="overflow-x:auto">
+        <table class="oi">
+          <thead><tr>
+            <th data-sort="contact">Kunde</th>
+            <th data-sort="number">Rechnung</th>
+            <th data-sort="voucherDate">Rechnungsdatum</th>
+            <th data-sort="dueDate">Fällig am</th>
+            <th data-sort="overdueDays" class="right">Überfällig</th>
+            <th data-sort="open" class="right">Offen</th>
+          </tr></thead>
+          <tbody id="oiBody"></tbody>
+        </table>
+      </div>
+      <div id="empty" class="hidden" style="padding:18px 20px;color:var(--text-secondary);font-size:13px"></div>
+    </div>
+  </div>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="js/db.js?v=20260705"></script>
+<script src="js/auth.js"></script>
+<script src="js/open-invoices.js?v=1"></script>
+  <script defer src="https://adsmasters.github.io/hub/backlink.js"></script>
+</body>
+</html>
