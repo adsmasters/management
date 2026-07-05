@@ -26,17 +26,45 @@
     .brk-col { border:1px solid var(--border); border-radius:var(--radius); padding:12px 14px; }
     .brk-col h4 { margin:0 0 8px; font-size:13px; display:flex; justify-content:space-between; }
     .brk-row { display:flex; justify-content:space-between; font-size:12px; padding:2px 0; color:var(--text-secondary); }
-    #funnel svg { width:100%; height:auto; display:block; max-width:820px; margin:0 auto; }
-    .fstage { cursor:pointer; }
-    .fstage polygon { transition:opacity .12s, filter .12s; }
-    .fstage:hover polygon { opacity:.9; }
-    .fstage.sel polygon { stroke:#0f172a; stroke-width:3; }
-    .fhint { font-size:12px; color:var(--text-secondary); margin-top:6px; text-align:center; }
-    .stage-detail { margin-top:16px; border-top:2px solid var(--border); padding-top:14px; }
-    .sd-head { font-size:15px; font-weight:700; margin-bottom:10px; display:flex; align-items:center; gap:8px; }
-    .sd-row { display:flex; justify-content:space-between; align-items:baseline; font-size:13px; padding:6px 2px; border-bottom:1px solid var(--border); }
-    .sd-row .sd-amt { font-variant-numeric:tabular-nums; font-weight:600; }
-    .sd-pct { color:var(--text-secondary); font-size:12px; margin-left:8px; font-weight:400; }
+    /* ── Airbnb-Style Profit-Kaskade ──────────────────────────── */
+    #funnel { max-width:720px; margin:4px auto 0; }
+    .casc-hero { text-align:center; padding:6px 0 30px; }
+    .casc-hero .h-label { font-size:12px; letter-spacing:.08em; text-transform:uppercase; color:#717171; font-weight:600; }
+    .casc-hero .h-value { font-size:46px; font-weight:700; color:#222; line-height:1.05; margin-top:8px; letter-spacing:-.02em; }
+    .casc-hero .h-sub { font-size:13px; color:#717171; margin-top:8px; }
+
+    .lvl { padding:10px 2px 6px; }
+    .lvl-top { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:8px; gap:12px; }
+    .lvl-name { font-size:15px; font-weight:600; color:#222; }
+    .lvl-right { display:flex; align-items:baseline; gap:10px; white-space:nowrap; }
+    .lvl-val { font-size:21px; font-weight:700; color:#222; font-variant-numeric:tabular-nums; }
+    .lvl-pct { font-size:13px; color:#717171; }
+    .lvl-track { height:22px; border-radius:11px; background:#F0F0F0; overflow:hidden; }
+    .lvl-fill { height:100%; border-radius:11px; background:linear-gradient(90deg,#008489,#00A699); width:0; transition:width .55s cubic-bezier(.4,0,.2,1); }
+    .lvl-profit { margin-top:6px; }
+    .lvl-profit .lvl-val { color:#008489; font-size:26px; }
+    .lvl-profit .lvl-fill { background:linear-gradient(90deg,#00A699,#19c2b1); }
+    .lvl-profit.neg .lvl-val { color:#C13515; }
+    .lvl-profit.neg .lvl-fill { background:linear-gradient(90deg,#C13515,#e35d3b); }
+
+    .cost { margin:3px 0; border-radius:14px; cursor:pointer; transition:background .12s; border:1px solid transparent; }
+    .cost:hover { background:#F7F7F7; }
+    .cost.open { background:#F7F7F7; border-color:#EBEBEB; }
+    .cost-head { display:flex; align-items:center; gap:12px; padding:14px 15px; }
+    .cost-chev { color:#B0B0B0; font-size:11px; transition:transform .18s; width:9px; flex:none; }
+    .cost.open .cost-chev { transform:rotate(90deg); }
+    .cost-dot { width:11px; height:11px; border-radius:3px; flex:none; }
+    .cost-name { font-size:15px; color:#222; font-weight:500; flex:1; }
+    .cost-amt { font-size:15px; font-weight:700; color:#C13515; font-variant-numeric:tabular-nums; }
+    .cost-pct { font-size:13px; color:#717171; width:64px; text-align:right; }
+    .cost-detail { max-height:0; overflow:hidden; transition:max-height .24s ease; }
+    .cost.open .cost-detail { max-height:420px; }
+    .cost-detail-inner { padding:0 15px 12px 47px; }
+    .cd-row { display:flex; justify-content:space-between; align-items:baseline; padding:8px 0; border-top:1px solid #ECECEC; font-size:14px; }
+    .cd-name { color:#484848; }
+    .cd-amt { font-weight:600; color:#222; font-variant-numeric:tabular-nums; }
+    .cd-pct { color:#9a9a9a; font-size:12px; margin-left:8px; font-weight:400; }
+    .casc-note { text-align:center; font-size:12px; color:#9a9a9a; margin-top:18px; }
   </style>
 </head>
 <body>
@@ -81,11 +109,9 @@
     <div class="summary-strip" id="kpis"></div>
 
     <div class="card">
-      <h3>Profit-Funnel</h3>
-      <div class="sub">Oben der volle Umsatz, nach unten wird es enger – jede Stufe frisst Kosten, unten bleibt der Gewinn. <strong>Klick auf einen Kostenblock</strong> zeigt die Einzelkosten.</div>
+      <h3>Wohin geht dein Umsatz?</h3>
+      <div class="sub">Von oben (Gesamtumsatz) nach unten (Gewinn). Jede Stufe zeigt, was abgeht und was übrig bleibt. <strong>Tippe auf einen Kostenblock</strong> für die Einzelkosten.</div>
       <div id="funnel"></div>
-      <div class="fhint">💡 Klicke auf Mitarbeiter, Sachkosten, Fixkosten oder Marketing, um zu sehen, was genau dahintersteckt.</div>
-      <div id="stageDetail" class="stage-detail hidden"></div>
     </div>
 
     <div class="card">
@@ -100,7 +126,7 @@
 <script src="js/db.js?v=20260705"></script>
 <script src="js/auth.js"></script>
 <script src="js/cost-engine.js?v=20260705"></script>
-<script src="js/funnel.js?v=2"></script>
+<script src="js/funnel.js?v=3"></script>
   <script defer src="https://adsmasters.github.io/hub/backlink.js"></script>
 </body>
 </html>
