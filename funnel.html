@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Profit-Funnel – Adsmasters Management</title>
+  <link rel="stylesheet" href="css/style.css">
+  <style>
+    .summary-strip { display:flex; gap:14px; flex-wrap:wrap; margin-bottom:20px; }
+    .kpi-card { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:14px 18px; flex:1; min-width:150px; }
+    .kpi-card .kpi-label { font-size:11px; color:var(--text-secondary); text-transform:uppercase; letter-spacing:.04em; font-weight:600; }
+    .kpi-card .kpi-value { font-size:23px; font-weight:700; margin-top:4px; color:var(--text); }
+    .kpi-card .kpi-sub { font-size:12px; margin-top:3px; color:var(--text-secondary); }
+    .kpi-card.db { border-left:4px solid var(--primary); }
+    .kpi-card.profit .kpi-value.pos { color:#065f46; } .kpi-card.profit .kpi-value.neg { color:#991b1b; }
+    .card { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:20px; margin-bottom:20px; }
+    .card h3 { margin:0 0 4px; font-size:15px; }
+    .card .sub { font-size:12px; color:var(--text-secondary); margin-bottom:14px; }
+    table.map { width:100%; border-collapse:collapse; font-size:13px; }
+    table.map th { text-align:left; font-size:11px; text-transform:uppercase; color:var(--text-secondary); border-bottom:2px solid var(--border); padding:6px 10px; }
+    table.map td { padding:6px 10px; border-bottom:1px solid var(--border); }
+    table.map .right { text-align:right; font-variant-numeric:tabular-nums; }
+    table.map select { font-size:12px; border:1px solid var(--border); border-radius:6px; padding:3px 6px; background:var(--surface); color:var(--text); }
+    .stage-chip { display:inline-block; width:11px; height:11px; border-radius:3px; margin-right:6px; vertical-align:middle; }
+    .brk { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:14px; }
+    .brk-col { border:1px solid var(--border); border-radius:var(--radius); padding:12px 14px; }
+    .brk-col h4 { margin:0 0 8px; font-size:13px; display:flex; justify-content:space-between; }
+    .brk-row { display:flex; justify-content:space-between; font-size:12px; padding:2px 0; color:var(--text-secondary); }
+  </style>
+</head>
+<body>
+<header class="header">
+  <div class="header-inner">
+    <a href="index.html" class="logo">Adsmasters <span>Management</span></a>
+    <nav>
+      <a href="index.html"            class="nav-link">Übersicht</a>
+      <a href="clients.html"          class="nav-link">Kunden</a>
+      <a href="employees.html"        class="nav-link">Mitarbeiter</a>
+      <a href="utilization.html"      class="nav-link">Auslastung</a>
+      <a href="profit.html"           class="nav-link">Profitabilität</a>
+      <a href="funnel.html"           class="nav-link active">Profit-Funnel</a>
+      <a href="kostenanalyse.html"    class="nav-link">Kostenanalyse</a>
+      <a href="revenue-timeline.html" class="nav-link">Umsatz-Verlauf</a>
+      <a href="open-invoices.html"    class="nav-link">Offene Rechnungen</a>
+      <a href="rechnungs-check.html"  class="nav-link">Rechnungs-Check</a>
+      <a href="employee-revenue.html" class="nav-link">MA-Umsatz</a>
+      <a href="acquisition.html"      class="nav-link">Akquisition</a>
+      <a href="name-mapping.html"     class="nav-link">Zuordnung</a>
+      <a href="settings.html"         class="nav-link">Einstellungen</a>
+    </nav>
+  </div>
+</header>
+
+<main class="main">
+  <div id="error"></div>
+  <div class="page-header" style="flex-wrap:wrap;gap:12px">
+    <div><h1>Profit-Funnel</h1><div class="sub">Wohin geht der Profit? Margen-Kaskade DB1 → DB2 → DB3 → Gewinn (netto)</div></div>
+    <div class="toolbar">
+      <div class="filter-group"><label>Von</label>
+        <select id="fromM" class="mini-sel"></select><select id="fromY" class="mini-sel"></select></div>
+      <div class="filter-group"><label>Bis</label>
+        <select id="toM" class="mini-sel"></select><select id="toY" class="mini-sel"></select></div>
+      <button id="loadBtn" class="btn btn-primary">Laden</button>
+    </div>
+  </div>
+
+  <div id="loading" class="hidden"><div class="loading-bar"><div class="spinner"></div>Wird berechnet…</div></div>
+
+  <div id="content" class="hidden">
+    <div class="summary-strip" id="kpis"></div>
+
+    <div class="card">
+      <h3>Margen-Kaskade</h3>
+      <div class="sub">Vom Umsatz zum Gewinn – jede Stufe zeigt, was an Kosten abgeht und was übrig bleibt.</div>
+      <div style="position:relative;height:380px"><canvas id="waterfall"></canvas></div>
+    </div>
+
+    <div class="card">
+      <h3>Kosten-Aufschlüsselung je Stufe</h3>
+      <div class="sub">Welche Kategorien in welcher Stufe stecken.</div>
+      <div class="brk" id="breakdown"></div>
+    </div>
+
+    <div class="card">
+      <h3>Kosten einbuchen: Kategorie → Stufe</h3>
+      <div class="sub">Ordne jede Kostenkategorie einer Funnel-Stufe zu. Änderungen wirken sofort. „Ignorieren" = fließt nicht in den Funnel (z.B. Steuern).</div>
+      <table class="map"><thead><tr><th>Kategorie</th><th class="right">Kosten (netto, Zeitraum)</th><th>Stufe</th></tr></thead><tbody id="mapBody"></tbody></table>
+    </div>
+  </div>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="js/db.js?v=20260705"></script>
+<script src="js/auth.js"></script>
+<script src="js/cost-engine.js?v=20260705"></script>
+<script src="js/funnel.js?v=1"></script>
+  <script defer src="https://adsmasters.github.io/hub/backlink.js"></script>
+</body>
+</html>
