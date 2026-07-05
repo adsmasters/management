@@ -55,7 +55,7 @@
   // ── State ────────────────────────────────────────────────────────────
   var STATE = { revenue: [], excluded: {}, byMonth: {}, settings: {}, map: {}, cats: {}, minYm: null, maxYm: null };
   var CUR = null;            // letztes Berechnungsergebnis (für Klick-Detail)
-  var selectedStage = null;  // aktuell aufgeklappter Kostenblock
+  var openStages = {};       // aufgeklappte Kostenblöcke (stage → bool)
 
   function normC(s) { return (s || '').trim().toLowerCase(); }
   function getExcludeKeywords() {
@@ -200,18 +200,14 @@
       card('Gewinn', fmtEur(r.gewinn), '− ' + fmtEur(r.stageCost.marketing) + ' Marketing · Marge ' + fmtPct(r.gewinn, r.umsatz), 'profit');
   }
 
-  // ── Echter Funnel (SVG) ──────────────────────────────────────────────
-  // Trapez-Segmente, die nach unten enger werden. Breite ∝ Geldbetrag.
-  // Kostenblöcke (MA/Sachkosten/Fix/Marketing) sind klickbar.
-  function svgEsc(s) { return esc(s); }
-
+  // ── Airbnb-Style Profit-Kaskade ──────────────────────────────────────
+  // Oben Gesamtumsatz, dann abwechselnd: Kostenblock (klickbar) + „was
+  // bleibt" (Balken, der nach unten sichtbar schrumpft), unten der Gewinn.
   function renderFunnel(r) {
     var U = r.umsatz || 0;
-    var vals = [U, r.db1, r.db2, r.db3, r.gewinn];               // Umsatz → DB1 → DB2 → DB3 → Gewinn
-    var CX = 330, MAXW = 520, MINW = 58, TOPY = 26, HB = 90;
-    var W = vals.map(function (v) { return U > 0 ? Math.max(MINW, (Math.max(v, 0) / U) * MAXW) : MINW; });
-    var Y = []; for (var i = 0; i < 5; i++) Y.push(TOPY + i * HB);
-    var LX = CX + MAXW / 2 + 24;                                 // x der rechten Wertlabels
+    function w(v) { return U > 0 ? Math.max(1.5, Math.max(v, 0) / U * 100) : 0; }
+    function pInt(v) { return U ? Math.round(v / U * 100) + ' %' : '–'; }              // % vom Umsatz (ganz)
+    function pMarge(v) { return U ? (v / U * 100).toFixed(1).replace('.', ',') + ' %' : '–'; }
 
     var costs = [
       { stage: 'ma',        label: 'Mitarbeiterkosten',  amount: r.stageCost.ma,        color: '#6366f1' },
@@ -219,80 +215,64 @@
       { stage: 'fix',       label: 'Fixkosten',          amount: r.stageCost.fix,       color: '#f59e0b' },
       { stage: 'marketing', label: 'Marketing',          amount: r.stageCost.marketing, color: '#ec4899' },
     ];
-    var points = [
-      { label: 'Umsatz', val: U,       pct: 100,                   bold: true,  color: '#065f46' },
-      { label: 'DB1',    val: r.db1,   pct: U ? r.db1 / U * 100 : 0 },
-      { label: 'DB2',    val: r.db2,   pct: U ? r.db2 / U * 100 : 0 },
-      { label: 'DB3',    val: r.db3,   pct: U ? r.db3 / U * 100 : 0 },
-      { label: 'Gewinn', val: r.gewinn, pct: U ? r.gewinn / U * 100 : 0, bold: true, color: r.gewinn >= 0 ? '#065f46' : '#991b1b' },
+    // „Bleibt"-Level nach jedem Kostenblock
+    var levels = [
+      { name: 'Nach Mitarbeitern', val: r.db1 },
+      { name: 'Nach Sachkosten',   val: r.db2 },
+      { name: 'Nach Fixkosten',    val: r.db3 },
     ];
 
-    function pct1(x) { return x.toFixed(1).replace('.', ',') + ' %'; }
-
-    var svg = '<svg viewBox="0 0 900 430" xmlns="http://www.w3.org/2000/svg" font-family="system-ui,-apple-system,sans-serif">';
-
-    // Kostenblöcke als Trapeze
-    costs.forEach(function (c, i) {
-      var wt = W[i], wb = W[i + 1], yt = Y[i], yb = Y[i + 1];
-      var pts = [
-        (CX - wt / 2) + ',' + yt, (CX + wt / 2) + ',' + yt,
-        (CX + wb / 2) + ',' + yb, (CX - wb / 2) + ',' + yb,
-      ].join(' ');
-      var yc = yt + HB / 2;
-      var pctU = U ? c.amount / U * 100 : 0;
-      svg += '<g class="fstage' + (selectedStage === c.stage ? ' sel' : '') + '" data-stage="' + c.stage + '">' +
-        '<polygon points="' + pts + '" fill="' + c.color + '"></polygon>' +
-        '<text x="' + CX + '" y="' + (yc - 4) + '" text-anchor="middle" fill="#fff" font-size="13" font-weight="700">' + svgEsc(c.label) + '</text>' +
-        '<text x="' + CX + '" y="' + (yc + 15) + '" text-anchor="middle" fill="#eef2ff" font-size="12">−' + fmtEur(c.amount) + '  ·  ' + pct1(pctU) + '</text>' +
-        '</g>';
-    });
-
-    // Gewinn-„Auslauf" (Basis)
-    var wg = W[4], yg = Y[4];
-    svg += '<rect x="' + (CX - wg / 2) + '" y="' + yg + '" width="' + wg + '" height="26" rx="3" fill="' + (r.gewinn >= 0 ? '#10b981' : '#ef4444') + '"></rect>';
-
-    // Rechte Wert-Marker (Umsatz, DB1-3, Gewinn) mit Führungslinie
-    points.forEach(function (p, i) {
-      var y = Y[i], edge = CX + W[i] / 2;
-      svg += '<line x1="' + edge + '" y1="' + y + '" x2="' + (LX - 8) + '" y2="' + y + '" stroke="#cbd5e1" stroke-width="1" stroke-dasharray="3,3"></line>' +
-        '<circle cx="' + edge + '" cy="' + y + '" r="3" fill="#64748b"></circle>' +
-        '<text x="' + LX + '" y="' + (y - 3) + '" font-size="13" font-weight="' + (p.bold ? '700' : '600') + '" fill="' + (p.color || '#0f172a') + '">' + svgEsc(p.label) + '</text>' +
-        '<text x="' + LX + '" y="' + (y + 14) + '" font-size="12" fill="#475569">' + fmtEur(p.val) + '  ·  ' + pct1(p.pct) + '</text>';
-    });
-
-    svg += '</svg>';
-    el('funnel').innerHTML = svg;
-    applyStageDetail();
-  }
-
-  // ── Klick-Detail je Kostenblock ──────────────────────────────────────
-  function applyStageDetail() {
-    var box = el('stageDetail');
-    if (!selectedStage || !CUR) { box.classList.add('hidden'); box.innerHTML = ''; return; }
-    var st = STAGE_BY_KEY[selectedStage];
-    var cats = (CUR.stageCats[selectedStage] || []);
-    var tot = CUR.stageCost[selectedStage] || 0;
-    var U = CUR.umsatz || 0;
-    var html = '<div class="sd-head"><span class="stage-chip" style="background:' + st.color + '"></span>' +
-      st.label + ' — ' + fmtEur(tot) + '<span class="sd-pct">' + fmtPct(tot, U) + ' vom Umsatz</span></div>';
-    if (cats.length) {
-      html += cats.map(function (x) {
-        return '<div class="sd-row"><span>' + esc(x.cat) + '</span>' +
-          '<span class="sd-amt">' + fmtEur(x.amount) + '<span class="sd-pct">' + fmtPct(x.amount, tot) + ' der Stufe</span></span></div>';
-      }).join('');
-    } else {
-      html += '<div class="sd-row" style="opacity:.6">Keine Einzelkosten in dieser Periode.</div>';
+    function bar(name, val, pctTxt, extraCls) {
+      return '<div class="lvl ' + (extraCls || '') + '">' +
+        '<div class="lvl-top"><span class="lvl-name">' + esc(name) + '</span>' +
+        '<span class="lvl-right"><span class="lvl-val">' + fmtEur(val) + '</span><span class="lvl-pct">' + pctTxt + '</span></span></div>' +
+        '<div class="lvl-track"><div class="lvl-fill" style="width:' + w(val) + '%"></div></div></div>';
     }
-    box.innerHTML = html; box.classList.remove('hidden');
+
+    function costRow(c) {
+      var cats = CUR.stageCats[c.stage] || [];
+      var open = !!openStages[c.stage];
+      var det = cats.length
+        ? cats.map(function (x) {
+            return '<div class="cd-row"><span class="cd-name">' + esc(x.cat) + '</span>' +
+              '<span><span class="cd-amt">' + fmtEur(x.amount) + '</span><span class="cd-pct">' + fmtPct(x.amount, c.amount) + ' der Stufe</span></span></div>';
+          }).join('')
+        : '<div class="cd-row"><span class="cd-name" style="color:#9a9a9a">Keine Einzelkosten in dieser Periode.</span></div>';
+      return '<div class="cost' + (open ? ' open' : '') + '" data-stage="' + c.stage + '">' +
+        '<div class="cost-head"><span class="cost-chev">▶</span><span class="cost-dot" style="background:' + c.color + '"></span>' +
+        '<span class="cost-name">' + esc(c.label) + '</span><span class="cost-amt">− ' + fmtEur(c.amount) + '</span>' +
+        '<span class="cost-pct">' + pInt(c.amount) + '</span></div>' +
+        '<div class="cost-detail"><div class="cost-detail-inner">' + det + '</div></div></div>';
+    }
+
+    var html =
+      '<div class="casc-hero"><div class="h-label">Gesamtumsatz</div>' +
+      '<div class="h-value">' + fmtEur(U) + '</div>' +
+      '<div class="h-sub">' + periodLabel() + ' · netto</div></div>';
+
+    html += bar('Umsatz', U, '100 %');                 // Referenz-Balken (voll)
+    for (var i = 0; i < costs.length; i++) {
+      html += costRow(costs[i]);
+      if (i < levels.length) html += bar(levels[i].name, levels[i].val, 'Marge ' + pMarge(levels[i].val));
+    }
+    html += bar('Gewinn', r.gewinn, 'Marge ' + pMarge(r.gewinn), 'lvl-profit' + (r.gewinn < 0 ? ' neg' : ''));
+    html += '<div class="casc-note">Balkenlänge = Anteil am Gesamtumsatz. Steuern & durchlaufende Posten sind ausgeklammert.</div>';
+
+    el('funnel').innerHTML = html;
   }
 
+  function periodLabel() {
+    var f = (+el('fromM').value), fy = (+el('fromY').value), t = (+el('toM').value), ty = (+el('toY').value);
+    if (fy === ty && f === t) return MONTHS[f - 1] + ' ' + fy;
+    if (fy === ty) return MONTHS[f - 1] + ' – ' + MONTHS[t - 1] + ' ' + fy;
+    return MONTHS[f - 1] + ' ' + fy + ' – ' + MONTHS[t - 1] + ' ' + ty;
+  }
+
+  // Kostenblock auf-/zuklappen (Akkordeon, ohne Neuberechnung)
   function toggleStage(stage) {
-    selectedStage = (selectedStage === stage) ? null : stage;
-    // Auswahl-Rahmen ohne Neuberechnung aktualisieren
-    Array.prototype.forEach.call(document.querySelectorAll('#funnel .fstage'), function (g) {
-      g.classList.toggle('sel', g.getAttribute('data-stage') === selectedStage);
-    });
-    applyStageDetail();
+    openStages[stage] = !openStages[stage];
+    var g = document.querySelector('#funnel .cost[data-stage="' + stage + '"]');
+    if (g) g.classList.toggle('open', !!openStages[stage]);
   }
 
   // ── Zuordnungs-Editor ────────────────────────────────────────────────
@@ -320,7 +300,7 @@
 
   // ── Events ───────────────────────────────────────────────────────────
   el('funnel').addEventListener('click', function (e) {
-    var g = e.target.closest ? e.target.closest('.fstage') : null;
+    var g = e.target.closest ? e.target.closest('.cost') : null;
     if (g) toggleStage(g.getAttribute('data-stage'));
   });
   el('loadBtn').addEventListener('click', function () { if (contentEl.classList.contains('hidden')) load(); else compute(); });
