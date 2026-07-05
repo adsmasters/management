@@ -26,6 +26,7 @@
 
   var EXCLUDED_CONTACTS = {}; // zentral ausgeschlossene Kontakte (contact_overrides, status='excluded')
   var CONTACT_CATEGORY = {};  // normContact → Kategorie (status='cat:Software')
+  var CONTACT_EMPLOYEE = {};  // normContact → employeeId (status='emp:<id>') – Direkt-Zuweisung ohne Kunde
   function getExcludeKeywords() {
     return (localStorage.getItem('revenueExcludeKeywords') || '')
       .split('\n').map(function (k) { return k.trim().toLowerCase(); }).filter(Boolean);
@@ -99,9 +100,11 @@
     ]).then(function (r) {
       EXCLUDED_CONTACTS = {};
       CONTACT_CATEGORY = {};
+      CONTACT_EMPLOYEE = {};
       (r[13] || []).forEach(function (o) {
         if (o.status === 'excluded') EXCLUDED_CONTACTS[norm(o.contact_name)] = 1;
         else if (o.status && o.status.indexOf('cat:') === 0) CONTACT_CATEGORY[norm(o.contact_name)] = o.status.slice(4);
+        else if (o.status && o.status.indexOf('emp:') === 0) CONTACT_EMPLOYEE[norm(o.contact_name)] = o.status.slice(4);
       });
       DATA = {
         year: year,
@@ -334,8 +337,10 @@
     var mappedKeys = {};
     Object.keys(mappingsByClient).forEach(function (cid) { mappingsByClient[cid].forEach(function (lx) { mappedKeys[norm(lx)] = 1; }); });
     clients.forEach(function (c) { if (c.lexoffice_name) mappedKeys[norm(c.lexoffice_name)] = 1; mappedKeys[norm(c.name)] = 1; });
-    var orphanContactMonth = {}; // originalName → { m → amount }
+    var orphanContactMonth = {}; // originalName → { m → amount }  (noch offen)
     var categoryMonth = {};      // Kategorie (z.B. Software) → { m → amount }
+    var orphanAssignedMonth = {}; // contactName → { m → amount }  (direkt einem MA zugewiesen)
+    var orphanAssignedEid = {};   // contactName → employeeId
     for (var om = 1; om <= 12; om++) {
       if (isFuture(year, om)) continue;
       var rmO = revMapByMonth[om] || {};
@@ -345,6 +350,13 @@
         var cat = CONTACT_CATEGORY[k];
         if (cat) { var cm = (categoryMonth[cat] = categoryMonth[cat] || {}); cm[om] = (cm[om] || 0) + amt; return; }
         var nm = revNamesByKey[k] || k;
+        var eidA = CONTACT_EMPLOYEE[k];
+        if (eidA) { // direkt einem MA zugewiesen → Umsatz gutschreiben
+          addRev(eidA, om, amt);
+          (orphanAssignedMonth[nm] = orphanAssignedMonth[nm] || {})[om] = amt;
+          orphanAssignedEid[nm] = eidA;
+          return;
+        }
         (orphanContactMonth[nm] = orphanContactMonth[nm] || {})[om] = amt;
       });
     }
@@ -444,6 +456,8 @@
       maExclRevByMonth: maExclRevByMonth,
       orphanContactMonth: orphanContactMonth,
       categoryMonth: categoryMonth,
+      orphanAssignedMonth: orphanAssignedMonth,
+      orphanAssignedEid: orphanAssignedEid,
     };
 
     render({
@@ -514,9 +528,10 @@
         }).join('');
         totalOpen += r.sum;
         var action = r.orphan
-          ? '<a href="name-mapping.html" style="font-size:12px;color:#b45309;font-weight:700;text-decoration:underline;white-space:nowrap">→ Kunde</a>' +
-            ' <button class="ua-cat" data-name="' + encodeURIComponent(r.name) + '" data-cat="Software" style="font-size:11px;border:1px solid #93c5fd;background:#dbeafe;color:#1e40af;border-radius:4px;padding:1px 7px;cursor:pointer;white-space:nowrap" title="Als Software-Umsatz buchen (ohne Kunde/Clockify)">📦 Software</button>' +
-            ' <button class="ua-exclude" data-name="' + encodeURIComponent(r.name) + '" style="font-size:11px;border:1px solid #fca5a5;background:#fee2e2;color:#991b1b;border-radius:4px;padding:1px 7px;cursor:pointer;white-space:nowrap" title="Als kein Umsatz ausschließen (z.B. Event-Rechnung)">🚫 ausschließen</button>'
+          ? '<select class="ua-emp" data-name="' + encodeURIComponent(r.name) + '" style="font-size:12px;border:1px solid var(--border);border-radius:var(--radius);padding:3px 6px;background:var(--surface);color:var(--text)" title="Direkt einem Mitarbeiter zuweisen (ohne Kunde)"><option value="">→ zuweisen an…</option>' + empOptions + '</select>' +
+            ' <a href="name-mapping.html" style="font-size:11px;color:#b45309;text-decoration:underline;white-space:nowrap" title="Als richtigen Kunden zuordnen">Kunde</a>' +
+            ' <button class="ua-cat" data-name="' + encodeURIComponent(r.name) + '" data-cat="Software" style="font-size:11px;border:1px solid #93c5fd;background:#dbeafe;color:#1e40af;border-radius:4px;padding:1px 6px;cursor:pointer" title="Als Software-Umsatz buchen">📦</button>' +
+            ' <button class="ua-exclude" data-name="' + encodeURIComponent(r.name) + '" style="font-size:11px;border:1px solid #fca5a5;background:#fee2e2;color:#991b1b;border-radius:4px;padding:1px 6px;cursor:pointer" title="Als kein Umsatz ausschließen">🚫</button>'
           : '<select class="res-assign" data-cid="' + r.cid + '" style="font-size:12px;border:1px solid var(--border);border-radius:var(--radius);padding:3px 6px;background:var(--surface);color:var(--text)"><option value="">→ zuweisen an…</option>' + empOptions + '</select>';
         var nameCell = r.name + (r.orphan ? ' <span style="font-size:10px;color:#b45309;font-weight:600;white-space:nowrap">· kein Kunde</span>' : '');
         return '<tr><td style="padding:7px 12px;white-space:nowrap;font-weight:600">' + nameCell + '</td>' + monthCells +
@@ -535,20 +550,28 @@
       openHtml = '<div style="padding:16px 12px;color:#16a34a;font-size:13px;font-weight:600">✓ Aktuell kein offener Umsatz – alles zugeordnet.</div>';
     }
 
-    // ── Bereits zugeordnet (kompakt, mit Rückgängig) ──
+    // ── Bereits zugeordnet (Kunden-Rest + direkt zugewiesene „kein Kunde") ──
+    var orphanAssignedRows = Object.keys(COMP.orphanAssignedMonth || {}).map(function (nm) {
+      var byM = COMP.orphanAssignedMonth[nm]; var sum = 0; Object.keys(byM).forEach(function (m) { sum += byM[m] || 0; });
+      return { name: nm, sum: sum, eid: COMP.orphanAssignedEid[nm] };
+    }).filter(function (x) { return x.sum > 0.5; }).sort(function (a, b) { return b.sum - a.sum; });
+
+    var assignedCount = assignedRows.length + orphanAssignedRows.length;
     var assignedHtml = '';
-    if (assignedRows.length) {
-      var items = assignedRows.map(function (r) {
+    if (assignedCount) {
+      function assignedItem(name, sum, empId, undoClass, undoAttr, orphan) {
         return '<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:6px 12px;border-top:1px solid var(--border)">' +
-          '<span style="font-weight:600">' + r.name + '</span>' +
+          '<span style="font-weight:600">' + name + (orphan ? ' <span style="font-size:10px;color:var(--text-secondary)">· kein Kunde</span>' : '') + '</span>' +
           '<span style="display:flex;align-items:center;gap:10px;white-space:nowrap">' +
-          '<span style="color:var(--text-secondary);font-variant-numeric:tabular-nums">' + fmtEur(r.sum) + '</span>' +
-          '<span style="display:inline-flex;align-items:center;gap:6px;background:#eef2ff;color:var(--primary);border-radius:10px;padding:2px 10px;font-size:12px;font-weight:600">→ ' + (empNameById[r.owner] || '?') +
-          ' <span class="res-unassign" data-cid="' + r.cid + '" title="Zuweisung aufheben" style="cursor:pointer;font-weight:700">×</span></span>' +
+          '<span style="color:var(--text-secondary);font-variant-numeric:tabular-nums">' + fmtEur(sum) + '</span>' +
+          '<span style="display:inline-flex;align-items:center;gap:6px;background:#eef2ff;color:var(--primary);border-radius:10px;padding:2px 10px;font-size:12px;font-weight:600">→ ' + (empNameById[empId] || '?') +
+          ' <span class="' + undoClass + '" ' + undoAttr + ' title="Zuweisung aufheben" style="cursor:pointer;font-weight:700">×</span></span>' +
           '</span></div>';
-      }).join('');
+      }
+      var items = assignedRows.map(function (r) { return assignedItem(r.name, r.sum, r.owner, 'res-unassign', 'data-cid="' + r.cid + '"', false); }).join('') +
+        orphanAssignedRows.map(function (r) { return assignedItem(r.name, r.sum, r.eid, 'ua-emp-unassign', 'data-name="' + encodeURIComponent(r.name) + '"', true); }).join('');
       assignedHtml = '<div style="border-top:1px solid var(--border)">' +
-        '<button class="res-toggle" style="width:100%;text-align:left;background:none;border:none;cursor:pointer;padding:9px 12px;font-size:11px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.04em">▸ Bereits zugeordnet (' + assignedRows.length + ') – anzeigen</button>' +
+        '<button class="res-toggle" style="width:100%;text-align:left;background:none;border:none;cursor:pointer;padding:9px 12px;font-size:11px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.04em">▸ Bereits zugeordnet (' + assignedCount + ') – anzeigen</button>' +
         '<div class="res-assigned-list" style="display:none">' + items + '</div>' +
       '</div>';
     }
@@ -612,6 +635,29 @@
         }).catch(function (e) { alert('Fehler: ' + e.message); b.disabled = false; });
       });
     });
+    wrap.querySelectorAll('.ua-emp').forEach(function (sel) {
+      sel.addEventListener('change', function () {
+        var eid = sel.value; if (!eid) return;
+        var name = decodeURIComponent(sel.getAttribute('data-name'));
+        var empName = (sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].text : '').replace(/^→\s*/, '');
+        sel.disabled = true;
+        window.db.contactOverrides.set(name, 'emp:' + eid).then(function () {
+          CONTACT_EMPLOYEE[norm(name)] = eid;
+          uaToast('✓ ' + name + ' → ' + empName + ' zugewiesen (unter „Bereits zugeordnet")');
+          compute();
+        }).catch(function (e) { alert('Fehler: ' + e.message); sel.disabled = false; });
+      });
+    });
+    wrap.querySelectorAll('.ua-emp-unassign').forEach(function (x) {
+      x.addEventListener('click', function () {
+        var name = decodeURIComponent(x.getAttribute('data-name'));
+        window.db.contactOverrides.remove(name).then(function () {
+          delete CONTACT_EMPLOYEE[norm(name)];
+          uaToast('Zuweisung aufgehoben – Posten wieder offen');
+          compute();
+        }).catch(function (e) { alert('Fehler: ' + e.message); });
+      });
+    });
     wrap.querySelectorAll('.res-unassign').forEach(function (x) {
       x.addEventListener('click', function () {
         var cid = x.getAttribute('data-cid');
@@ -629,7 +675,7 @@
       list.style.display = isOpen ? 'none' : 'block';
       tog.textContent = (isOpen ? '▸' : '▾') + ' Bereits zugeordnet (' + tog.getAttribute('data-n') + ')' + (isOpen ? ' – anzeigen' : ' – ausblenden');
     });
-    if (tog) tog.setAttribute('data-n', String(assignedRows.length));
+    if (tog) tog.setAttribute('data-n', String(assignedCount));
   }
 
   // ── Rendering Hauptgrid ───────────────────────────────────────────────
