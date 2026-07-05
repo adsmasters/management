@@ -62,7 +62,7 @@
   <div class="page-header" style="flex-wrap:wrap;gap:12px">
     <div>
       <h1>Offene Rechnungen</h1>
-      <div class="sub">Ausstehender Umsatz aus LexOffice – offen &amp; überfällig, mit Fälligkeit</div>
+      <div class="sub">Ausstehender Umsatz aus LexOffice – offen &amp; überfällig · netto · mit Fälligkeit</div>
     </div>
     <div class="toolbar">
       <input id="search" class="toolbar-inp" type="text" placeholder="Kunde suchen…" style="min-width:180px">
@@ -79,7 +79,7 @@
 
   <div id="content" class="hidden">
     <div class="summary-strip">
-      <div class="kpi-card"><div class="kpi-label">Offener Betrag (gesamt)</div><div class="kpi-value" id="kSum">—</div><div class="kpi-sub" id="kSumSub"></div></div>
+      <div class="kpi-card"><div class="kpi-label">Offener Betrag (netto)</div><div class="kpi-value" id="kSum">—</div><div class="kpi-sub" id="kSumSub"></div></div>
       <div class="kpi-card"><div class="kpi-label">Offene Rechnungen</div><div class="kpi-value" id="kCount">—</div></div>
       <div class="kpi-card"><div class="kpi-label">Betroffene Kunden</div><div class="kpi-value" id="kClients">—</div></div>
       <div class="kpi-card warn"><div class="kpi-label">Davon überfällig</div><div class="kpi-value" id="kOverdue">—</div><div class="kpi-sub" id="kOverdueSub"></div></div>
@@ -102,7 +102,7 @@
             <th data-sort="voucherDate">Rechnungsdatum</th>
             <th data-sort="dueDate">Fällig am</th>
             <th data-sort="overdueDays" class="right">Überfällig</th>
-            <th data-sort="open" class="right">Offen</th>
+            <th data-sort="open" class="right">Offen (netto)</th>
           </tr></thead>
           <tbody id="oiBody"></tbody>
         </table>
@@ -116,7 +116,7 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="js/db.js?v=20260705"></script>
 <script src="js/auth.js"></script>
-<script src="js/open-invoices.js?v=1"></script>
+<script src="js/open-invoices.js?v=2"></script>
   <script defer src="https://adsmasters.github.io/hub/backlink.js"></script>
 </body>
 </html>

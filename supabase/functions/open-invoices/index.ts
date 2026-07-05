@@ -41,17 +41,39 @@ Deno.serve(async (req) => {
       all.push(...(data.content || []));
     }
 
-    const invoices = all.map((v: any) => ({
-      id: v.id,
-      number: v.voucherNumber || '',
-      contact: v.contactName || '(ohne Name)',
-      voucherDate: v.voucherDate || null,
-      dueDate: v.dueDate || null,
-      total: Number(v.totalAmount) || 0,
-      open: v.openAmount != null ? Number(v.openAmount) : (Number(v.totalAmount) || 0),
-      status: v.voucherStatus || 'open',
-      currency: v.currency || 'EUR',
-    }));
+    // Pro Rechnung das Netto holen (voucherlist liefert nur brutto). Netto-Anteil
+    // des noch offenen Betrags = openGross × (Netto/Brutto der Rechnung). Korrekt
+    // auch bei Reverse-Charge (0 % MwSt → Netto = Brutto) und gemischten Sätzen.
+    const startedAt = Date.now();
+    const invoices: any[] = [];
+    for (let i = 0; i < all.length; i++) {
+      const v = all[i];
+      const gross = Number(v.totalAmount) || 0;
+      const openGross = v.openAmount != null ? Number(v.openAmount) : gross;
+      let net = openGross / 1.19; // Fallback
+      if (Date.now() - startedAt < 120000) {
+        if (i > 0) await sleep(450); // ~2 req/s (LexOffice-Limit)
+        try {
+          const inv = await lexGet('/invoices/' + (v.id || v.voucherId));
+          const tp = inv.totalPrice || {};
+          const totalNet = Number(tp.totalNetAmount) || 0;
+          const totalGross = Number(tp.totalGrossAmount) || gross || 0;
+          net = totalGross > 0 ? openGross * (totalNet / totalGross) : openGross;
+        } catch (_) { /* Fallback-Schätzung bleibt */ }
+      }
+      invoices.push({
+        id: v.id,
+        number: v.voucherNumber || '',
+        contact: v.contactName || '(ohne Name)',
+        voucherDate: v.voucherDate || null,
+        dueDate: v.dueDate || null,
+        total: gross,
+        open: Math.round(net * 100) / 100,        // NETTO (offen)
+        openGross: Math.round(openGross * 100) / 100,
+        status: v.voucherStatus || 'open',
+        currency: v.currency || 'EUR',
+      });
+    }
 
     return new Response(JSON.stringify({ ok: true, count: invoices.length, invoices }),
       { headers: { ...CORS, 'Content-Type': 'application/json' } });
