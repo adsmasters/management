@@ -26,6 +26,17 @@
     .brk-col { border:1px solid var(--border); border-radius:var(--radius); padding:12px 14px; }
     .brk-col h4 { margin:0 0 8px; font-size:13px; display:flex; justify-content:space-between; }
     .brk-row { display:flex; justify-content:space-between; font-size:12px; padding:2px 0; color:var(--text-secondary); }
+    #funnel svg { width:100%; height:auto; display:block; max-width:820px; margin:0 auto; }
+    .fstage { cursor:pointer; }
+    .fstage polygon { transition:opacity .12s, filter .12s; }
+    .fstage:hover polygon { opacity:.9; }
+    .fstage.sel polygon { stroke:#0f172a; stroke-width:3; }
+    .fhint { font-size:12px; color:var(--text-secondary); margin-top:6px; text-align:center; }
+    .stage-detail { margin-top:16px; border-top:2px solid var(--border); padding-top:14px; }
+    .sd-head { font-size:15px; font-weight:700; margin-bottom:10px; display:flex; align-items:center; gap:8px; }
+    .sd-row { display:flex; justify-content:space-between; align-items:baseline; font-size:13px; padding:6px 2px; border-bottom:1px solid var(--border); }
+    .sd-row .sd-amt { font-variant-numeric:tabular-nums; font-weight:600; }
+    .sd-pct { color:var(--text-secondary); font-size:12px; margin-left:8px; font-weight:400; }
   </style>
 </head>
 <body>
@@ -70,15 +81,11 @@
     <div class="summary-strip" id="kpis"></div>
 
     <div class="card">
-      <h3>Margen-Kaskade</h3>
-      <div class="sub">Vom Umsatz zum Gewinn – jede Stufe zeigt, was an Kosten abgeht und was übrig bleibt.</div>
-      <div style="position:relative;height:380px"><canvas id="waterfall"></canvas></div>
-    </div>
-
-    <div class="card">
-      <h3>Kosten-Aufschlüsselung je Stufe</h3>
-      <div class="sub">Welche Kategorien in welcher Stufe stecken.</div>
-      <div class="brk" id="breakdown"></div>
+      <h3>Profit-Funnel</h3>
+      <div class="sub">Oben der volle Umsatz, nach unten wird es enger – jede Stufe frisst Kosten, unten bleibt der Gewinn. <strong>Klick auf einen Kostenblock</strong> zeigt die Einzelkosten.</div>
+      <div id="funnel"></div>
+      <div class="fhint">💡 Klicke auf Mitarbeiter, Sachkosten, Fixkosten oder Marketing, um zu sehen, was genau dahintersteckt.</div>
+      <div id="stageDetail" class="stage-detail hidden"></div>
     </div>
 
     <div class="card">
@@ -90,11 +97,10 @@
 </main>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <script src="js/db.js?v=20260705"></script>
 <script src="js/auth.js"></script>
 <script src="js/cost-engine.js?v=20260705"></script>
-<script src="js/funnel.js?v=1"></script>
+<script src="js/funnel.js?v=2"></script>
   <script defer src="https://adsmasters.github.io/hub/backlink.js"></script>
 </body>
 </html>
