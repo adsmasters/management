@@ -12,6 +12,7 @@
   var profitBody = document.getElementById('profitBody');
   var setupHint  = document.getElementById('setupHint');
   var gUnmapped = [], gUnmappedTotal = 0; // nicht zugeordneter (Sammel-)Umsatz
+  var gCategoryTotals = {};               // Kategorie (z.B. Software) → Summe
 
   // ── Populate month/year selects ───────────────────────────────────────
   var MONTHS_LABEL = ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
@@ -228,9 +229,13 @@
       var employeeRates    = results[7];
       var contactOverrides = results[8] || [];
 
-      // Zentral ausgeschlossene Kontakte (zählen NIRGENDS als Umsatz)
+      // Zentral ausgeschlossene Kontakte (zählen NIRGENDS als Umsatz) + Kategorien
       var excludedContacts = {};
-      contactOverrides.forEach(function (o) { if (o.status === 'excluded') excludedContacts[norm(o.contact_name)] = 1; });
+      var categoryByContact = {};
+      contactOverrides.forEach(function (o) {
+        if (o.status === 'excluded') excludedContacts[norm(o.contact_name)] = 1;
+        else if (o.status && o.status.indexOf('cat:') === 0) categoryByContact[norm(o.contact_name)] = o.status.slice(4);
+      });
 
       // Sätze nach Mitarbeiter gruppieren
       var ratesByEmp = {};
@@ -304,8 +309,12 @@
       clients.forEach(function (c) { if (c.lexoffice_name) mappedKeys[norm(c.lexoffice_name)] = 1; mappedKeys[norm(c.name)] = 1; });
       gUnmapped = [];
       gUnmappedTotal = 0;
+      gCategoryTotals = {};
       Object.keys(revenueMap).forEach(function (k) {
-        if (!mappedKeys[k] && revenueMap[k] > 0.5) { gUnmapped.push({ name: revenueNames[k] || k, amount: revenueMap[k] }); gUnmappedTotal += revenueMap[k]; }
+        if (mappedKeys[k] || revenueMap[k] <= 0.5) return;
+        var cat = categoryByContact[k];
+        if (cat) { gCategoryTotals[cat] = (gCategoryTotals[cat] || 0) + revenueMap[k]; return; }
+        gUnmapped.push({ name: revenueNames[k] || k, amount: revenueMap[k] }); gUnmappedTotal += revenueMap[k];
       });
       gUnmapped.sort(function (a, b) { return b.amount - a.amount; });
 
@@ -396,8 +405,9 @@
                   hours: totalClientHours, hasRevenue: revenueNet > 0 });
     });
 
-    // Nicht zugeordneter Umsatz zählt mit (als Sammelposten „Ohne Zuordnung")
+    // Nicht zugeordneter Umsatz + Kategorien zählen mit
     totalRevenue += gUnmappedTotal;
+    Object.keys(gCategoryTotals).forEach(function (c) { totalRevenue += gCategoryTotals[c]; });
     renderUnmappedWarning(gUnmapped);
 
     rows.sort(function (a, b) {
@@ -552,6 +562,20 @@
       });
 
       profitBody.appendChild(tr);
+    });
+
+    // Kategorie-Sammelposten (z.B. Software) – zählen im Gesamtumsatz mit
+    Object.keys(gCategoryTotals).sort().forEach(function (c) {
+      if (gCategoryTotals[c] <= 0.5) return;
+      var cTr = document.createElement('tr');
+      cTr.innerHTML =
+        '<td style="font-weight:500;color:#1e40af">📦 ' + c + ' <span style="font-size:11px;color:var(--text-secondary)">(Kategorie · Sammelumsatz)</span></td>' +
+        '<td class="right revenue">' + fmt(gCategoryTotals[c]) + '</td>' +
+        '<td class="right cost"><span class="no-lexoffice">—</span></td>' +
+        '<td class="right"><span class="no-lexoffice">—</span></td>' +
+        '<td><span class="no-lexoffice">—</span></td>' +
+        '<td class="right hours-cell">—</td>';
+      profitBody.appendChild(cTr);
     });
 
     // Sammelposten: nicht zugeordneter Umsatz (zählt im Gesamtumsatz mit)
