@@ -29,8 +29,9 @@ Deno.serve(async (req) => {
       throw new Error(lastErr + ' (after retries)');
     }
 
-    // Nur unbezahlte Rechnungen: voucherStatus=open (fällig noch offen) + overdue (überfällig)
-    const q = 'voucherType=invoice&voucherStatus=open,overdue&size=250';
+    // Alle unbezahlten Rechnungen. LexOffice-Status für unbezahlt = "open"
+    // (überfällig wird NICHT als Status geführt, sondern aus dueDate abgeleitet).
+    const q = 'voucherType=invoice&voucherStatus=open&size=250';
     const first = await lexGet('/voucherlist?' + q + '&page=0');
     const pages = first.totalPages || 1;
     const all = [...(first.content || [])];
