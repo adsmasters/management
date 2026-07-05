@@ -24,7 +24,8 @@
   function fmtH(n)   { return (Math.round(n * 10) / 10).toLocaleString('de-DE') + ' h'; }
   function norm(s)   { return (s || '').trim().toLowerCase(); }
 
-  var EXCLUDED_CONTACTS = {}; // zentral ausgeschlossene Kontakte (contact_overrides)
+  var EXCLUDED_CONTACTS = {}; // zentral ausgeschlossene Kontakte (contact_overrides, status='excluded')
+  var CONTACT_CATEGORY = {};  // normContact → Kategorie (status='cat:Software')
   function getExcludeKeywords() {
     return (localStorage.getItem('revenueExcludeKeywords') || '')
       .split('\n').map(function (k) { return k.trim().toLowerCase(); }).filter(Boolean);
@@ -97,7 +98,11 @@
       (window.db.contactOverrides ? window.db.contactOverrides.listAll() : Promise.resolve([])).catch(function () { return []; }),
     ]).then(function (r) {
       EXCLUDED_CONTACTS = {};
-      (r[13] || []).forEach(function (o) { if (o.status === 'excluded') EXCLUDED_CONTACTS[norm(o.contact_name)] = 1; });
+      CONTACT_CATEGORY = {};
+      (r[13] || []).forEach(function (o) {
+        if (o.status === 'excluded') EXCLUDED_CONTACTS[norm(o.contact_name)] = 1;
+        else if (o.status && o.status.indexOf('cat:') === 0) CONTACT_CATEGORY[norm(o.contact_name)] = o.status.slice(4);
+      });
       DATA = {
         year: year,
         employees: r[0], clients: r[1], entries: r[2], mappings: r[3],
@@ -330,12 +335,15 @@
     Object.keys(mappingsByClient).forEach(function (cid) { mappingsByClient[cid].forEach(function (lx) { mappedKeys[norm(lx)] = 1; }); });
     clients.forEach(function (c) { if (c.lexoffice_name) mappedKeys[norm(c.lexoffice_name)] = 1; mappedKeys[norm(c.name)] = 1; });
     var orphanContactMonth = {}; // originalName → { m → amount }
+    var categoryMonth = {};      // Kategorie (z.B. Software) → { m → amount }
     for (var om = 1; om <= 12; om++) {
       if (isFuture(year, om)) continue;
       var rmO = revMapByMonth[om] || {};
       Object.keys(rmO).forEach(function (k) {
         if (mappedKeys[k]) return;         // einem Kunden zugeordnet → nicht orphan
         var amt = rmO[k]; if (amt <= 0.5) return;
+        var cat = CONTACT_CATEGORY[k];
+        if (cat) { var cm = (categoryMonth[cat] = categoryMonth[cat] || {}); cm[om] = (cm[om] || 0) + amt; return; }
         var nm = revNamesByKey[k] || k;
         (orphanContactMonth[nm] = orphanContactMonth[nm] || {})[om] = amt;
       });
@@ -435,6 +443,7 @@
       ownerAssign: ownerAssign,
       maExclRevByMonth: maExclRevByMonth,
       orphanContactMonth: orphanContactMonth,
+      categoryMonth: categoryMonth,
     };
 
     render({
@@ -506,6 +515,7 @@
         totalOpen += r.sum;
         var action = r.orphan
           ? '<a href="name-mapping.html" style="font-size:12px;color:#b45309;font-weight:700;text-decoration:underline;white-space:nowrap">→ Kunde</a>' +
+            ' <button class="ua-cat" data-name="' + encodeURIComponent(r.name) + '" data-cat="Software" style="font-size:11px;border:1px solid #93c5fd;background:#dbeafe;color:#1e40af;border-radius:4px;padding:1px 7px;cursor:pointer;white-space:nowrap" title="Als Software-Umsatz buchen (ohne Kunde/Clockify)">📦 Software</button>' +
             ' <button class="ua-exclude" data-name="' + encodeURIComponent(r.name) + '" style="font-size:11px;border:1px solid #fca5a5;background:#fee2e2;color:#991b1b;border-radius:4px;padding:1px 7px;cursor:pointer;white-space:nowrap" title="Als kein Umsatz ausschließen (z.B. Event-Rechnung)">🚫 ausschließen</button>'
           : '<select class="res-assign" data-cid="' + r.cid + '" style="font-size:12px;border:1px solid var(--border);border-radius:var(--radius);padding:3px 6px;background:var(--surface);color:var(--text)"><option value="">→ zuweisen an…</option>' + empOptions + '</select>';
         var nameCell = r.name + (r.orphan ? ' <span style="font-size:10px;color:#b45309;font-weight:600;white-space:nowrap">· kein Kunde</span>' : '');
@@ -543,8 +553,25 @@
       '</div>';
     }
 
+    // ── Kategorien (z.B. Software) – zählen als Umsatz, ohne Kunde/MA ──
+    var catHtml = '';
+    var catMonth = COMP.categoryMonth || {};
+    var catNames = Object.keys(catMonth).filter(function (c) { var s = 0; Object.keys(catMonth[c]).forEach(function (m) { s += catMonth[c][m] || 0; }); return s > 0.5; });
+    if (catNames.length) {
+      var catSet = {}; catNames.forEach(function (c) { Object.keys(catMonth[c]).forEach(function (m) { catSet[m] = 1; }); });
+      var catCols = Object.keys(catSet).map(Number).sort(function (a, b) { return a - b; });
+      var catBody = catNames.sort().map(function (c) {
+        var byM = catMonth[c]; var sum = 0;
+        var cells = catCols.map(function (m) { var v = byM[m] || 0; sum += v; return '<td class="right" style="padding:6px 10px;font-variant-numeric:tabular-nums;color:' + (v ? 'var(--text)' : 'var(--text-muted,#9aa4b2)') + '">' + (v ? fmtEur(v) : '–') + '</td>'; }).join('');
+        return '<tr><td style="padding:6px 12px;font-weight:600">📦 ' + c + '</td>' + cells + '<td class="right" style="padding:6px 12px;font-weight:700">' + fmtEur(sum) + '</td><td></td></tr>';
+      }).join('');
+      var catHead = catCols.map(function (m) { return '<th class="right" style="padding:6px 10px">' + MS[(m - 1) % 12] + '</th>'; }).join('');
+      catHtml = '<div style="border-top:1px solid var(--border)"><div style="padding:9px 12px;font-size:11px;color:var(--text-secondary);text-transform:uppercase;letter-spacing:.04em;background:var(--surface-hover,#f8fafc)">Kategorien · zählen als Umsatz (ohne Kunde/MA)</div>' +
+        '<table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr style="text-align:left;color:var(--text-secondary);font-size:11px;text-transform:uppercase"><th style="padding:6px 12px">Kategorie</th>' + catHead + '<th class="right" style="padding:6px 12px">Summe</th><th></th></tr></thead><tbody>' + catBody + '</tbody></table></div>';
+    }
+
     wrap.innerHTML = '<h2 style="font-size:16px;font-weight:700;margin:0 0 10px">Nicht zugeordneter Umsatz <span style="font-weight:400;font-size:13px;color:var(--text-secondary)">· ' + COMP.year + ' (Ist) · je Monat</span></h2>' +
-      '<div class="card" style="padding:0;overflow-x:auto">' + openHtml + assignedHtml + '</div>';
+      '<div class="card" style="padding:0;overflow-x:auto">' + openHtml + catHtml + assignedHtml + '</div>';
 
     wrap.querySelectorAll('.res-assign').forEach(function (sel) {
       sel.addEventListener('change', function () {
@@ -569,6 +596,18 @@
         window.db.contactOverrides.set(name, 'excluded').then(function () {
           EXCLUDED_CONTACTS[norm(name)] = 1;
           uaToast('🚫 ' + name + ' ausgeschlossen – zählt nirgends mehr als Umsatz');
+          compute();
+        }).catch(function (e) { alert('Fehler: ' + e.message); b.disabled = false; });
+      });
+    });
+    wrap.querySelectorAll('.ua-cat').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var name = decodeURIComponent(b.getAttribute('data-name'));
+        var cat = b.getAttribute('data-cat') || 'Software';
+        b.disabled = true;
+        window.db.contactOverrides.set(name, 'cat:' + cat).then(function () {
+          CONTACT_CATEGORY[norm(name)] = cat;
+          uaToast('📦 ' + name + ' → ' + cat + ' gebucht (zählt als Umsatz)');
           compute();
         }).catch(function (e) { alert('Fehler: ' + e.message); b.disabled = false; });
       });
