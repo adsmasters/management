@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>CAC-Analyse – Adsmasters Management</title>
+  <link rel="stylesheet" href="css/style.css">
+  <style>
+    .summary-strip { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
+    .kpi-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 16px 20px; flex: 1; min-width: 170px;
+    }
+    .kpi-card .kpi-label { font-size: 12px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: .04em; font-weight: 600; }
+    .kpi-card .kpi-value { font-size: 24px; font-weight: 700; margin-top: 4px; color: var(--text); }
+    .kpi-card .kpi-hint  { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+    .pos { color: #065f46; font-weight: 600; }
+    .neg { color: #991b1b; font-weight: 600; }
+    .year-select {
+      padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius);
+      font-size: 14px; background: var(--surface); color: var(--text); font-weight: 600;
+    }
+    .caveat-box {
+      background: var(--warning-bg); border: 1px solid var(--warning); border-radius: var(--radius);
+      padding: 12px 16px; font-size: 13px; color: #92400e; margin-bottom: 20px; line-height: 1.5;
+    }
+    .caveat-box strong { color: #78350f; }
+    .method-box {
+      background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+      padding: 14px 18px; font-size: 12.5px; color: var(--text-secondary); margin-bottom: 20px; line-height: 1.6;
+    }
+    .method-box summary { cursor: pointer; font-weight: 600; color: var(--text); font-size: 13px; }
+    .method-box ul { margin: 10px 0 0 18px; }
+    .chart-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; margin-bottom: 20px; }
+    .chart-card h2 { font-size: 14px; font-weight: 600; margin-bottom: 14px; }
+    .chart-wrap { position: relative; height: 280px; }
+    .be-badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; }
+    .be-yes { background: var(--success-bg); color: #065f46; border: 1px solid var(--success-border); }
+    .be-no  { background: var(--bg); color: var(--text-secondary); border: 1px solid var(--border); }
+  </style>
+</head>
+<body>
+
+<header class="header">
+  <div class="header-inner">
+    <a href="index.html" class="logo">Adsmasters <span>Management</span></a>
+    <nav>
+      <a href="index.html"            class="nav-link">Übersicht</a>
+      <a href="clients.html"          class="nav-link">Kunden</a>
+      <a href="employees.html"        class="nav-link">Mitarbeiter</a>
+      <a href="utilization.html"      class="nav-link">Auslastung</a>
+      <a href="profit.html"           class="nav-link">Profitabilität</a>
+      <a href="funnel.html"           class="nav-link">Profit-Funnel</a>
+      <a href="kostenanalyse.html"    class="nav-link">Kostenanalyse</a>
+      <a href="revenue-timeline.html" class="nav-link">Umsatz-Verlauf</a>
+      <a href="open-invoices.html"    class="nav-link">Offene Rechnungen</a>
+      <a href="rechnungs-check.html"  class="nav-link">Rechnungs-Check</a>
+      <a href="employee-revenue.html" class="nav-link">MA-Umsatz</a>
+      <a href="acquisition.html"      class="nav-link">Akquisition</a>
+      <a href="cac-analyse.html"      class="nav-link active">CAC-Analyse</a>
+      <a href="name-mapping.html"     class="nav-link">Zuordnung</a>
+      <a href="settings.html"         class="nav-link">Einstellungen</a>
+    </nav>
+  </div>
+</header>
+
+<main class="main">
+
+  <div id="error"></div>
+
+  <div class="page-header">
+    <div>
+      <h1>CAC-Analyse</h1>
+      <div class="sub">Customer Acquisition Cost &amp; Payback nach Kohortenjahr</div>
+    </div>
+    <div style="display:flex;align-items:center;gap:8px">
+      <label for="yearSelect" style="font-size:13px;color:var(--text-secondary)">Kohorte:</label>
+      <select id="yearSelect" class="year-select"></select>
+    </div>
+  </div>
+
+  <div id="loading" class="hidden">
+    <div class="loading-bar"><div class="spinner"></div>Daten werden geladen…</div>
+  </div>
+
+  <div id="content" class="hidden">
+
+    <div id="caveatBox"></div>
+
+    <div class="summary-strip">
+      <div class="kpi-card">
+        <div class="kpi-label">Marketing-Investment</div>
+        <div class="kpi-value" id="kpiInvestment">—</div>
+        <div class="kpi-hint">Summe Akquisitionskosten im Kohortenjahr</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Neue Kunden</div>
+        <div class="kpi-value" id="kpiNewCustomers">—</div>
+        <div class="kpi-hint">Erster Umsatzmonat im Kohortenjahr</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Blended CAC</div>
+        <div class="kpi-value" id="kpiCac">—</div>
+        <div class="kpi-hint">Investment ÷ neue Kunden</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Ø Umsatz im Kohortenjahr</div>
+        <div class="kpi-value" id="kpiRevYear">—</div>
+        <div class="kpi-hint">Pro neuem Kunden</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Ø Umsatz erste 3 Monate</div>
+        <div class="kpi-value" id="kpiRev90">—</div>
+        <div class="kpi-hint">Näherung für „erste 90 Tage"</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Break-even erreicht</div>
+        <div class="kpi-value" id="kpiBreakeven">—</div>
+        <div class="kpi-hint" id="kpiBreakevenHint">von neuen Kunden (Stand heute)</div>
+      </div>
+    </div>
+
+    <div class="chart-card">
+      <h2>Kumulierter Ø-Umsatz je Kunde seit Start vs. Blended CAC</h2>
+      <div class="chart-wrap"><canvas id="breakevenChart"></canvas></div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <h2>Neue Kunden im Kohortenjahr</h2>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th style="min-width:180px">Kunde</th>
+              <th style="min-width:100px">Start</th>
+              <th class="right" style="min-width:130px">Umsatz Kohortenjahr</th>
+              <th class="right" style="min-width:150px">Umsatz erste 3 Monate</th>
+              <th class="right" style="min-width:130px">Umsatz gesamt (bis heute)</th>
+              <th style="min-width:160px">Break-even</th>
+            </tr>
+          </thead>
+          <tbody id="custBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <details class="method-box">
+      <summary>Methodik &amp; Annahmen</summary>
+      <ul>
+        <li><strong>Marketing-Investment:</strong> ausschließlich Summe aus „Akquisition" (<code>acquisition_costs</code>), gefiltert nach Datum im Kohortenjahr. Kostenanalyse/Bankdaten fließen bewusst nicht ein.</li>
+        <li><strong>Neuer Kunde:</strong> ein Kontakt, dessen erster jemals erfasster Umsatzmonat im Kohortenjahr liegt (Basis: <code>revenue</code>-Tabelle, Daten ab Januar 2024 verfügbar).</li>
+        <li><strong>„Erste 90 Tage":</strong> Näherung als die ersten 3 Kalendermonate ab dem Startmonat — die Umsatzdaten sind nur monatsgenau, keine echte Tagesgranularität verfügbar.</li>
+        <li><strong>Blended CAC:</strong> Investment ÷ Anzahl neuer Kunden, gleichmäßig verteilt — keine Einzelzuordnung Kosten↔Kunde, da <code>acquisition_contact_links</code> nur teilweise gepflegt ist.</li>
+        <li><strong>Break-even:</strong> erster Monat, in dem der kumulierte Umsatz eines Kunden (seit Startmonat, über die gesamte verfügbare Historie) den Blended CAC erreicht/übersteigt.</li>
+        <li><strong>2024 als Kohortenjahr:</strong> nicht zuverlässig, da erstes Datenjahr — es lässt sich nicht unterscheiden, ob ein Kunde wirklich neu war oder schon vorher bestand.</li>
+      </ul>
+    </details>
+
+  </div>
+
+  <div id="emptyState" class="hidden">
+    <div class="state-box">
+      <div class="icon">📊</div>
+      <h3>Keine Daten für dieses Jahr</h3>
+      <p>Für das gewählte Kohortenjahr liegen keine neuen Kunden oder keine Akquisitionskosten vor.</p>
+    </div>
+  </div>
+
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="js/db.js?v=20260610b"></script>
+<script src="js/utils.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/cac-analyse.js"></script>
+  <script defer src="https://adsmasters.github.io/hub/backlink.js"></script>
+</body>
+</html>
