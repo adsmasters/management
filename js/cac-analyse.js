@@ -9,7 +9,23 @@
   var caveatBox   = document.getElementById('caveatBox');
   var custBody    = document.getElementById('custBody');
 
+  var toggleCostDetails  = document.getElementById('toggleCostDetails');
+  var costDetailsCard    = document.getElementById('costDetailsCard');
+  var costDetailsYear    = document.getElementById('costDetailsYear');
+  var costDetailsBody    = document.getElementById('costDetailsBody');
+  var costDetailsSum     = document.getElementById('costDetailsSum');
+  var costDetailsUndated = document.getElementById('costDetailsUndated');
+
   var MONTHS_LABEL = ['Jan','Feb','Mär','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez'];
+
+  var TYPE_LABELS = {
+    'messe':            'Messe',
+    'online-marketing': 'Online-Marketing',
+    'seo':              'SEO',
+    'kaltakquise':       'Kaltakquise',
+    'empfehlung':        'Empfehlung',
+    'sonstige':          'Sonstige',
+  };
 
   function fmt(n) {
     return (n || 0).toLocaleString('de-DE', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
@@ -86,11 +102,13 @@
 
     // ── Marketing-Investment im Kohortenjahr ──────────────────────────
     var investment = 0;
+    var costsInYear = [];
     allCosts.forEach(function (c) {
       if (!c.cost_date) return;
       var y = parseInt(c.cost_date.slice(0, 4), 10);
-      if (y === year) investment += (c.amount || 0);
+      if (y === year) { investment += (c.amount || 0); costsInYear.push(c); }
     });
+    renderCostDetails(year, costsInYear, investment);
 
     // ── Neue Kunden im Kohortenjahr ────────────────────────────────────
     var newCustomers = Object.keys(firstYmByContact).filter(function (name) {
@@ -133,10 +151,21 @@
     document.getElementById('kpiNewCustomers').textContent = fmtInt(newCustomers.length);
     document.getElementById('kpiCac').textContent = newCustomers.length > 0 ? fmt(cac) : '—';
 
-    var avgRevYear = rows.length ? rows.reduce(function (s, r) { return s + r.revYear; }, 0) / rows.length : 0;
-    var avgRev90   = rows.length ? rows.reduce(function (s, r) { return s + r.rev90; }, 0) / rows.length : 0;
+    var totalRevYear = rows.reduce(function (s, r) { return s + r.revYear; }, 0);
+    var avgRevYear   = rows.length ? totalRevYear / rows.length : 0;
+    var avgRev90     = rows.length ? rows.reduce(function (s, r) { return s + r.rev90; }, 0) / rows.length : 0;
     document.getElementById('kpiRevYear').textContent = rows.length ? fmt(avgRevYear) : '—';
     document.getElementById('kpiRev90').textContent   = rows.length ? fmt(avgRev90) : '—';
+
+    var kpiRevYearTotalEl = document.getElementById('kpiRevYearTotal');
+    var kpiRoiHintEl      = document.getElementById('kpiRoiHint');
+    kpiRevYearTotalEl.textContent = rows.length ? fmt(totalRevYear) : '—';
+    if (investment > 0 && rows.length) {
+      var roi = totalRevYear / investment;
+      kpiRoiHintEl.innerHTML = 'Alle neuen Kunden zusammen, im Kohortenjahr · <span class="' + (roi >= 1 ? 'pos' : 'neg') + '">' + roi.toFixed(1) + '× Investment</span>';
+    } else {
+      kpiRoiHintEl.textContent = 'Alle neuen Kunden zusammen, im Kohortenjahr';
+    }
 
     var beCount = rows.filter(function (r) { return r.breakevenYm !== null; }).length;
     document.getElementById('kpiBreakeven').textContent = rows.length ? (beCount + ' / ' + rows.length) : '—';
@@ -253,6 +282,50 @@
     return (str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
 
+  // Itemized list of exactly which acquisition_costs entries make up the
+  // "Marketing-Investment" KPI for the selected year — so the number can be
+  // checked against the actual entries in Akquisition, not just trusted blind.
+  function renderCostDetails(year, costsInYear, investment) {
+    costDetailsYear.textContent = year;
+
+    var sorted = costsInYear.slice().sort(function (a, b) {
+      return (b.cost_date || '').localeCompare(a.cost_date || '');
+    });
+
+    costDetailsBody.innerHTML = '';
+    if (sorted.length === 0) {
+      costDetailsBody.innerHTML = '<tr><td colspan="4" style="color:var(--text-secondary)">Keine Akquisitionskosten mit Datum in ' + year + '.</td></tr>';
+    } else {
+      sorted.forEach(function (c) {
+        var typeLabel = TYPE_LABELS[c.source_type] || c.source_type || '—';
+        var tr = document.createElement('tr');
+        tr.innerHTML =
+          '<td style="font-weight:500">' + escHtml(c.source_name || '—') +
+            (c.notes ? '<br><span style="font-size:11px;color:var(--text-secondary);font-weight:400">' + escHtml(c.notes) + '</span>' : '') +
+          '</td>' +
+          '<td><span style="font-size:12px;background:var(--surface-hover,#f1f5f9);padding:2px 8px;border-radius:4px;border:1px solid var(--border)">' + typeLabel + '</span></td>' +
+          '<td>' + (c.cost_date || '—') + '</td>' +
+          '<td class="right" style="font-variant-numeric:tabular-nums">' + fmt(c.amount || 0) + '</td>';
+        costDetailsBody.appendChild(tr);
+      });
+    }
+    costDetailsSum.textContent = fmt(investment);
+
+    // Entries with NO date at all never enter ANY year's total — surface them
+    // so nothing is silently missing from every cohort year without a trace.
+    var undated = allCosts.filter(function (c) { return !c.cost_date; });
+    if (undated.length > 0) {
+      var undatedSum = undated.reduce(function (s, c) { return s + (c.amount || 0); }, 0);
+      var names = undated.map(function (c) { return escHtml(c.source_name || '—') + ' (' + fmt(c.amount || 0) + ')'; }).join(', ');
+      costDetailsUndated.innerHTML =
+        '⚠️ <strong>' + undated.length + ' Eintrag' + (undated.length === 1 ? '' : 'e') + ' ohne Datum</strong> (Summe ' + fmt(undatedSum) + ') ' +
+        'fließen in <strong>kein</strong> Kohortenjahr ein: ' + names + '. ' +
+        'Datum in <a href="acquisition.html">Akquisition</a> nachtragen, falls sie zu ' + year + ' oder einem anderen Jahr gehören.';
+    } else {
+      costDetailsUndated.innerHTML = '';
+    }
+  }
+
   function loadData() {
     errorEl.innerHTML = '';
     loadingEl.classList.remove('hidden');
@@ -279,6 +352,18 @@
 
   yearSelect.addEventListener('change', function () {
     render(parseInt(yearSelect.value, 10));
+  });
+
+  toggleCostDetails.addEventListener('click', function (e) {
+    e.preventDefault();
+    var isHidden = costDetailsCard.classList.contains('hidden');
+    if (isHidden) {
+      costDetailsCard.classList.remove('hidden');
+      toggleCostDetails.textContent = 'Details ausblenden';
+    } else {
+      costDetailsCard.classList.add('hidden');
+      toggleCostDetails.textContent = 'Details anzeigen';
+    }
   });
 
   loadData();
