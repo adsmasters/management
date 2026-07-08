@@ -106,14 +106,14 @@
         <div class="kpi-hint">Monate mit Umsatz, bevor sie gingen</div>
       </div>
       <div class="kpi-card">
-        <div class="kpi-label">Ø Umsatz (verloren, gesamt)</div>
-        <div class="kpi-value" id="kpiAvgRev">—</div>
-        <div class="kpi-hint">Lifetime-Umsatz pro verlorenem Kunden</div>
+        <div class="kpi-label">Verlorener Umsatz p.a. <span class="kpiYearLabel"></span></div>
+        <div class="kpi-value neg" id="kpiLostRev">—</div>
+        <div class="kpi-hint" id="kpiLostRevHint">annualisierte Run-Rate der verlorenen Kunden</div>
       </div>
       <div class="kpi-card">
         <div class="kpi-label">Aktive Kunden aktuell</div>
         <div class="kpi-value" id="kpiActiveNow">—</div>
-        <div class="kpi-hint" id="kpiActiveNowHint">Rechnung im letzten Datenmonat</div>
+        <div class="kpi-hint" id="kpiActiveNowHint">Rechnung innerhalb ihres Rhythmus</div>
       </div>
       <div class="kpi-card">
         <div class="kpi-label">Gefährdet</div>
@@ -123,9 +123,19 @@
     </div>
 
     <div class="chart-card">
-      <h2>Verlorene Kunden pro Monat — <span class="kpiYearLabel"></span></h2>
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px">
+        <h2 style="margin:0">Churn pro Monat — <span class="kpiYearLabel"></span></h2>
+        <div style="display:flex;gap:6px">
+          <button id="chartModeRate" class="btn btn-sm btn-primary">Churn %</button>
+          <button id="chartModeCount" class="btn btn-sm btn-secondary">Anzahl</button>
+          <button id="chartModeRevenue" class="btn btn-sm btn-secondary">Umsatz p.a.</button>
+        </div>
+      </div>
+      <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">Balken anklicken, um die Kunden dieses Monats in der Tabelle zu filtern.</div>
       <div class="chart-wrap"><canvas id="churnChart"></canvas></div>
     </div>
+
+    <div id="monthFilterBar"></div>
 
     <div class="card" style="margin-bottom:20px">
       <div class="card-header"><h2>Verlorene Kunden in <span class="kpiYearLabel"></span></h2></div>
@@ -137,7 +147,9 @@
               <th style="min-width:110px">Letzte Rechnung</th>
               <th style="min-width:110px">Churn (Monat)</th>
               <th class="right" style="min-width:80px">Dauer</th>
-              <th class="right" style="min-width:120px">Umsatz gesamt</th>
+              <th class="right" style="min-width:110px" title="Ø Umsatz der letzten bis zu 3 aktiven Monate">Run-Rate / Mon.</th>
+              <th class="right" style="min-width:120px" title="Run-Rate × 12 — entgangener Jahresumsatz">Annualisiert</th>
+              <th class="right" style="min-width:110px">Umsatz gesamt</th>
               <th style="min-width:100px">Quelle</th>
               <th style="min-width:150px">Grund</th>
               <th class="center" style="min-width:160px">Aktionen</th>
@@ -175,11 +187,14 @@
       <summary>Methodik &amp; Annahmen</summary>
       <ul>
         <li><strong>Aktiv in einem Monat</strong> = es gibt eine Rechnung/Umsatz für diesen Kontakt in dem Monat (Basis: <code>revenue</code>-Tabelle).</li>
-        <li><strong>Qualifizierter Kunde</strong> = mindestens <span class="ruleTenure">3</span> zusammenhängende aktive Monate am Stück. Projektkunden mit weniger (bzw. <code>is_project</code>) gelten nicht als Churn.</li>
-        <li><strong>Churn (automatisch)</strong> = qualifizierter Kunde, dessen letzte Rechnung mindestens <span class="ruleGap">2</span> Monate zurückliegt (bis zum letzten Datenmonat). Churn-Monat = der erste Monat nach der letzten Rechnung.</li>
+        <li><strong>Qualifizierter Kunde</strong> = mindestens <span class="ruleTenure">3</span> <em>zusammenhängende</em> aktive Monate am Stück (die vier Monate müssen also hintereinander liegen, nicht über das Jahr verteilt). Projektkunden mit weniger (bzw. <code>is_project</code>) gelten nicht als Churn.</li>
+        <li><strong>Rhythmus-Erkennung (gegen Fehlalarme bei Quartalskunden):</strong> Statt starr <span class="ruleGap">2</span> Monate zu nehmen, merkt sich das Tool die längste Pause, die ein Kunde bisher <em>überbrückt</em> hat (z. B. kommt quartalsweise → überbrückt ~3 Monate). Als Churn zählt erst eine Stille, die <em>länger</em> als sein bisheriger Rhythmus ist. Ein Quartalskunde wird dadurch nicht fälschlich als Churn gezählt.</li>
+        <li><strong>Churn (automatisch)</strong> = qualifizierter Kunde, dessen Stille seit der letzten Rechnung die Rhythmus-Schwelle (mind. <span class="ruleGap">2</span> Monate, aber nie weniger als seine bisherige längste überbrückte Pause + 1) erreicht. Churn-Monat = der erste Monat nach der letzten Rechnung.</li>
+        <li><strong>Verlorener Umsatz:</strong> <em>Run-Rate</em> = Ø-Umsatz der letzten bis zu 3 aktiven Monate des Kunden; <em>Annualisiert</em> = Run-Rate × 12 (entgangener Jahresumsatz). Die KPI oben summiert die annualisierte Run-Rate aller Churn-Kunden des Jahres; <em>Umsatz gesamt</em> in der Tabelle ist der Lifetime-Umsatz.</li>
+        <li><strong>Monats-Drilldown:</strong> Ein Klick auf einen Balken im Chart filtert die Tabelle auf die Kunden, die in genau diesem Monat gechurnt sind. Der Chart lässt sich zwischen Kundenanzahl und verlorenem Jahresumsatz umschalten.</li>
         <li><strong>Manuell</strong> übersteuert immer: „Churn eintragen" (mit Datum) erzwingt Churn; „als aktiv markieren" unterdrückt einen Fehlalarm (z. B. saisonale Pause).</li>
         <li><strong>Ausgeschlossen</strong> (wie in CAC/Umsatzanalyse): zentral als „kein Kunde" markierte Kontakte sowie PPC-Tools-Kunden (Kategorie „Software", 99 €/Monat).</li>
-        <li><strong>Churn-Rate</strong> = verlorene Kunden im Jahr ÷ Kunden, die zu Jahresbeginn aktiv waren.</li>
+        <li><strong>Churn-Rate</strong> = verlorene Kunden im Jahr ÷ Kunden, die zu Jahresbeginn (innerhalb ihres Rhythmus) aktiv waren.</li>
         <li>Der <strong>letzte Datenmonat</strong> ist noch nicht unbedingt vollständig synchronisiert — ganz frische „Churns" können sich noch als verspätete Rechnung auflösen.</li>
       </ul>
     </details>
