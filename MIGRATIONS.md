@@ -81,3 +81,27 @@ abgeschnittenen Zeilen abzuschreiben.
 
 > Umsatz kommt weiterhin aus Lexoffice; umsatzseitige Ausschlüsse (z. B. Red Bull)
 > stehen wie gehabt unter **Einstellungen → Umsatz-Ausschlüsse**.
+
+## 6. Churn-Analyse
+
+```sql
+-- oder: supabase/churn-events-schema.sql im SQL-Editor ausführen
+create table if not exists churn_events (
+  id           uuid primary key default gen_random_uuid(),
+  contact_name text not null,
+  status       text not null default 'churned',   -- 'churned' | 'active' (Fehlalarm unterdrücken)
+  churn_date   date,
+  reason       text,
+  notes        text,
+  created_at   timestamptz not null default now(),
+  updated_at   timestamptz not null default now(),
+  unique (contact_name)
+);
+alter table churn_events enable row level security;
+drop policy if exists "allow all churn_events" on churn_events;
+create policy "allow all churn_events" on churn_events for all using (true) with check (true);
+```
+
+Nur nötig für **manuelle** Churn-Einträge. Die automatische Churn-Erkennung
+(≥ N aktive Monate, danach ≥ M Monate ohne Rechnung) läuft auch ohne diese
+Tabelle rein aus der `revenue`-Historie.

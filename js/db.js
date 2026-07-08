@@ -319,6 +319,25 @@
         q(s => s.from('contact_overrides').delete().eq('contact_name', contactName)),
     },
 
+    // Manuelle Churn-Overrides je Kontakt (übersteuern die automatische Erkennung).
+    //   status='churned' + churn_date → Kunde gilt ab diesem Datum als abgewandert
+    //                                   (auch wenn die Heuristik ihn nicht flaggen würde).
+    //   status='active'               → unterdrückt einen Fehlalarm (Kunde pausiert/saisonal,
+    //                                   NICHT abgewandert), auch wenn die Heuristik Churn sagt.
+    churnEvents: {
+      listAll: () =>
+        q(s => s.from('churn_events').select('*')),
+      set: (contactName, status, churnDate, reason, notes) =>
+        q(s => s.from('churn_events').upsert(
+          { contact_name: contactName, status: status,
+            churn_date: churnDate || null, reason: reason || null, notes: notes || null,
+            updated_at: new Date().toISOString() },
+          { onConflict: 'contact_name' }
+        ).select().single()),
+      remove: (contactName) =>
+        q(s => s.from('churn_events').delete().eq('contact_name', contactName)),
+    },
+
     residualAssignments: {
       // Nicht zugeordneter (Rest-)Umsatz eines Kunden → einem Mitarbeiter gutschreiben
       // (z.B. Inhaber). Umfasst Umsatz ohne gebuchte Stunden + bewusst ausgeschlossene
