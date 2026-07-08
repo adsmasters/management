@@ -160,20 +160,40 @@
     return result;
   }
 
-  // Count of qualified, non-project customers that are "active" as of the start of
-  // month `pt` — i.e. their last invoice is before `pt` and within their rhythm window.
-  // This is the denominator for the monthly/annual churn rate.
+  // Is customer c "active" as of the start of month `pt` — i.e. their last invoice
+  // before `pt` is within their rhythm window? (Ignores tenure/qualification.)
+  function activeAsOf(c, pt) {
+    if (c.isProject) return false;
+    var yms = activeYmsByContact[c.name];
+    var lastBefore = -1;
+    for (var i = yms.length - 1; i >= 0; i--) { if (yms[i] < pt) { lastBefore = yms[i]; break; } }
+    if (lastBefore < 0) return false;
+    return (pt - lastBefore) <= c.effectiveGap;
+  }
+
+  // Count of qualified, non-project customers active as of the start of month `pt`.
+  // Denominator for the per-month churn rate in the chart.
   function activeBaseAt(pt, list, tenure) {
     var n = 0;
+    list.forEach(function (c) { if (c.streak >= tenure && activeAsOf(c, pt)) n++; });
+    return n;
+  }
+
+  // Denominator for the ANNUAL churn rate: every qualified, non-project customer who
+  // was a "live" customer at any point in `year` — i.e. active entering the year OR
+  // active in any month of the year (= Bestand zu Jahresbeginn + im Jahr neu gewonnen).
+  // Any customer churned in the year is guaranteed to be included, so numerator ⊆ base.
+  function yearActiveBase(year, list, tenure, churnedInYear) {
+    var yStart = year * 12;
+    var names = {};
     list.forEach(function (c) {
       if (c.isProject || c.streak < tenure) return;
       var yms = activeYmsByContact[c.name];
-      var lastBefore = -1;
-      for (var i = yms.length - 1; i >= 0; i--) { if (yms[i] < pt) { lastBefore = yms[i]; break; } }
-      if (lastBefore < 0) return;
-      if ((pt - lastBefore) <= c.effectiveGap) n++;
+      var activeInYear = yms.some(function (v) { return ymY(v) === year; });
+      if (activeInYear || activeAsOf(c, yStart)) names[c.name] = 1;
     });
-    return n;
+    churnedInYear.forEach(function (c) { names[c.name] = 1; }); // safety: keep numerator ⊆ base
+    return Object.keys(names).length;
   }
 
   // ── Render ─────────────────────────────────────────────────────────
@@ -199,11 +219,10 @@
     var churnedInYear = all.filter(function (c) { return c.churned && c.churnYm !== null && ymY(c.churnYm) === year; });
     churnedInYear.sort(function (a, b) { return a.churnYm - b.churnYm || a.name.localeCompare(b.name, 'de'); });
 
-    // Active at start of year = qualified, had an invoice within their rhythm window before Jan
-    var yStart = year * 12;
-    var activeAtStart = activeBaseAt(yStart, all, tenure);
-
-    var churnRate = activeAtStart > 0 ? (churnedInYear.length / activeAtStart * 100) : null;
+    // Annual churn rate: all churns in year ÷ all customers we had in the year
+    // (Bestand zu Jahresbeginn + im Jahr neu gewonnen). Same cohort in both.
+    var yearBase = yearActiveBase(year, all, tenure, churnedInYear);
+    var churnRate = yearBase > 0 ? (churnedInYear.length / yearBase * 100) : null;
 
     // Monthly active base (denominator for per-month churn rate) for the chart
     var monthlyBase = [];
@@ -212,9 +231,9 @@
     // KPIs
     document.getElementById('kpiChurned').textContent = fmtInt(churnedInYear.length);
     document.getElementById('kpiChurnRate').textContent = churnRate !== null ? churnRate.toFixed(1) + ' %' : '—';
-    document.getElementById('kpiChurnRateHint').textContent = activeAtStart > 0
-      ? churnedInYear.length + ' verloren ÷ ' + activeAtStart + ' aktiv zu Jahresbeginn'
-      : 'keine aktiven Kunden zu Jahresbeginn';
+    document.getElementById('kpiChurnRateHint').textContent = yearBase > 0
+      ? churnedInYear.length + ' verloren ÷ ' + yearBase + ' Kunden im Jahr (Bestand + Neuzugänge)'
+      : 'keine Kunden im Jahr';
 
     var avgTenure = churnedInYear.length ? churnedInYear.reduce(function (s, c) { return s + c.activeMonths; }, 0) / churnedInYear.length : 0;
     document.getElementById('kpiAvgTenure').textContent = churnedInYear.length ? avgTenure.toFixed(1) + ' Mon.' : '—';
