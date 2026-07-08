@@ -34,7 +34,7 @@
   var activeYmsByContact = {};    // contact_name -> sorted [ym...]
   var revByContactYm = {};        // contact_name -> { ym: amount }  (for run-rate)
   var monthFilter = null;         // ym or null — drill-down: only show churns of this month
-  var chartMode = 'count';        // 'count' | 'revenue'
+  var chartMode = 'rate';         // 'rate' | 'count' | 'revenue'
   var latestDataYm = null, earliestDataYm = null;
   var allContactNames = [];       // included, sorted (for datalist)
   var churnChart = null;
@@ -160,6 +160,22 @@
     return result;
   }
 
+  // Count of qualified, non-project customers that are "active" as of the start of
+  // month `pt` — i.e. their last invoice is before `pt` and within their rhythm window.
+  // This is the denominator for the monthly/annual churn rate.
+  function activeBaseAt(pt, list, tenure) {
+    var n = 0;
+    list.forEach(function (c) {
+      if (c.isProject || c.streak < tenure) return;
+      var yms = activeYmsByContact[c.name];
+      var lastBefore = -1;
+      for (var i = yms.length - 1; i >= 0; i--) { if (yms[i] < pt) { lastBefore = yms[i]; break; } }
+      if (lastBefore < 0) return;
+      if ((pt - lastBefore) <= c.effectiveGap) n++;
+    });
+    return n;
+  }
+
   // ── Render ─────────────────────────────────────────────────────────
   function render() {
     var tenure = Math.max(1, parseInt(tenureInput.value, 10) || 3);
@@ -185,18 +201,13 @@
 
     // Active at start of year = qualified, had an invoice within their rhythm window before Jan
     var yStart = year * 12;
-    var activeAtStart = all.filter(function (c) {
-      if (c.isProject) return false;
-      // last active month strictly before the year, within the customer's rhythm window
-      var lastBefore = -1;
-      var yms = activeYmsByContact[c.name];
-      for (var i = yms.length - 1; i >= 0; i--) { if (yms[i] < yStart) { lastBefore = yms[i]; break; } }
-      if (lastBefore < 0) return false;
-      if (c.streak < tenure) return false;
-      return (yStart - lastBefore) <= c.effectiveGap; // still within their normal cadence at Jan 1
-    }).length;
+    var activeAtStart = activeBaseAt(yStart, all, tenure);
 
     var churnRate = activeAtStart > 0 ? (churnedInYear.length / activeAtStart * 100) : null;
+
+    // Monthly active base (denominator for per-month churn rate) for the chart
+    var monthlyBase = [];
+    for (var mo = 0; mo < 12; mo++) monthlyBase.push(activeBaseAt(year * 12 + mo, all, tenure));
 
     // KPIs
     document.getElementById('kpiChurned').textContent = fmtInt(churnedInYear.length);
@@ -228,22 +239,27 @@
     var tableList = monthFilter !== null
       ? churnedInYear.filter(function (c) { return c.churnYm === monthFilter; })
       : churnedInYear;
-    renderMonthFilterBar(churnedInYear.length);
+    renderMonthFilterBar(churnedInYear.length, tableList);
     renderChurnTable(tableList);
     renderAtRisk(atRiskList);
-    renderChart(churnedInYear, year);
+    renderChart(churnedInYear, year, monthlyBase);
     populateContactDatalist();
   }
 
-  function renderMonthFilterBar(totalInYear) {
+  function renderMonthFilterBar(totalInYear, monthList) {
     var bar = document.getElementById('monthFilterBar');
     if (!bar) return;
     if (monthFilter === null) { bar.innerHTML = ''; return; }
+    var names = monthList.length
+      ? monthList.map(function (c) { return escHtml(c.name); }).join(', ')
+      : 'keine';
     bar.innerHTML =
-      '<div style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--primary-light);' +
-      'border:1px solid var(--primary);border-radius:var(--radius);font-size:13px;margin-bottom:10px">' +
-      '<span>Gefiltert auf <strong>' + ymLabel(monthFilter) + '</strong> — ' +
-      '<button id="clearMonthFilter" class="btn btn-ghost btn-sm" style="padding:1px 8px">alle Monate zeigen (' + totalInYear + ')</button></span></div>';
+      '<div style="display:flex;align-items:flex-start;gap:12px;padding:10px 14px;background:var(--primary-light);' +
+      'border:1px solid var(--primary);border-radius:var(--radius);font-size:13px;margin-bottom:12px">' +
+      '<div style="flex:1"><strong>' + ymLabel(monthFilter) + '</strong>: ' +
+        monthList.length + ' Kunde' + (monthList.length === 1 ? '' : 'n') + ' gechurnt — ' + names + '</div>' +
+      '<button id="clearMonthFilter" class="btn btn-ghost btn-sm" style="padding:2px 10px;white-space:nowrap">alle Monate (' + totalInYear + ')</button>' +
+      '</div>';
     var btn = document.getElementById('clearMonthFilter');
     if (btn) btn.addEventListener('click', function () { monthFilter = null; render(); });
   }
@@ -300,7 +316,7 @@
     });
   }
 
-  function renderChart(churnedInYear, year) {
+  function renderChart(churnedInYear, year, monthlyBase) {
     var ctx = document.getElementById('churnChart');
     if (!ctx) return;
     var counts = new Array(12).fill(0);
@@ -311,8 +327,15 @@
       counts[m]++;
       revenue[m] += (c.annualRev || 0);
     });
-    var isRev = chartMode === 'revenue';
-    var data = isRev ? revenue.map(function (v) { return Math.round(v); }) : counts;
+    // Monthly churn rate = churned that month ÷ customers active entering that month.
+    var base = monthlyBase || new Array(12).fill(0);
+    var rate = counts.map(function (n, i) { return base[i] > 0 ? (n / base[i] * 100) : 0; });
+
+    var mode = chartMode; // 'rate' | 'count' | 'revenue'
+    var label = mode === 'revenue' ? 'Verlorener Umsatz p.a.' : mode === 'count' ? 'Verlorene Kunden' : 'Churn-Rate';
+    var data = mode === 'revenue' ? revenue.map(function (v) { return Math.round(v); })
+             : mode === 'count'   ? counts
+             : rate.map(function (v) { return Math.round(v * 10) / 10; });
 
     if (churnChart) churnChart.destroy();
     churnChart = new Chart(ctx, {
@@ -320,7 +343,7 @@
       data: {
         labels: MONTHS_LABEL,
         datasets: [{
-          label: isRev ? 'Verlorener Umsatz p.a.' : 'Verlorene Kunden',
+          label: label,
           data: data,
           backgroundColor: data.map(function (_, i) {
             return (monthFilter !== null && ymM(monthFilter) - 1 === i) ? '#b91c1c' : '#ef4444';
@@ -329,7 +352,7 @@
       },
       options: {
         responsive: true, maintainAspectRatio: false,
-        onClick: function (evt, elements) {
+        onClick: function (evt) {
           var pts = churnChart.getElementsAtEventForMode(evt, 'nearest', { intersect: false }, false);
           if (!pts.length) return;
           var mIdx = pts[0].index;
@@ -341,13 +364,17 @@
         onHover: function (evt, els) { evt.native.target.style.cursor = els.length ? 'pointer' : 'default'; },
         plugins: {
           legend: { display: false },
-          tooltip: { callbacks: { label: function (c) {
-            return isRev ? ('Verlorener Umsatz p.a.: ' + fmt(c.parsed.y)) : (c.parsed.y + ' Kunde' + (c.parsed.y === 1 ? '' : 'n'));
+          tooltip: { callbacks: { label: function (item) {
+            var i = item.dataIndex;
+            if (mode === 'revenue') return 'Verlorener Umsatz p.a.: ' + fmt(item.parsed.y);
+            if (mode === 'count')   return item.parsed.y + ' Kunde' + (item.parsed.y === 1 ? '' : 'n');
+            return 'Churn-Rate: ' + item.parsed.y.toLocaleString('de-DE') + ' %  (' + counts[i] + ' von ' + base[i] + ' aktiv)';
           } } },
         },
-        scales: { y: { beginAtZero: true, ticks: isRev
-          ? { callback: function (v) { return (v / 1000).toLocaleString('de-DE') + 'k €'; } }
-          : { precision: 0 } } },
+        scales: { y: { beginAtZero: true, ticks:
+            mode === 'revenue' ? { callback: function (v) { return (v / 1000).toLocaleString('de-DE') + 'k €'; } }
+          : mode === 'rate'    ? { callback: function (v) { return v + ' %'; } }
+          :                      { precision: 0 } } },
       },
     });
   }
@@ -470,21 +497,20 @@
   tenureInput.addEventListener('change', render);
   gapInput.addEventListener('change', render);
 
-  // Chart mode toggle (Anzahl ↔ Umsatz)
+  // Chart mode toggle (Churn % ↔ Anzahl ↔ Umsatz)
+  var CHART_MODE_BTNS = [['chartModeRate', 'rate'], ['chartModeCount', 'count'], ['chartModeRevenue', 'revenue']];
   function setChartMode(mode) {
     chartMode = mode;
-    var bC = document.getElementById('chartModeCount'), bR = document.getElementById('chartModeRevenue');
-    if (bC && bR) {
-      bC.className = 'btn btn-sm ' + (mode === 'count' ? 'btn-primary' : 'btn-secondary');
-      bR.className = 'btn btn-sm ' + (mode === 'revenue' ? 'btn-primary' : 'btn-secondary');
-    }
+    CHART_MODE_BTNS.forEach(function (p) {
+      var b = document.getElementById(p[0]);
+      if (b) b.className = 'btn btn-sm ' + (mode === p[1] ? 'btn-primary' : 'btn-secondary');
+    });
     render();
   }
-  (function () {
-    var bC = document.getElementById('chartModeCount'), bR = document.getElementById('chartModeRevenue');
-    if (bC) bC.addEventListener('click', function () { setChartMode('count'); });
-    if (bR) bR.addEventListener('click', function () { setChartMode('revenue'); });
-  })();
+  CHART_MODE_BTNS.forEach(function (p) {
+    var b = document.getElementById(p[0]);
+    if (b) b.addEventListener('click', function () { setChartMode(p[1]); });
+  });
 
   function loadData() {
     errorEl.innerHTML = '';
