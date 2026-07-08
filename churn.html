@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Churn-Analyse – Adsmasters Management</title>
+  <link rel="stylesheet" href="css/style.css">
+  <style>
+    .summary-strip { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
+    .kpi-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 16px 20px; flex: 1; min-width: 170px;
+    }
+    .kpi-card .kpi-label { font-size: 12px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: .04em; font-weight: 600; }
+    .kpi-card .kpi-value { font-size: 24px; font-weight: 700; margin-top: 4px; color: var(--text); }
+    .kpi-card .kpi-hint  { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+    .neg { color: #991b1b; }
+    .warn { color: #92400e; }
+    .ctrl-input, .year-select {
+      padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius);
+      font-size: 14px; background: var(--surface); color: var(--text); font-weight: 600;
+    }
+    .ctrl-num { width: 58px; text-align: center; }
+    .caveat-box {
+      background: var(--warning-bg); border: 1px solid var(--warning); border-radius: var(--radius);
+      padding: 12px 16px; font-size: 13px; color: #92400e; margin-bottom: 20px; line-height: 1.5;
+    }
+    .method-box {
+      background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+      padding: 14px 18px; font-size: 12.5px; color: var(--text-secondary); margin-bottom: 20px; line-height: 1.6;
+    }
+    .method-box summary { cursor: pointer; font-weight: 600; color: var(--text); font-size: 13px; }
+    .method-box ul { margin: 10px 0 0 18px; }
+    .chart-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; margin-bottom: 20px; }
+    .chart-card h2 { font-size: 14px; font-weight: 600; margin-bottom: 14px; }
+    .chart-wrap { position: relative; height: 260px; }
+    .tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; border: 1px solid var(--border); }
+    .tag-auto   { background: var(--bg); color: var(--text-secondary); }
+    .tag-manual { background: var(--primary-light); color: var(--primary); border-color: var(--primary); }
+    .tag-risk   { background: var(--warning-bg); color: #92400e; border-color: var(--warning); }
+  </style>
+</head>
+<body>
+
+<header class="header">
+  <div class="header-inner">
+    <a href="index.html" class="logo">Adsmasters <span>Management</span></a>
+    <nav>
+      <a href="index.html"            class="nav-link">Übersicht</a>
+      <a href="clients.html"          class="nav-link">Kunden</a>
+      <a href="employees.html"        class="nav-link">Mitarbeiter</a>
+      <a href="utilization.html"      class="nav-link">Auslastung</a>
+      <a href="profit.html"           class="nav-link">Profitabilität</a>
+      <a href="funnel.html"           class="nav-link">Profit-Funnel</a>
+      <a href="kostenanalyse.html"    class="nav-link">Kostenanalyse</a>
+      <a href="revenue-timeline.html" class="nav-link">Umsatz-Verlauf</a>
+      <a href="open-invoices.html"    class="nav-link">Offene Rechnungen</a>
+      <a href="rechnungs-check.html"  class="nav-link">Rechnungs-Check</a>
+      <a href="employee-revenue.html" class="nav-link">MA-Umsatz</a>
+      <a href="acquisition.html"      class="nav-link">Akquisition</a>
+      <a href="cac-analyse.html"      class="nav-link">CAC-Analyse</a>
+      <a href="churn.html"            class="nav-link active">Churn</a>
+      <a href="name-mapping.html"     class="nav-link">Zuordnung</a>
+      <a href="settings.html"         class="nav-link">Einstellungen</a>
+    </nav>
+  </div>
+</header>
+
+<main class="main">
+
+  <div id="error"></div>
+
+  <div class="page-header">
+    <div>
+      <h1>Churn-Analyse</h1>
+      <div class="sub">Abgewanderte Kunden nach Jahr — automatisch erkannt &amp; manuell pflegbar</div>
+    </div>
+    <button id="addChurnBtn" class="btn btn-primary">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+      Churn manuell eintragen
+    </button>
+  </div>
+
+  <div id="loading" class="hidden">
+    <div class="loading-bar"><div class="spinner"></div>Daten werden geladen…</div>
+  </div>
+
+  <div id="content" class="hidden">
+
+    <div style="display:flex;align-items:center;gap:16px;margin-bottom:16px;flex-wrap:wrap;font-size:13px;color:var(--text-secondary)">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span>Jahr:</span>
+        <select id="yearSelect" class="year-select"></select>
+      </div>
+      <div style="width:1px;height:24px;background:var(--border)"></div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span>Churn-Regel:</span>
+        <span>ab</span>
+        <input type="number" id="tenureInput" class="ctrl-input ctrl-num" min="1" max="12" value="3">
+        <span>Monaten aktiv, dann</span>
+        <input type="number" id="gapInput" class="ctrl-input ctrl-num" min="1" max="12" value="2">
+        <span>Monate ohne Rechnung</span>
+      </div>
+    </div>
+
+    <div id="caveatBox"></div>
+    <div id="excludeNote"></div>
+
+    <div class="summary-strip">
+      <div class="kpi-card">
+        <div class="kpi-label">Verloren in <span class="kpiYearLabel"></span></div>
+        <div class="kpi-value neg" id="kpiChurned">—</div>
+        <div class="kpi-hint">Kunden, deren Churn in diesem Jahr liegt</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Churn-Rate <span class="kpiYearLabel"></span></div>
+        <div class="kpi-value" id="kpiChurnRate">—</div>
+        <div class="kpi-hint" id="kpiChurnRateHint">verloren ÷ aktive zu Jahresbeginn</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Ø Betreuungsdauer (verloren)</div>
+        <div class="kpi-value" id="kpiAvgTenure">—</div>
+        <div class="kpi-hint">Monate mit Umsatz, bevor sie gingen</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Ø Umsatz (verloren, gesamt)</div>
+        <div class="kpi-value" id="kpiAvgRev">—</div>
+        <div class="kpi-hint">Lifetime-Umsatz pro verlorenem Kunden</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Aktive Kunden aktuell</div>
+        <div class="kpi-value" id="kpiActiveNow">—</div>
+        <div class="kpi-hint" id="kpiActiveNowHint">Rechnung im letzten Datenmonat</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Gefährdet</div>
+        <div class="kpi-value warn" id="kpiAtRisk">—</div>
+        <div class="kpi-hint">Qualifiziert, aber 1 Monat ohne Rechnung</div>
+      </div>
+    </div>
+
+    <div class="chart-card">
+      <h2>Verlorene Kunden pro Monat — <span class="kpiYearLabel"></span></h2>
+      <div class="chart-wrap"><canvas id="churnChart"></canvas></div>
+    </div>
+
+    <div class="card" style="margin-bottom:20px">
+      <div class="card-header"><h2>Verlorene Kunden in <span class="kpiYearLabel"></span></h2></div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th style="min-width:180px">Kunde</th>
+              <th style="min-width:110px">Letzte Rechnung</th>
+              <th style="min-width:110px">Churn (Monat)</th>
+              <th class="right" style="min-width:80px">Dauer</th>
+              <th class="right" style="min-width:120px">Umsatz gesamt</th>
+              <th style="min-width:100px">Quelle</th>
+              <th style="min-width:150px">Grund</th>
+              <th class="center" style="min-width:160px">Aktionen</th>
+            </tr>
+          </thead>
+          <tbody id="churnBody"></tbody>
+        </table>
+      </div>
+      <div id="churnEmpty" class="hidden" style="padding:24px;text-align:center;color:var(--text-secondary)">
+        Keine abgewanderten Kunden in diesem Jahr. 🎉
+      </div>
+    </div>
+
+    <div class="card" id="atRiskCard" style="margin-bottom:20px">
+      <div class="card-header"><h2>Gefährdet — 1 Monat ohne Rechnung (Stand heute)</h2></div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th style="min-width:180px">Kunde</th>
+              <th style="min-width:110px">Letzte Rechnung</th>
+              <th class="right" style="min-width:80px">Dauer</th>
+              <th class="center" style="min-width:200px">Aktionen</th>
+            </tr>
+          </thead>
+          <tbody id="atRiskBody"></tbody>
+        </table>
+      </div>
+      <div id="atRiskEmpty" class="hidden" style="padding:20px;text-align:center;color:var(--text-secondary);font-size:13px">
+        Aktuell kein Kunde gefährdet.
+      </div>
+    </div>
+
+    <details class="method-box">
+      <summary>Methodik &amp; Annahmen</summary>
+      <ul>
+        <li><strong>Aktiv in einem Monat</strong> = es gibt eine Rechnung/Umsatz für diesen Kontakt in dem Monat (Basis: <code>revenue</code>-Tabelle).</li>
+        <li><strong>Qualifizierter Kunde</strong> = mindestens <span class="ruleTenure">3</span> zusammenhängende aktive Monate am Stück. Projektkunden mit weniger (bzw. <code>is_project</code>) gelten nicht als Churn.</li>
+        <li><strong>Churn (automatisch)</strong> = qualifizierter Kunde, dessen letzte Rechnung mindestens <span class="ruleGap">2</span> Monate zurückliegt (bis zum letzten Datenmonat). Churn-Monat = der erste Monat nach der letzten Rechnung.</li>
+        <li><strong>Manuell</strong> übersteuert immer: „Churn eintragen" (mit Datum) erzwingt Churn; „als aktiv markieren" unterdrückt einen Fehlalarm (z. B. saisonale Pause).</li>
+        <li><strong>Ausgeschlossen</strong> (wie in CAC/Umsatzanalyse): zentral als „kein Kunde" markierte Kontakte sowie PPC-Tools-Kunden (Kategorie „Software", 99 €/Monat).</li>
+        <li><strong>Churn-Rate</strong> = verlorene Kunden im Jahr ÷ Kunden, die zu Jahresbeginn aktiv waren.</li>
+        <li>Der <strong>letzte Datenmonat</strong> ist noch nicht unbedingt vollständig synchronisiert — ganz frische „Churns" können sich noch als verspätete Rechnung auflösen.</li>
+      </ul>
+    </details>
+
+  </div>
+
+</main>
+
+<!-- Manual churn modal -->
+<div id="churnModal" class="modal-overlay hidden">
+  <div class="modal" style="max-width:480px">
+    <div class="modal-header">
+      <h3 id="churnModalTitle">Churn manuell eintragen</h3>
+      <button class="modal-close" id="churnModalClose">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="field">
+        <label for="churnContactInput">Kunde <span style="color:var(--danger)">*</span></label>
+        <input type="text" id="churnContactInput" placeholder="Kontakt suchen…" autocomplete="off" list="churnContactList">
+        <datalist id="churnContactList"></datalist>
+      </div>
+      <div class="field">
+        <label>Status</label>
+        <div style="display:flex;gap:16px;font-size:13px;margin-top:4px">
+          <label style="display:flex;align-items:center;gap:6px;font-weight:400;cursor:pointer">
+            <input type="radio" name="churnStatus" value="churned" checked> Abgewandert (Churn)
+          </label>
+          <label style="display:flex;align-items:center;gap:6px;font-weight:400;cursor:pointer">
+            <input type="radio" name="churnStatus" value="active"> Doch aktiv (Fehlalarm unterdrücken)
+          </label>
+        </div>
+      </div>
+      <div class="field" id="churnDateField">
+        <label for="churnDateInput">Churn-Datum <span style="color:var(--text-muted);font-weight:400">(z. B. Kündigung zum …)</span></label>
+        <input type="date" id="churnDateInput">
+      </div>
+      <div class="field">
+        <label for="churnReasonInput">Grund <span style="color:var(--text-muted);font-weight:400">(optional)</span></label>
+        <input type="text" id="churnReasonInput" placeholder="z. B. Budget gekürzt, zu Wettbewerber, Projekt beendet">
+      </div>
+      <div class="field">
+        <label for="churnNotesInput">Notizen <span style="color:var(--text-muted);font-weight:400">(optional)</span></label>
+        <textarea id="churnNotesInput" rows="2" style="resize:vertical"></textarea>
+      </div>
+    </div>
+    <div class="modal-footer" style="justify-content:space-between">
+      <button class="btn btn-danger" id="churnModalDelete" style="visibility:hidden">Eintrag entfernen</button>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-secondary" id="churnModalCancel">Abbrechen</button>
+        <button class="btn btn-primary"   id="churnModalSave">Speichern</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="js/db.js?v=20260610b"></script>
+<script src="js/utils.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/churn.js"></script>
+  <script defer src="https://adsmasters.github.io/hub/backlink.js"></script>
+</body>
+</html>
