@@ -178,7 +178,7 @@
 
   // ── Render ─────────────────────────────────────────────────────────
   function render() {
-    var tenure = Math.max(1, parseInt(tenureInput.value, 10) || 3);
+    var tenure = Math.max(1, parseInt(tenureInput.value, 10) || 4);
     var gapThresh = Math.max(1, parseInt(gapInput.value, 10) || 2);
     var year = parseInt(yearSelect.value, 10);
 

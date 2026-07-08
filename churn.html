@@ -79,7 +79,7 @@
       <div style="display:flex;align-items:center;gap:8px">
         <span>Churn-Regel:</span>
         <span>ab</span>
-        <input type="number" id="tenureInput" class="ctrl-input ctrl-num" min="1" max="12" value="3">
+        <input type="number" id="tenureInput" class="ctrl-input ctrl-num" min="1" max="12" value="4">
         <span>Monaten aktiv, dann</span>
         <input type="number" id="gapInput" class="ctrl-input ctrl-num" min="1" max="12" value="2">
         <span>Monate ohne Rechnung</span>
@@ -187,7 +187,7 @@
       <summary>Methodik &amp; Annahmen</summary>
       <ul>
         <li><strong>Aktiv in einem Monat</strong> = es gibt eine Rechnung/Umsatz für diesen Kontakt in dem Monat (Basis: <code>revenue</code>-Tabelle).</li>
-        <li><strong>Qualifizierter Kunde</strong> = mindestens <span class="ruleTenure">3</span> <em>zusammenhängende</em> aktive Monate am Stück (die vier Monate müssen also hintereinander liegen, nicht über das Jahr verteilt). Projektkunden mit weniger (bzw. <code>is_project</code>) gelten nicht als Churn.</li>
+        <li><strong>Qualifizierter Kunde</strong> = mindestens <span class="ruleTenure">4</span> <em>zusammenhängende</em> aktive Monate am Stück (die Monate müssen also hintereinander liegen, nicht über das Jahr verteilt). Projektkunden mit weniger (bzw. <code>is_project</code>) gelten nicht als Churn.</li>
         <li><strong>Rhythmus-Erkennung (gegen Fehlalarme bei Quartalskunden):</strong> Statt starr <span class="ruleGap">2</span> Monate zu nehmen, merkt sich das Tool die längste Pause, die ein Kunde bisher <em>überbrückt</em> hat (z. B. kommt quartalsweise → überbrückt ~3 Monate). Als Churn zählt erst eine Stille, die <em>länger</em> als sein bisheriger Rhythmus ist. Ein Quartalskunde wird dadurch nicht fälschlich als Churn gezählt.</li>
         <li><strong>Churn (automatisch)</strong> = qualifizierter Kunde, dessen Stille seit der letzten Rechnung die Rhythmus-Schwelle (mind. <span class="ruleGap">2</span> Monate, aber nie weniger als seine bisherige längste überbrückte Pause + 1) erreicht. Churn-Monat = der erste Monat nach der letzten Rechnung.</li>
         <li><strong>Verlorener Umsatz:</strong> <em>Run-Rate</em> = Ø-Umsatz der letzten bis zu 3 aktiven Monate des Kunden; <em>Annualisiert</em> = Run-Rate × 12 (entgangener Jahresumsatz). Die KPI oben summiert die annualisierte Run-Rate aller Churn-Kunden des Jahres; <em>Umsatz gesamt</em> in der Tabelle ist der Lifetime-Umsatz.</li>
