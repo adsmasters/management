@@ -32,6 +32,9 @@
   var excludedGlobal = {}, excludedPPC = {}, projectContacts = {};
   var manualByContact = {};       // normC -> {status, churn_date, reason, notes, contact_name}
   var activeYmsByContact = {};    // contact_name -> sorted [ym...]
+  var revByContactYm = {};        // contact_name -> { ym: amount }  (for run-rate)
+  var monthFilter = null;         // ym or null — drill-down: only show churns of this month
+  var chartMode = 'count';        // 'count' | 'revenue'
   var latestDataYm = null, earliestDataYm = null;
   var allContactNames = [];       // included, sorted (for datalist)
   var churnChart = null;
@@ -57,12 +60,16 @@
 
   function buildIndexes() {
     activeYmsByContact = {};
+    revByContactYm = {};
     var seen = {}; // contact -> set of ym (dedupe)
     allRevenue.forEach(function (r) {
       if (!r.contact_name || isExcluded(r.contact_name)) return;
       if (!(r.total_amount > 0)) return; // only months with actual revenue = active
       var v = ym(r.year, r.month);
       var key = r.contact_name;
+      // sum revenue per contact×month (a month can have several invoice rows)
+      if (!revByContactYm[key]) revByContactYm[key] = {};
+      revByContactYm[key][v] = (revByContactYm[key][v] || 0) + r.total_amount;
       if (!seen[key]) seen[key] = {};
       if (seen[key][v]) return;
       seen[key][v] = 1;
@@ -102,8 +109,25 @@
       var firstYm = yms[0];
       var streak = longestStreak(yms);
       var activeMonths = yms.length;
+
+      // ── Revenue: lifetime total + monthly run-rate (avg of last up-to-3 active months) ──
+      var perYm = revByContactYm[name] || {};
       var totalRev = 0;
-      allRevenue.forEach(function (r) { if (r.contact_name === name && r.total_amount > 0) totalRev += r.total_amount; });
+      yms.forEach(function (v) { totalRev += (perYm[v] || 0); });
+      var lastN = yms.slice(-3);
+      var runRate = lastN.length ? lastN.reduce(function (s, v) { return s + (perYm[v] || 0); }, 0) / lastN.length : 0;
+      var annualRev = runRate * 12;
+
+      // ── Rhythm: longest gap the customer previously BRIDGED (came back from). A
+      //    quarterly customer bridges ~3-month gaps, so a 2-month silence is normal
+      //    for them — only a silence LONGER than their rhythm counts as churn. ──
+      var maxRecoveredGap = 1;
+      for (var gi = 1; gi < yms.length; gi++) {
+        var g = yms[gi] - yms[gi - 1];
+        if (g > maxRecoveredGap) maxRecoveredGap = g;
+      }
+      var effectiveGap = Math.max(gapThresh, maxRecoveredGap + 1);
+
       var isProject = !!projectContacts[k];
       var qualified = streak >= tenure && !isProject;
       var gap = latestDataYm - lastYm;
@@ -119,15 +143,17 @@
         reason = manual.reason || '';
         churnYm = manual.churn_date ? ym(parseInt(manual.churn_date.slice(0, 4), 10), parseInt(manual.churn_date.slice(5, 7), 10)) : (lastYm + 1);
       } else {
-        // Automatik
-        if (qualified && gap >= gapThresh) { churned = true; churnYm = lastYm + 1; }
-        else if (qualified && gap >= 1 && gap < gapThresh) { atRisk = true; }
+        // Automatik: Churn erst, wenn die Stille die bisherige Rhythmus-Pause übersteigt.
+        if (qualified && gap >= effectiveGap) { churned = true; churnYm = lastYm + 1; }
+        else if (qualified && gap >= 1 && gap === effectiveGap - 1) { atRisk = true; }
       }
 
       result.push({
         name: name, churned: churned, churnYm: churnYm, source: source, reason: reason,
         lastYm: lastYm, firstYm: firstYm, streak: streak, activeMonths: activeMonths,
-        totalRev: totalRev, isProject: isProject, qualified: qualified, gap: gap, atRisk: atRisk,
+        totalRev: totalRev, runRate: runRate, annualRev: annualRev,
+        isProject: isProject, qualified: qualified, gap: gap, atRisk: atRisk,
+        maxRecoveredGap: maxRecoveredGap, effectiveGap: effectiveGap,
         manual: manual || null,
       });
     });
@@ -157,17 +183,17 @@
     var churnedInYear = all.filter(function (c) { return c.churned && c.churnYm !== null && ymY(c.churnYm) === year; });
     churnedInYear.sort(function (a, b) { return a.churnYm - b.churnYm || a.name.localeCompare(b.name, 'de'); });
 
-    // Active at start of year = qualified, had an invoice within `gap` months before Jan (still alive going in)
+    // Active at start of year = qualified, had an invoice within their rhythm window before Jan
     var yStart = year * 12;
     var activeAtStart = all.filter(function (c) {
       if (c.isProject) return false;
-      // last active month strictly before the year, within the gap window (not already churned before Y)
+      // last active month strictly before the year, within the customer's rhythm window
       var lastBefore = -1;
       var yms = activeYmsByContact[c.name];
       for (var i = yms.length - 1; i >= 0; i--) { if (yms[i] < yStart) { lastBefore = yms[i]; break; } }
       if (lastBefore < 0) return false;
       if (c.streak < tenure) return false;
-      return (yStart - lastBefore) <= gapThresh; // still within grace at Jan 1 → was active
+      return (yStart - lastBefore) <= c.effectiveGap; // still within their normal cadence at Jan 1
     }).length;
 
     var churnRate = activeAtStart > 0 ? (churnedInYear.length / activeAtStart * 100) : null;
@@ -180,21 +206,46 @@
       : 'keine aktiven Kunden zu Jahresbeginn';
 
     var avgTenure = churnedInYear.length ? churnedInYear.reduce(function (s, c) { return s + c.activeMonths; }, 0) / churnedInYear.length : 0;
-    var avgRev    = churnedInYear.length ? churnedInYear.reduce(function (s, c) { return s + c.totalRev; }, 0) / churnedInYear.length : 0;
     document.getElementById('kpiAvgTenure').textContent = churnedInYear.length ? avgTenure.toFixed(1) + ' Mon.' : '—';
-    document.getElementById('kpiAvgRev').textContent    = churnedInYear.length ? fmt(avgRev) : '—';
+
+    // Verlorener Umsatz: annualisierte Run-Rate der Churn-Kunden aufsummiert
+    var lostAnnual  = churnedInYear.reduce(function (s, c) { return s + (c.annualRev || 0); }, 0);
+    var lostMonthly = churnedInYear.reduce(function (s, c) { return s + (c.runRate || 0); }, 0);
+    document.getElementById('kpiLostRev').textContent     = churnedInYear.length ? fmt(lostAnnual) : '—';
+    document.getElementById('kpiLostRevHint').textContent = churnedInYear.length
+      ? fmt(lostMonthly) + ' / Monat (Run-Rate) · annualisiert ×12'
+      : 'annualisierte Run-Rate der verlorenen Kunden';
 
     // Active now / at risk (state as of latest data month)
-    var activeNow = all.filter(function (c) { return !c.churned && !c.isProject && c.gap < gapThresh; }).length;
+    var activeNow = all.filter(function (c) { return !c.churned && !c.isProject && c.qualified && c.gap < c.effectiveGap; }).length;
     var atRiskList = all.filter(function (c) { return c.atRisk; }).sort(function (a, b) { return b.lastYm - a.lastYm || a.name.localeCompare(b.name, 'de'); });
     document.getElementById('kpiActiveNow').textContent = fmtInt(activeNow);
-    document.getElementById('kpiActiveNowHint').textContent = 'Rechnung innerhalb der letzten ' + gapThresh + ' Monate';
+    document.getElementById('kpiActiveNowHint').textContent = 'Rechnung innerhalb ihres normalen Rhythmus';
     document.getElementById('kpiAtRisk').textContent = fmtInt(atRiskList.length);
 
-    renderChurnTable(churnedInYear);
+    // Month drill-down: table shows either the whole year or just the clicked month
+    if (monthFilter !== null && ymY(monthFilter) !== year) monthFilter = null; // year changed
+    var tableList = monthFilter !== null
+      ? churnedInYear.filter(function (c) { return c.churnYm === monthFilter; })
+      : churnedInYear;
+    renderMonthFilterBar(churnedInYear.length);
+    renderChurnTable(tableList);
     renderAtRisk(atRiskList);
-    renderChart(all, year);
+    renderChart(churnedInYear, year);
     populateContactDatalist();
+  }
+
+  function renderMonthFilterBar(totalInYear) {
+    var bar = document.getElementById('monthFilterBar');
+    if (!bar) return;
+    if (monthFilter === null) { bar.innerHTML = ''; return; }
+    bar.innerHTML =
+      '<div style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--primary-light);' +
+      'border:1px solid var(--primary);border-radius:var(--radius);font-size:13px;margin-bottom:10px">' +
+      '<span>Gefiltert auf <strong>' + ymLabel(monthFilter) + '</strong> — ' +
+      '<button id="clearMonthFilter" class="btn btn-ghost btn-sm" style="padding:1px 8px">alle Monate zeigen (' + totalInYear + ')</button></span></div>';
+    var btn = document.getElementById('clearMonthFilter');
+    if (btn) btn.addEventListener('click', function () { monthFilter = null; render(); });
   }
 
   function reasonLabel(c) {
@@ -214,7 +265,9 @@
         '<td>' + ymLabel(c.lastYm) + '</td>' +
         '<td>' + (c.churnYm !== null ? ymLabel(c.churnYm) : '—') + '</td>' +
         '<td class="right">' + c.activeMonths + ' Mon.</td>' +
-        '<td class="right" style="font-variant-numeric:tabular-nums">' + fmt(c.totalRev) + '</td>' +
+        '<td class="right" style="font-variant-numeric:tabular-nums">' + fmt(c.runRate) + '</td>' +
+        '<td class="right" style="font-variant-numeric:tabular-nums;font-weight:600">' + fmt(c.annualRev) + '</td>' +
+        '<td class="right" style="font-variant-numeric:tabular-nums;color:var(--text-secondary)">' + fmt(c.totalRev) + '</td>' +
         '<td>' + (c.source === 'manual' ? '<span class="tag tag-manual">manuell</span>' : '<span class="tag tag-auto">automatisch</span>') + '</td>' +
         '<td style="font-size:12px">' + reasonLabel(c) + '</td>' +
         '<td class="center"><div style="display:flex;gap:6px;justify-content:center">' +
@@ -247,21 +300,54 @@
     });
   }
 
-  function renderChart(all, year) {
+  function renderChart(churnedInYear, year) {
     var ctx = document.getElementById('churnChart');
     if (!ctx) return;
     var counts = new Array(12).fill(0);
-    all.forEach(function (c) {
-      if (c.churned && c.churnYm !== null && ymY(c.churnYm) === year) counts[ymM(c.churnYm) - 1]++;
+    var revenue = new Array(12).fill(0);
+    churnedInYear.forEach(function (c) {
+      if (c.churnYm === null) return;
+      var m = ymM(c.churnYm) - 1;
+      counts[m]++;
+      revenue[m] += (c.annualRev || 0);
     });
+    var isRev = chartMode === 'revenue';
+    var data = isRev ? revenue.map(function (v) { return Math.round(v); }) : counts;
+
     if (churnChart) churnChart.destroy();
     churnChart = new Chart(ctx, {
       type: 'bar',
-      data: { labels: MONTHS_LABEL, datasets: [{ label: 'Verlorene Kunden', data: counts, backgroundColor: '#ef4444' }] },
+      data: {
+        labels: MONTHS_LABEL,
+        datasets: [{
+          label: isRev ? 'Verlorener Umsatz p.a.' : 'Verlorene Kunden',
+          data: data,
+          backgroundColor: data.map(function (_, i) {
+            return (monthFilter !== null && ymM(monthFilter) - 1 === i) ? '#b91c1c' : '#ef4444';
+          }),
+        }],
+      },
       options: {
         responsive: true, maintainAspectRatio: false,
-        plugins: { legend: { display: false } },
-        scales: { y: { beginAtZero: true, ticks: { precision: 0 } } },
+        onClick: function (evt, elements) {
+          var pts = churnChart.getElementsAtEventForMode(evt, 'nearest', { intersect: false }, false);
+          if (!pts.length) return;
+          var mIdx = pts[0].index;
+          var clickedYm = ym(year, mIdx + 1);
+          if ((counts[mIdx] || 0) === 0) return; // nothing to drill into
+          monthFilter = (monthFilter === clickedYm) ? null : clickedYm; // toggle
+          render();
+        },
+        onHover: function (evt, els) { evt.native.target.style.cursor = els.length ? 'pointer' : 'default'; },
+        plugins: {
+          legend: { display: false },
+          tooltip: { callbacks: { label: function (c) {
+            return isRev ? ('Verlorener Umsatz p.a.: ' + fmt(c.parsed.y)) : (c.parsed.y + ' Kunde' + (c.parsed.y === 1 ? '' : 'n'));
+          } } },
+        },
+        scales: { y: { beginAtZero: true, ticks: isRev
+          ? { callback: function (v) { return (v / 1000).toLocaleString('de-DE') + 'k €'; } }
+          : { precision: 0 } } },
       },
     });
   }
@@ -383,6 +469,22 @@
   yearSelect.addEventListener('change', render);
   tenureInput.addEventListener('change', render);
   gapInput.addEventListener('change', render);
+
+  // Chart mode toggle (Anzahl ↔ Umsatz)
+  function setChartMode(mode) {
+    chartMode = mode;
+    var bC = document.getElementById('chartModeCount'), bR = document.getElementById('chartModeRevenue');
+    if (bC && bR) {
+      bC.className = 'btn btn-sm ' + (mode === 'count' ? 'btn-primary' : 'btn-secondary');
+      bR.className = 'btn btn-sm ' + (mode === 'revenue' ? 'btn-primary' : 'btn-secondary');
+    }
+    render();
+  }
+  (function () {
+    var bC = document.getElementById('chartModeCount'), bR = document.getElementById('chartModeRevenue');
+    if (bC) bC.addEventListener('click', function () { setChartMode('count'); });
+    if (bR) bR.addEventListener('click', function () { setChartMode('revenue'); });
+  })();
 
   function loadData() {
     errorEl.innerHTML = '';
