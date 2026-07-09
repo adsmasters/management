@@ -63,6 +63,9 @@
       '#mainnav .nav-menu{position:absolute;top:calc(100% + 4px);left:0;min-width:190px;background:var(--surface,#fff);' +
         'border:1px solid var(--border,#e2e8f0);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.12);' +
         'padding:6px;display:none;z-index:200;flex-direction:column;gap:2px}' +
+      // Transparent bridge across the 4px gap so moving the cursor from the top
+      // button down into the menu never loses :hover and closes the dropdown.
+      '#mainnav .nav-menu::before{content:"";position:absolute;left:0;right:0;top:-6px;height:6px}' +
       '#mainnav .nav-item.open .nav-menu,#mainnav .nav-item:hover .nav-menu{display:flex}' +
       '#mainnav .nav-menu a{display:block;padding:8px 12px;border-radius:6px;font-size:13.5px;color:var(--text,#1e293b);' +
         'text-decoration:none;white-space:nowrap}' +
