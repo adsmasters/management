@@ -70,6 +70,7 @@
   <div id="content" class="hidden">
 
     <div id="caveatBox"></div>
+    <div id="excludeNote"></div>
 
     <div class="summary-strip">
       <div class="kpi-card">
@@ -101,9 +102,14 @@
         <div class="kpi-hint">Pro neuem Kunden</div>
       </div>
       <div class="kpi-card">
+        <div class="kpi-label">Gesamtumsatz erste 3 Monate</div>
+        <div class="kpi-value" id="kpiRev90Total">—</div>
+        <div class="kpi-hint">Alle neuen Kunden zusammen · Näherung „erste 90 Tage"</div>
+      </div>
+      <div class="kpi-card">
         <div class="kpi-label">Ø Umsatz erste 3 Monate</div>
         <div class="kpi-value" id="kpiRev90">—</div>
-        <div class="kpi-hint">Näherung für „erste 90 Tage"</div>
+        <div class="kpi-hint">Pro neuem Kunden · Näherung „erste 90 Tage"</div>
       </div>
       <div class="kpi-card">
         <div class="kpi-label">Break-even erreicht</div>
@@ -169,6 +175,7 @@
       <ul>
         <li><strong>Marketing-Investment:</strong> ausschließlich Summe aus „Akquisition" (<code>acquisition_costs</code>), gefiltert nach Datum im Kohortenjahr. Kostenanalyse/Bankdaten fließen bewusst nicht ein.</li>
         <li><strong>Neuer Kunde:</strong> ein Kontakt, dessen erster jemals erfasster Umsatzmonat im Kohortenjahr liegt (Basis: <code>revenue</code>-Tabelle, Daten ab Januar 2024 verfügbar).</li>
+        <li><strong>Ausgeschlossen:</strong> Kontakte, die zentral (unter „Zuordnung", <code>contact_overrides</code>) als <em>kein Kunde</em> markiert sind (z. B. Durchlaufrechnungen), sowie <strong>PPC-Tools-Kunden</strong> (Kategorie „Software", 99 €/Monat) — diese sind SaaS-Abos, keine agenturseitig akquirierten Kunden. Gleiche Ausschlüsse wie in der Umsatzanalyse; wer betroffen ist, steht oben als Hinweis.</li>
         <li><strong>„Erste 90 Tage":</strong> Näherung als die ersten 3 Kalendermonate ab dem Startmonat — die Umsatzdaten sind nur monatsgenau, keine echte Tagesgranularität verfügbar.</li>
         <li><strong>Blended CAC:</strong> Investment ÷ Anzahl neuer Kunden, gleichmäßig verteilt — keine Einzelzuordnung Kosten↔Kunde, da <code>acquisition_contact_links</code> nur teilweise gepflegt ist.</li>
         <li><strong>Break-even:</strong> erster Monat, in dem der kumulierte Umsatz eines Kunden (seit Startmonat, über die gesamte verfügbare Historie) den Blended CAC erreicht/übersteigt.</li>

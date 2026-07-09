@@ -7,6 +7,7 @@
   var emptyState  = document.getElementById('emptyState');
   var yearSelect  = document.getElementById('yearSelect');
   var caveatBox   = document.getElementById('caveatBox');
+  var excludeNote = document.getElementById('excludeNote');
   var custBody    = document.getElementById('custBody');
 
   var toggleCostDetails  = document.getElementById('toggleCostDetails');
@@ -41,15 +42,44 @@
 
   var allRevenue  = [];  // raw rows from revenue table
   var allCosts    = [];  // raw rows from acquisition_costs
+  var allOverrides = []; // rows from contact_overrides (team-wide exclusions/tags)
   var revByContact = {}; // contact_name -> [{year,month,amount}] sorted asc
   var firstYmByContact = {}; // contact_name -> ym of first-ever revenue
   var earliestDataYm = null;
   var latestDataYm   = null;
 
+  // Contacts the CAC analysis must NOT treat as acquired agency customers, using
+  // the SAME central contact_overrides table the other dashboards use (Umsatz-
+  // analyse etc.) — so exclusions stay consistent app-wide, no separate list.
+  //  - status 'excluded'   → not a customer at all (e.g. Baros Solutions GmbH)
+  //  - category 'Software' → the PPC-Tools SaaS subscribers (99 €/Monat); real
+  //    revenue elsewhere, but not agency-acquisition customers → out of CAC.
+  var PPC_CATEGORY  = 'Software';
+  var excludedGlobal = {}; // normC(name) -> true  (status='excluded')
+  var excludedPPC    = {}; // normC(name) -> true  (status='cat:Software')
+  function normC(s) { return (s || '').trim().toLowerCase(); }
+  function isExcludedContact(name) {
+    var k = normC(name);
+    return !!(excludedGlobal[k] || excludedPPC[k]);
+  }
+
+  function buildExclusions() {
+    excludedGlobal = {};
+    excludedPPC = {};
+    allOverrides.forEach(function (o) {
+      if (o.status === 'excluded') {
+        excludedGlobal[normC(o.contact_name)] = 1;
+      } else if (o.status && o.status.indexOf('cat:') === 0 && o.status.slice(4) === PPC_CATEGORY) {
+        excludedPPC[normC(o.contact_name)] = 1;
+      }
+    });
+  }
+
   function buildIndexes() {
     revByContact = {};
     allRevenue.forEach(function (r) {
       if (!r.contact_name) return;
+      if (isExcludedContact(r.contact_name)) return; // skip excluded / PPC contacts entirely
       if (!revByContact[r.contact_name]) revByContact[r.contact_name] = [];
       revByContact[r.contact_name].push({ year: r.year, month: r.month, amount: r.total_amount || 0 });
     });
@@ -59,7 +89,10 @@
       rows.sort(function (a, b) { return ym(a.year, a.month) - ym(b.year, b.month); });
       firstYmByContact[name] = ym(rows[0].year, rows[0].month);
     });
-    var allYms = allRevenue.map(function (r) { return ym(r.year, r.month); });
+    // Data-range bounds ignore excluded contacts too, so the year dropdown reflects
+    // only real-customer revenue.
+    var included = allRevenue.filter(function (r) { return r.contact_name && !isExcludedContact(r.contact_name); });
+    var allYms = included.map(function (r) { return ym(r.year, r.month); });
     earliestDataYm = allYms.length ? Math.min.apply(null, allYms) : null;
     latestDataYm   = allYms.length ? Math.max.apply(null, allYms) : null;
   }
@@ -99,6 +132,8 @@
     if (caveats.length) {
       caveatBox.innerHTML = '<div class="caveat-box">⚠️ ' + caveats.join('<br>') + '</div>';
     }
+
+    renderExcludeNote(year);
 
     // ── Marketing-Investment im Kohortenjahr ──────────────────────────
     var investment = 0;
@@ -152,10 +187,12 @@
     document.getElementById('kpiCac').textContent = newCustomers.length > 0 ? fmt(cac) : '—';
 
     var totalRevYear = rows.reduce(function (s, r) { return s + r.revYear; }, 0);
+    var totalRev90   = rows.reduce(function (s, r) { return s + r.rev90; }, 0);
     var avgRevYear   = rows.length ? totalRevYear / rows.length : 0;
-    var avgRev90     = rows.length ? rows.reduce(function (s, r) { return s + r.rev90; }, 0) / rows.length : 0;
-    document.getElementById('kpiRevYear').textContent = rows.length ? fmt(avgRevYear) : '—';
-    document.getElementById('kpiRev90').textContent   = rows.length ? fmt(avgRev90) : '—';
+    var avgRev90     = rows.length ? totalRev90 / rows.length : 0;
+    document.getElementById('kpiRevYear').textContent    = rows.length ? fmt(avgRevYear) : '—';
+    document.getElementById('kpiRev90Total').textContent = rows.length ? fmt(totalRev90) : '—';
+    document.getElementById('kpiRev90').textContent      = rows.length ? fmt(avgRev90) : '—';
 
     var kpiRevYearTotalEl = document.getElementById('kpiRevYearTotal');
     var kpiRoiHintEl      = document.getElementById('kpiRoiHint');
@@ -282,6 +319,40 @@
     return (str || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
   }
 
+  // Transparency: show exactly which contacts were removed from the cohort of the
+  // selected year and why, so the "new customers" figure can be trusted/verified.
+  function renderExcludeNote(year) {
+    var firstAll = {};
+    allRevenue.forEach(function (r) {
+      if (!r.contact_name) return;
+      var v = ym(r.year, r.month);
+      if (firstAll[r.contact_name] === undefined || v < firstAll[r.contact_name]) firstAll[r.contact_name] = v;
+    });
+    var ppcNames = [], globalNames = [];
+    Object.keys(firstAll).forEach(function (name) {
+      if (ymToYearMonth(firstAll[name]).year !== year) return;
+      var k = normC(name);
+      if (excludedGlobal[k]) globalNames.push(name);
+      else if (excludedPPC[k]) ppcNames.push(name);
+    });
+    var byDe = function (a, b) { return a.localeCompare(b, 'de'); };
+    ppcNames.sort(byDe); globalNames.sort(byDe);
+
+    if (!ppcNames.length && !globalNames.length) { excludeNote.innerHTML = ''; return; }
+    var parts = [];
+    if (ppcNames.length) {
+      parts.push('<strong>' + ppcNames.length + ' PPC-Tools-Kunde' + (ppcNames.length === 1 ? '' : 'n') +
+        '</strong> (Kategorie „Software", 99 €/Monat): ' + ppcNames.map(escHtml).join(', '));
+    }
+    if (globalNames.length) {
+      parts.push('<strong>' + globalNames.length + ' als „kein Kunde" markiert</strong>: ' + globalNames.map(escHtml).join(', '));
+    }
+    excludeNote.innerHTML =
+      '<div class="caveat-box" style="background:var(--primary-light);border-color:var(--primary);color:var(--text)">' +
+      'ℹ️ In ' + year + ' aus der CAC-Analyse ausgeschlossen (über die zentrale <a href="name-mapping.html">Zuordnung</a>, konsistent mit der Umsatzanalyse): ' +
+      parts.join(' · ') + '</div>';
+  }
+
   // Itemized list of exactly which acquisition_costs entries make up the
   // "Marketing-Investment" KPI for the selected year — so the number can be
   // checked against the actual entries in Akquisition, not just trusted blind.
@@ -335,9 +406,12 @@
     Promise.all([
       window.db.revenue.allRows(),
       window.db.acquisitionCosts.list(),
+      (window.db.contactOverrides ? window.db.contactOverrides.listAll() : Promise.resolve([])).catch(function () { return []; }),
     ]).then(function (results) {
-      allRevenue = results[0];
-      allCosts   = results[1];
+      allRevenue   = results[0];
+      allCosts     = results[1];
+      allOverrides = results[2] || [];
+      buildExclusions();
       buildIndexes();
       populateYearSelect();
       loadingEl.classList.add('hidden');
