@@ -49,6 +49,7 @@
   function showError(msg) { errorEl.innerHTML = '<div class="alert alert-danger">⚠️ ' + msg + '</div>'; }
 
   var EXCLUDED_CONTACTS = {}; // zentral ausgeschlossene Kontakte (contact_overrides)
+  var PPC_CATEGORY = 'Software'; // PPC-Tools-Kunden (99 €/Monat) – kein Agentur-Umsatz
   function normC(s) { return (s || '').trim().toLowerCase(); }
   function getExcludeKeywords() {
     return (localStorage.getItem('revenueExcludeKeywords') || '')
@@ -86,7 +87,11 @@
     ]).then(function (res) {
       var rows = res[0], svc = res[1] || [];
       EXCLUDED_CONTACTS = {};
-      (res[2] || []).forEach(function (o) { if (o.status === 'excluded') EXCLUDED_CONTACTS[normC(o.contact_name)] = 1; });
+      (res[2] || []).forEach(function (o) {
+        if (o.status === 'excluded') EXCLUDED_CONTACTS[normC(o.contact_name)] = 1;
+        // PPC-Tools-/Software-Kunden (99 €/Monat) raus – konsistent mit Churn/CAC/Neukunden
+        else if (o.status && o.status.indexOf('cat:') === 0 && o.status.slice(4) === PPC_CATEGORY) EXCLUDED_CONTACTS[normC(o.contact_name)] = 1;
+      });
       var md = {}, first = {};
       rows.forEach(function (r) {
         if (!r.contact_name || isExcluded(r.contact_name)) return;
