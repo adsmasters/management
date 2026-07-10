@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Neukunden-Analyse – Adsmasters Management</title>
+  <link rel="stylesheet" href="css/style.css">
+  <style>
+    .summary-strip { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 20px; }
+    .kpi-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 16px 20px; flex: 1; min-width: 170px;
+    }
+    .kpi-card .kpi-label { font-size: 12px; color: var(--text-secondary); text-transform: uppercase; letter-spacing: .04em; font-weight: 600; }
+    .kpi-card .kpi-value { font-size: 24px; font-weight: 700; margin-top: 4px; color: var(--text); }
+    .kpi-card .kpi-hint  { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+    .pos { color: #047857; }
+    .ctrl-input, .year-select {
+      padding: 6px 10px; border: 1px solid var(--border); border-radius: var(--radius);
+      font-size: 14px; background: var(--surface); color: var(--text); font-weight: 600;
+    }
+    .ctrl-num { width: 58px; text-align: center; }
+    .caveat-box {
+      background: var(--warning-bg); border: 1px solid var(--warning); border-radius: var(--radius);
+      padding: 12px 16px; font-size: 13px; color: #92400e; margin-bottom: 20px; line-height: 1.5;
+    }
+    .method-box {
+      background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+      padding: 14px 18px; font-size: 12.5px; color: var(--text-secondary); margin-bottom: 20px; line-height: 1.6;
+    }
+    .method-box summary { cursor: pointer; font-weight: 600; color: var(--text); font-size: 13px; }
+    .method-box ul { margin: 10px 0 0 18px; }
+    .chart-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px; margin-bottom: 20px; }
+    .chart-card h2 { font-size: 14px; font-weight: 600; margin-bottom: 14px; }
+    .chart-wrap { position: relative; height: 260px; }
+    .tag { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; border: 1px solid var(--border); }
+    .tag-active { background: #ecfdf5; color: #047857; border-color: #6ee7b7; }
+    .tag-paused { background: var(--bg); color: var(--text-secondary); }
+    .tag-project { background: var(--primary-light); color: var(--primary); border-color: var(--primary); }
+  </style>
+</head>
+<body>
+
+<header class="header">
+  <div class="header-inner">
+    <a href="index.html" class="logo">Adsmasters <span>Management</span></a>
+    <nav id="mainnav"></nav>
+  </div>
+</header>
+
+<main class="main">
+
+  <div id="error"></div>
+
+  <div class="page-header">
+    <div>
+      <h1>Neukunden-Analyse</h1>
+      <div class="sub">Neu gewonnene Kunden nach Jahr — erkannt an der ersten Rechnung (Gegenstück zur Churn-Analyse)</div>
+    </div>
+  </div>
+
+  <div id="loading" class="hidden">
+    <div class="loading-bar"><div class="spinner"></div>Daten werden geladen…</div>
+  </div>
+
+  <div id="content" class="hidden">
+
+    <div style="display:flex;align-items:center;gap:16px;margin-bottom:16px;flex-wrap:wrap;font-size:13px;color:var(--text-secondary)">
+      <div style="display:flex;align-items:center;gap:8px">
+        <span>Jahr:</span>
+        <select id="yearSelect" class="year-select"></select>
+      </div>
+      <div style="width:1px;height:24px;background:var(--border)"></div>
+      <div style="display:flex;align-items:center;gap:8px">
+        <span>Rhythmus-Regel (für „aktiv/pausiert"):</span>
+        <input type="number" id="gapInput" class="ctrl-input ctrl-num" min="1" max="12" value="2">
+        <span>Monate ohne Rechnung = pausiert</span>
+      </div>
+    </div>
+
+    <div id="caveatBox"></div>
+    <div id="excludeNote"></div>
+
+    <div class="summary-strip">
+      <div class="kpi-card">
+        <div class="kpi-label">Neukunden in <span class="kpiYearLabel"></span></div>
+        <div class="kpi-value pos" id="kpiNew">—</div>
+        <div class="kpi-hint">Kunden mit erster Rechnung in diesem Jahr</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Davon noch aktiv</div>
+        <div class="kpi-value" id="kpiStillActive">—</div>
+        <div class="kpi-hint" id="kpiStillActiveHint">noch aktive Neukunden</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Ø Start-Umsatz / Mon.</div>
+        <div class="kpi-value" id="kpiAvgStart">—</div>
+        <div class="kpi-hint">Ø der ersten bis zu 3 aktiven Monate</div>
+      </div>
+      <div class="kpi-card">
+        <div class="kpi-label">Gewonnener Umsatz p.a. <span class="kpiYearLabel"></span></div>
+        <div class="kpi-value pos" id="kpiWonRev">—</div>
+        <div class="kpi-hint" id="kpiWonRevHint">annualisierte Start-Run-Rate der Neukunden</div>
+      </div>
+    </div>
+
+    <div class="chart-card">
+      <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px">
+        <h2 style="margin:0">Neukunden pro Monat — <span class="kpiYearLabel"></span></h2>
+        <div style="display:flex;gap:6px">
+          <button id="chartModeCount" class="btn btn-sm btn-primary">Anzahl</button>
+          <button id="chartModeRevenue" class="btn btn-sm btn-secondary">Umsatz p.a.</button>
+        </div>
+      </div>
+      <div style="font-size:12px;color:var(--text-muted);margin-bottom:8px">Balken anklicken, um die Neukunden dieses Monats in der Tabelle zu filtern.</div>
+      <div class="chart-wrap"><canvas id="newChart"></canvas></div>
+    </div>
+
+    <div id="monthFilterBar"></div>
+
+    <div class="card" style="margin-bottom:20px">
+      <div class="card-header"><h2>Neukunden in <span class="kpiYearLabel"></span></h2></div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th style="min-width:180px">Kunde</th>
+              <th style="min-width:110px">Erste Rechnung</th>
+              <th class="right" style="min-width:90px" title="Anzahl Monate mit Umsatz seit Start">Aktiv</th>
+              <th class="right" style="min-width:120px" title="Ø Umsatz der ersten bis zu 3 aktiven Monate">Start-Run-Rate / Mon.</th>
+              <th class="right" style="min-width:120px" title="Start-Run-Rate × 12 — gewonnener Jahresumsatz">Annualisiert</th>
+              <th class="right" style="min-width:110px">Umsatz gesamt</th>
+              <th style="min-width:120px">Status heute</th>
+            </tr>
+          </thead>
+          <tbody id="newBody"></tbody>
+        </table>
+      </div>
+      <div id="newEmpty" class="hidden" style="padding:24px;text-align:center;color:var(--text-secondary)">
+        Keine Neukunden in diesem Jahr.
+      </div>
+    </div>
+
+    <details class="method-box">
+      <summary>Methodik &amp; Annahmen</summary>
+      <ul>
+        <li><strong>Neukunde in einem Jahr</strong> = ein Kontakt, dessen <em>allererste</em> Rechnung mit Umsatz in dieses Jahr fällt (Basis: <code>revenue</code>-Tabelle). Der Monat der ersten Rechnung ist der „Gewinnungs-Monat".</li>
+        <li><strong>Start-Umsatz (Run-Rate):</strong> Ø-Umsatz der ersten bis zu 3 aktiven Monate des Kunden. <em>Annualisiert</em> = Run-Rate × 12 (gewonnener Jahresumsatz). Die KPI oben summiert die annualisierte Start-Run-Rate aller Neukunden des Jahres; <em>Umsatz gesamt</em> in der Tabelle ist der bisherige Lifetime-Umsatz.</li>
+        <li><strong>Status heute:</strong> <em>aktiv</em> = letzte Rechnung liegt innerhalb des normalen Rhythmus; <em>pausiert</em> = seitdem länger keine Rechnung mehr (gleiche Rhythmus-Logik wie in der Churn-Analyse).</li>
+        <li><strong>Projektkunden zählen mit</strong> (<code>is_project</code>) — es sind gewonnene Kunden. Sie sind in der Tabelle mit <span class="tag tag-project">Projekt</span> markiert. (Im Churn werden Projekte hingegen nicht als Abwanderung gewertet, weil ein Projektende kein Churn ist.)</li>
+        <li><strong>Ausgeschlossen</strong> (konsistent mit Churn/CAC): zentral als „kein Kunde" markierte Kontakte sowie PPC-Tools-Kunden (Kategorie „Software", 99 €/Monat).</li>
+        <li><strong>Netto-Wachstum:</strong> Neukunden hier minus Churn im selben Jahr (Churn-Analyse) ≈ Netto-Kundenzuwachs. Beachte: Neukunden enthalten Projektkunden, der Churn nicht — für einen sauberen Netto-Vergleich Projekte gedanklich herausrechnen.</li>
+        <li>Der <strong>letzte Datenmonat</strong> ist noch nicht unbedingt vollständig synchronisiert — ganz frische Neukunden können noch fehlen, bis ihre erste Rechnung importiert ist.</li>
+      </ul>
+    </details>
+
+  </div>
+
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="js/db.js?v=20260610b"></script>
+<script src="js/utils.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/neukunden.js"></script>
+  <script defer src="https://adsmasters.github.io/hub/backlink.js"></script>
+  <script src="js/nav.js"></script>
+</body>
+</html>

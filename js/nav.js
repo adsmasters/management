@@ -11,6 +11,7 @@
     { label: 'Kunden', items: [
       { href: 'clients.html',      label: 'Kunden' },
       { href: 'cac-analyse.html',  label: 'CAC-Analyse' },
+      { href: 'neukunden.html',    label: 'Neukunden' },
       { href: 'churn.html',        label: 'Churn' },
       { href: 'acquisition.html',  label: 'Akquisition' },
     ] },
