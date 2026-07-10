@@ -92,6 +92,9 @@
         // PPC-Tools-/Software-Kunden (99 €/Monat) raus – konsistent mit Churn/CAC/Neukunden
         else if (o.status && o.status.indexOf('cat:') === 0 && o.status.slice(4) === PPC_CATEGORY) EXCLUDED_CONTACTS[normC(o.contact_name)] = 1;
       });
+      // Auto-Erkennung: Kontakte mit reiner 99-€/49,50-€-Signatur ebenfalls ausschließen
+      var swAuto = window.detectSoftwareContacts ? window.detectSoftwareContacts(rows) : {};
+      Object.keys(swAuto).forEach(function (k) { EXCLUDED_CONTACTS[k] = 1; });
       var md = {}, first = {};
       rows.forEach(function (r) {
         if (!r.contact_name || isExcluded(r.contact_name)) return;

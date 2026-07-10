@@ -43,6 +43,9 @@
       if (o.status === 'excluded') excludedGlobal[normC(o.contact_name)] = 1;
       else if (o.status && o.status.indexOf('cat:') === 0 && o.status.slice(4) === PPC_CATEGORY) excludedPPC[normC(o.contact_name)] = 1;
     });
+    // Auto-Erkennung: Kontakte mit reiner 99-€/49,50-€-Signatur ebenfalls als Software behandeln
+    var auto = window.detectSoftwareContacts ? window.detectSoftwareContacts(allRevenue) : {};
+    Object.keys(auto).forEach(function (k) { if (!excludedGlobal[k]) excludedPPC[k] = 1; });
   }
 
   function buildProjectSet() {
@@ -279,7 +282,7 @@
     var byDe = function (a, b) { return a.localeCompare(b, 'de'); };
     ppc.sort(byDe); glob.sort(byDe);
     var parts = [];
-    if (ppc.length)  parts.push('<strong>' + ppc.length + ' PPC-Tools-Kunde' + (ppc.length === 1 ? '' : 'n') + '</strong> (99 €/Monat)');
+    if (ppc.length)  parts.push('<strong>' + ppc.length + ' PPC-Tools-Kunde' + (ppc.length === 1 ? '' : 'n') + '</strong> (99 €/Monat, inkl. automatisch am 99-€-Muster erkannt)');
     if (glob.length) parts.push('<strong>' + glob.length + ' als „kein Kunde"</strong>');
     excludeNote.innerHTML =
       '<div class="caveat-box" style="background:var(--primary-light);border-color:var(--primary);color:var(--text)">' +

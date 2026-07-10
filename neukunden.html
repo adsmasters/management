@@ -148,7 +148,7 @@
         <li><strong>Start-Umsatz (Run-Rate):</strong> Ø-Umsatz der ersten bis zu 3 aktiven Monate des Kunden. <em>Annualisiert</em> = Run-Rate × 12 (gewonnener Jahresumsatz). Die KPI oben summiert die annualisierte Start-Run-Rate aller Neukunden des Jahres; <em>Umsatz gesamt</em> in der Tabelle ist der bisherige Lifetime-Umsatz.</li>
         <li><strong>Status heute:</strong> <em>aktiv</em> = letzte Rechnung liegt innerhalb des normalen Rhythmus; <em>pausiert</em> = seitdem länger keine Rechnung mehr (gleiche Rhythmus-Logik wie in der Churn-Analyse).</li>
         <li><strong>Projektkunden zählen mit</strong> (<code>is_project</code>) — es sind gewonnene Kunden. Sie sind in der Tabelle mit <span class="tag tag-project">Projekt</span> markiert. (Im Churn werden Projekte hingegen nicht als Abwanderung gewertet, weil ein Projektende kein Churn ist.)</li>
-        <li><strong>Ausgeschlossen</strong> (konsistent mit Churn/CAC): zentral als „kein Kunde" markierte Kontakte sowie PPC-Tools-Kunden (Kategorie „Software", 99 €/Monat).</li>
+        <li><strong>Ausgeschlossen</strong> (konsistent mit Churn/CAC): zentral als „kein Kunde" markierte Kontakte sowie PPC-Tools-/Software-Kunden. Letztere werden erkannt am manuellen „Software"-Tag <em>oder automatisch</em>, wenn der Umsatz eines Kontakts ausschließlich aus 99 € (bzw. 49,50 € im anteiligen Startmonat) besteht — so rutscht kein neuer 99-€-Abo-Kunde mehr versehentlich in die Auswertung.</li>
         <li><strong>Netto-Wachstum:</strong> Neukunden hier minus Churn im selben Jahr (Churn-Analyse) ≈ Netto-Kundenzuwachs. Beachte: Neukunden enthalten Projektkunden, der Churn nicht — für einen sauberen Netto-Vergleich Projekte gedanklich herausrechnen.</li>
         <li>Der <strong>letzte Datenmonat</strong> ist noch nicht unbedingt vollständig synchronisiert — ganz frische Neukunden können noch fehlen, bis ihre erste Rechnung importiert ist.</li>
       </ul>
@@ -161,9 +161,9 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="js/db.js?v=20260610b"></script>
-<script src="js/utils.js"></script>
+<script src="js/utils.js?v=20260710"></script>
 <script src="js/auth.js"></script>
-<script src="js/neukunden.js"></script>
+<script src="js/neukunden.js?v=20260710"></script>
   <script defer src="https://adsmasters.github.io/hub/backlink.js"></script>
   <script src="js/nav.js"></script>
 </body>

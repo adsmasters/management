@@ -41,15 +41,27 @@
 
   var allRevenue  = [];  // raw rows from revenue table
   var allCosts    = [];  // raw rows from acquisition_costs
+  var allOverrides = []; // contact_overrides ({contact_name, status})
   var revByContact = {}; // contact_name -> [{year,month,amount}] sorted asc
   var firstYmByContact = {}; // contact_name -> ym of first-ever revenue
   var earliestDataYm = null;
   var latestDataYm   = null;
 
+  function normC(s) { return (s || '').trim().toLowerCase(); }
+
   function buildIndexes() {
+    // Software-/PPC-Tools-Kunden ausschließen (manuell getaggt + 99-€-Auto-Erkennung)
+    var excluded = {};
+    allOverrides.forEach(function (o) {
+      if (o.status === 'excluded') excluded[normC(o.contact_name)] = 1;
+      else if (o.status && o.status.indexOf('cat:') === 0 && o.status.slice(4) === 'Software') excluded[normC(o.contact_name)] = 1;
+    });
+    var auto = window.detectSoftwareContacts ? window.detectSoftwareContacts(allRevenue) : {};
+    Object.keys(auto).forEach(function (k) { excluded[k] = 1; });
+
     revByContact = {};
     allRevenue.forEach(function (r) {
-      if (!r.contact_name) return;
+      if (!r.contact_name || excluded[normC(r.contact_name)]) return;
       if (!revByContact[r.contact_name]) revByContact[r.contact_name] = [];
       revByContact[r.contact_name].push({ year: r.year, month: r.month, amount: r.total_amount || 0 });
     });
@@ -335,9 +347,11 @@
     Promise.all([
       window.db.revenue.allRows(),
       window.db.acquisitionCosts.list(),
+      (window.db.contactOverrides ? window.db.contactOverrides.listAll() : Promise.resolve([])).catch(function () { return []; }),
     ]).then(function (results) {
-      allRevenue = results[0];
-      allCosts   = results[1];
+      allRevenue   = results[0];
+      allCosts     = results[1];
+      allOverrides = results[2] || [];
       buildIndexes();
       populateYearSelect();
       loadingEl.classList.add('hidden');

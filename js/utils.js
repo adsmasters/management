@@ -101,4 +101,35 @@
     if (caps[key] != null) return Math.min(monthAmount, caps[key]);
     return monthAmount;
   };
+
+  // ── PPC-Tools/Software-Abo Auto-Erkennung ──────────────────────────────
+  // Ein Kontakt gilt als Software-Kunde, wenn JEDER Monat mit Umsatz exakt dem
+  // Abo-Preis entspricht (99 € voller Monat bzw. 49,50 € anteilig im Startmonat).
+  // Kein Agentur-Kunde rechnet pauschal 99 €/Monat ab → das trennt die 99-€-SaaS
+  // zuverlässig ab, auch ohne manuellen „Software"-Tag. Ein manueller Tag
+  // (contact_overrides cat:Software / excluded) übersteuert das ohnehin.
+  window.SOFTWARE_MONTHLY = [49.5, 99];
+  window.isSoftwareMonthlyAmount = function (amt) {
+    return window.SOFTWARE_MONTHLY.some(function (v) { return Math.abs(amt - v) < 0.01; });
+  };
+  // rows: [{ contact_name, total_amount, year, month }] → { normContactName: true }
+  window.detectSoftwareContacts = function (rows) {
+    var perContact = {}; // name → { ym: summierter Betrag }
+    (rows || []).forEach(function (r) {
+      if (!r.contact_name) return;
+      var amt = Number(r.total_amount) || 0;
+      if (amt === 0) return;
+      var ym = r.year * 12 + (r.month - 1);
+      if (!perContact[r.contact_name]) perContact[r.contact_name] = {};
+      perContact[r.contact_name][ym] = (perContact[r.contact_name][ym] || 0) + amt;
+    });
+    var out = {};
+    Object.keys(perContact).forEach(function (name) {
+      var months = Object.keys(perContact[name]).map(function (k) { return perContact[name][k]; });
+      if (months.length && months.every(window.isSoftwareMonthlyAmount)) {
+        out[(name || '').trim().toLowerCase()] = true;
+      }
+    });
+    return out;
+  };
 })();
