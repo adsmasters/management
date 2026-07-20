@@ -726,7 +726,7 @@
         colTot[m] = (colTot[m] || 0) + v;
         var cls = 'right' + (fut ? ' fc' : '');
         if (metric === 'free') cls += v < 0 ? ' neg' : (v > 0 ? ' pos' : '');
-        cells += '<td class="' + cls + '">' + (v === 0 ? '<span class="muted">–</span>' : fmtVal(v)) + '</td>';
+        cells += '<td class="' + cls + '" data-m="' + m + '" data-v="' + v + '">' + (v === 0 ? '<span class="muted">–</span>' : fmtVal(v)) + '</td>';
       }
       rows += '<tr class="emp-row" data-emp="' + emp.id + '" title="Klick: Aufschlüsselung nach Kunde"><td class="emp">' + emp.name + ' <span class="role">' + window.getRoleShort(emp.role) + '</span></td>' +
         cells + '<td class="right tot">' + (metric === 'free' ? '' : fmtVal(rowSum)) + '</td></tr>';
@@ -735,16 +735,80 @@
     // Summenzeile (nur revenue/hours sinnvoll)
     if (metric !== 'free') {
       var sumCells = ''; var grand = 0;
-      for (var m2 = 1; m2 <= 12; m2++) { sumCells += '<td class="right tot">' + fmtVal(colTot[m2] || 0) + '</td>'; grand += colTot[m2] || 0; }
+      for (var m2 = 1; m2 <= 12; m2++) { sumCells += '<td class="right tot" data-m="' + m2 + '" data-v="' + (colTot[m2] || 0) + '">' + fmtVal(colTot[m2] || 0) + '</td>'; grand += colTot[m2] || 0; }
       rows += '<tr class="sum-row"><td class="emp">Gesamt</td>' + sumCells + '<td class="right tot">' + fmtVal(grand) + '</td></tr>';
     }
 
     gridBody.innerHTML = rows;
+    selClear();
 
     gridBody.querySelectorAll('tr.emp-row').forEach(function (tr) {
-      tr.addEventListener('click', function () { openEmpModal(tr.getAttribute('data-emp')); });
+      tr.addEventListener('click', function () {
+        if (suppressRowClick) { suppressRowClick = false; return; }
+        openEmpModal(tr.getAttribute('data-emp'));
+      });
     });
   }
+
+  // ── Bereichsauswahl: Monatszellen markieren → Summe & Ø ──────────────
+  var selPill = document.createElement('div');
+  selPill.className = 'sel-pill';
+  selPill.style.display = 'none';
+  document.body.appendChild(selPill);
+  var selDrag = null;          // { tr, start, moved } während des Ziehens
+  var suppressRowClick = false; // verhindert Modal-Öffnung nach einem Drag
+
+  function selClear() {
+    gridBody.querySelectorAll('td.rsel').forEach(function (td) { td.classList.remove('rsel'); });
+    selPill.style.display = 'none';
+  }
+
+  function selApply(tr, a, b) {
+    gridBody.querySelectorAll('td.rsel').forEach(function (td) { td.classList.remove('rsel'); });
+    var lo = Math.min(a, b), hi = Math.max(a, b);
+    var sum = 0, n = 0;
+    tr.querySelectorAll('td[data-m]').forEach(function (td) {
+      var m = +td.getAttribute('data-m');
+      if (m >= lo && m <= hi) { td.classList.add('rsel'); sum += parseFloat(td.getAttribute('data-v')) || 0; n++; }
+    });
+    if (!n) { selPill.style.display = 'none'; return; }
+    var fmt = metricSel.value === 'revenue' ? fmtEur : fmtH;
+    var empTd = tr.querySelector('td.emp');
+    var name = empTd ? (empTd.childNodes[0].nodeValue || empTd.textContent).trim() : '';
+    selPill.innerHTML = '<b>' + name + '</b> · ' + MONTHS[lo - 1] + '–' + MONTHS[hi - 1] +
+      ' (' + n + ' Mon.) · Summe <b>' + fmt(sum) + '</b> · Ø <b>' + fmt(sum / n) + '</b>';
+    selPill.style.display = 'block';
+  }
+
+  document.addEventListener('mousedown', function (e) {
+    if (!e.target.closest || !e.target.closest('td[data-m]')) selClear();
+  });
+  gridBody.addEventListener('mousedown', function (e) {
+    if (e.button !== 0) return;
+    suppressRowClick = false; // neue Klick-Sequenz → evtl. hängengebliebene Unterdrückung aufheben
+    var td = e.target.closest('td[data-m]');
+    if (!td) return;
+    selDrag = { tr: td.parentElement, start: +td.getAttribute('data-m'), moved: false };
+    e.preventDefault(); // keine Text-Selektion beim Ziehen
+  });
+  gridBody.addEventListener('mouseover', function (e) {
+    if (!selDrag) return;
+    var td = e.target.closest('td[data-m]');
+    if (!td || td.parentElement !== selDrag.tr) return;
+    var m = +td.getAttribute('data-m');
+    if (m !== selDrag.start) selDrag.moved = true;
+    selApply(selDrag.tr, selDrag.start, m);
+  });
+  document.addEventListener('mouseup', function () {
+    if (!selDrag) return;
+    if (selDrag.moved) {
+      suppressRowClick = true; // wird vom Klick-Handler konsumiert bzw. beim nächsten mousedown gelöscht
+    } else {
+      selClear(); // einfacher Klick → normales Verhalten (Modal)
+    }
+    selDrag = null;
+  });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') selClear(); });
 
   // ── Drilldown-Modal: Aufschlüsselung je Kunde ─────────────────────────
   var modalOv    = document.getElementById('empModal');
