@@ -267,8 +267,8 @@
   }
 
   // ── Service-Verteilung ────────────────────────────────────────────────
-  var SERVICE_ORDER  = ['PPC', 'Full Service', 'Starter-Programm', 'Masterclass', 'Bilder', 'Andere'];
-  var SERVICE_COLORS = { 'PPC': '#4f46e5', 'Full Service': '#10b981', 'Starter-Programm': '#f59e0b', 'Masterclass': '#ef4444', 'Bilder': '#06b6d4', 'Andere': '#94a3b8' };
+  var SERVICE_ORDER  = ['PPC', 'Full Service', 'Starter-Programm', 'Masterclass', 'Bilder', 'Beratung', 'Andere'];
+  var SERVICE_COLORS = { 'PPC': '#4f46e5', 'Full Service': '#10b981', 'Starter-Programm': '#f59e0b', 'Masterclass': '#ef4444', 'Bilder': '#06b6d4', 'Beratung': '#8b5cf6', 'Andere': '#94a3b8' };
   var svcColor = function (s) { return SERVICE_COLORS[s] || '#94a3b8'; };
   var serviceShareChart = null, serviceRevenueChart = null, serviceCustomerChart = null;
 

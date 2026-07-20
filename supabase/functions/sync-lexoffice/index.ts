@@ -24,15 +24,25 @@ function calYM(s: string): number | null {
 // Findet der Positionsname nichts, wird ersatzweise der Rechnungstitel geprüft.
 function matchService(s: string): string | null {
   const n = (s || '').toLowerCase();
-  if (/full\s*service/.test(n)) return 'Full Service';
+  // "Full-Service" wird auf Rechnungen auch mit Bindestrich geschrieben
+  if (/full[\s-]*service/.test(n)) return 'Full Service';
   if (/masterclass/.test(n)) return 'Masterclass';
   if (/starter[\s-]*programm/.test(n)) return 'Starter-Programm';
-  if (/\bppc\b/.test(n) || /advertising\s*betreuung/.test(n) || /ppc[\s-]*betreuung/.test(n)) return 'PPC';
-  if (/\bbilder\b/.test(n) || /a\s*\+\s*inhalte/.test(n) || /a\s*\+\s*content/.test(n)) return 'Bilder';
+  // Konto-Betreuung (Seller/Vendor Central, Marketplace) = Full Service
+  if (/(seller|vendor)[\s-]*central/.test(n) || /marketplace\s*(unterstützung|support|betreuung)/.test(n)) return 'Full Service';
+  if (/\bppc\b/.test(n) || /advertising\s*(betreuung|support|management)/.test(n)
+    || /\bads?\s*support\b/.test(n) || /\bads?\s*optimi/.test(n)) return 'PPC';
+  if (/\bbilder\b/.test(n) || /produktbild|punktbild|maßbild|massbild/.test(n)
+    || /a\s*\+[\s-]*(inhalte|content)/.test(n) || /\bgalerien?\b/.test(n)) return 'Bilder';
+  // Einmalige Beratungs-/Projektleistungen
+  if (/coaching|sparring|beratung|workshop|schulung|analyse|setup[\s-]*paket|optimierungsprojekt/.test(n)) return 'Beratung';
   return null;
 }
-function classifyService(name: string, fallbackTitle: string): string {
-  return matchService(name) || matchService(fallbackTitle) || 'Andere';
+// contactDefault: Fallback je Kunde aus der Tabelle service_overrides
+// (für Kunden, deren Positionen keine Service-Begriffe enthalten, z.B.
+// Produktbilder-Rechnungen mit reinen Produktnamen oder Stunden-Rechnungen).
+function classifyService(name: string, fallbackTitle: string, contactDefault?: string): string {
+  return matchService(name) || matchService(fallbackTitle) || contactDefault || 'Andere';
 }
 
 Deno.serve(async (req) => {
@@ -62,6 +72,19 @@ Deno.serve(async (req) => {
 
     const targetYear  = year as number;
     const targetMonth = month as number; // 1-based
+
+    const sb = createClient(
+      Deno.env.get('SUPABASE_URL')!,
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+    );
+
+    // Kunden-Fallback für die Service-Klassifizierung (service_overrides).
+    // Fehlt die Tabelle oder schlägt die Abfrage fehl, läuft der Sync ohne Fallback weiter.
+    const svcOverride: Record<string, string> = {};
+    try {
+      const { data: ovRows } = await sb.from('service_overrides').select('contact_name,service');
+      (ovRows || []).forEach((r: any) => { if (r.contact_name && r.service) svcOverride[String(r.contact_name).toLowerCase().trim()] = r.service; });
+    } catch (_e) { /* Tabelle optional */ }
 
     // Window: ~2 calendar months back -> 15th of following month. Wide enough to
     // catch quarterly invoices dated at/near their quarter start. Runtime safety
@@ -254,7 +277,7 @@ Deno.serve(async (req) => {
               }
               if (isNaN(lineNet)) lineNet = 0;
               // Service NUR aus der Positions-Überschrift (name), nicht der Beschreibung
-              const svc = classifyService(item.name || '', invoiceTitle);
+              const svc = classifyService(item.name || '', invoiceTitle, svcOverride[contactName.toLowerCase().trim()]);
               svcNet[svc] = (svcNet[svc] || 0) + lineNet;
               return sum + lineNet;
             }, 0);
@@ -262,11 +285,11 @@ Deno.serve(async (req) => {
             // Prefer totalNetAmount — the only reliable net field in LexOffice API
             netAmount = Number(tp.totalNetAmount);
             usedNet = true;
-            svcNet[classifyService(invoiceTitle, invoiceTitle)] = netAmount;
+            svcNet[classifyService(invoiceTitle, invoiceTitle, svcOverride[contactName.toLowerCase().trim()])] = netAmount;
           } else {
             // Fallback: estimate net from gross (same as error fallback)
             netAmount = Math.round((v.totalAmount || 0) / 1.19 * 100) / 100;
-            svcNet[classifyService(invoiceTitle, invoiceTitle)] = netAmount;
+            svcNet[classifyService(invoiceTitle, invoiceTitle, svcOverride[contactName.toLowerCase().trim()])] = netAmount;
           }
           // Split across months if multi-month service period
           const netAmountForMonth = monthDivisor > 1 ? Math.round(netAmount / monthDivisor * 100) / 100 : netAmount;
@@ -365,11 +388,6 @@ Deno.serve(async (req) => {
         { headers: { ...CORS, 'Content-Type': 'application/json' } }
       );
     }
-
-    const sb = createClient(
-      Deno.env.get('SUPABASE_URL')!,
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
-    );
 
     const { error: delErr } = await sb.from('revenue').delete().eq('year', targetYear).eq('month', targetMonth);
     if (delErr) throw delErr;
