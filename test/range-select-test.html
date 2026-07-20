@@ -2,7 +2,7 @@
 <html lang="de">
 <head>
   <meta charset="UTF-8">
-  <title>Test: Bereichsauswahl MA-Umsatz</title>
+  <title>Test: MA-Umsatz Grid (Bereichsauswahl + Betreute Kunden)</title>
   <style>
     :root { --border:#e5e7eb; --text:#111827; --text-secondary:#6b7280; --surface:#fff; --radius:8px; }
     body { font-family:-apple-system,sans-serif; margin:20px; }
@@ -11,6 +11,8 @@
     table.matrix td.right, table.matrix th.right { text-align:right; font-variant-numeric:tabular-nums; }
     table.matrix tbody tr { border-bottom:1px solid var(--border); }
     table.matrix td.emp { font-weight:600; }
+    table.matrix tr.sum-row { background:#f9fafb; font-weight:700; border-top:2px solid var(--border); }
+    table.matrix tr.cnt-row { color:var(--text-secondary); font-size:12px; }
     table.matrix tbody tr.emp-row:hover td { background:#f5f3ff; }
     table.matrix tbody td.rsel { background:#c7d2fe !important; box-shadow:inset 0 0 0 1px #6366f1; }
     .sel-pill { position:fixed; bottom:18px; left:50%; transform:translateX(-50%); z-index:95;
@@ -22,10 +24,15 @@
   </style>
 </head>
 <body>
-<h3>Testseite: Bereichsauswahl (echtes js/employee-revenue.js, gestubbte Abhängigkeiten)</h3>
+<h3>Testseite: echtes js/employee-revenue.js mit Fixture-DB (loadData → compute → render)</h3>
 <div id="error"></div>
 <select id="yearSelect"></select>
-<select id="metricSelect"><option value="revenue">Umsatz / MA</option><option value="hours">Stunden</option></select>
+<select id="metricSelect">
+  <option value="revenue">Umsatz / MA</option>
+  <option value="hours">Gebuchte Stunden</option>
+  <option value="free">Freie Kapazität</option>
+  <option value="clients">Betreute Kunden</option>
+</select>
 <button id="loadBtn">Laden</button>
 <div id="loading" class="hidden"></div>
 <div id="content">
@@ -41,25 +48,52 @@
 </div></div>
 
 <script>
-  // Stubs statt db.js/utils.js/auth.js — nur was der IIFE-Init braucht
+  // Stubs statt db.js/utils.js/auth.js
   window.currentYearMonth = function () { return { year: 2026, month: 7 }; };
   window.getRoleShort = function (r) { return r; };
-  window.db = {};
+  localStorage.removeItem('empRevScenario');
+  localStorage.removeItem('revenueExcludeKeywords');
+
+  // Fixture: 2 MA, 3 Kunden.
+  // Jan: Anna→K1 10h, Anna→K2 5h, Ben→K1 3h  | Umsatz: K1 1000, K2 2000, K3 500 (ohne Stunden)
+  // Feb: Anna→K1 8h                          | Umsatz: K1 1500
+  var EMP = [
+    { id: 'e1', name: 'Anna', role: 'ADV', active: true, monthly_cost: 0 },
+    { id: 'e2', name: 'Ben',  role: 'AM',  active: true, monthly_cost: 0 },
+  ];
+  var CLI = [
+    { id: 'k1', name: 'K1', lexoffice_name: 'K1 GmbH' },
+    { id: 'k2', name: 'K2', lexoffice_name: null },
+    { id: 'k3', name: 'K3', lexoffice_name: 'K3 AG' },
+  ];
+  var ENTRIES = [
+    { client_id: 'k1', employee_id: 'e1', month: 1, hours: 10 },
+    { client_id: 'k2', employee_id: 'e1', month: 1, hours: 5 },
+    { client_id: 'k1', employee_id: 'e2', month: 1, hours: 3 },
+    { client_id: 'k1', employee_id: 'e1', month: 2, hours: 8 },
+  ];
+  var REVENUE = { // month → rows
+    1: [ { contact_name: 'K1 GmbH', total_amount: 1000 }, { contact_name: 'K2', total_amount: 2000 }, { contact_name: 'K3 AG', total_amount: 500 } ],
+    2: [ { contact_name: 'K1 GmbH', total_amount: 1500 } ],
+  };
+  function P(v) { return Promise.resolve(v); }
+  window.db = {
+    employees: { listActive: function () { return P(EMP); } },
+    clients:   { list: function () { return P(CLI); } },
+    entries:   { forYear: function () { return P(ENTRIES); } },
+    mappings:  { list: function () { return P([{ client_id: 'k1', lexoffice_name: 'K1 GmbH' }, { client_id: 'k3', lexoffice_name: 'K3 AG' }]); } },
+    utilHours: { forYear: function () { return P([]); } },
+    absences:  { forYear: function () { return P([]); } },
+    revenue:   { forMonth: function (y, m) { return P(REVENUE[m] || []); } },
+    adjustments: { forMonth: function () { return P([]); } },
+    revenueExclusions: { listAll: function () { return P([]); } },
+    maRevenueExclusions: { listAll: function () { return P([]); } },
+    revenueServices: { forMonth: function () { return P([]); } },
+    revenueServiceAssignments: { listAll: function () { return P([]); } },
+    residualAssignments: { listAll: function () { return P([]); } },
+    contactOverrides: { listAll: function () { return P([]); } },
+  };
 </script>
 <script src="../js/employee-revenue.js"></script>
-<script>
-  // Fake-Zeile im selben Format wie render() sie erzeugt
-  var M = ['Jan','Feb','Mär','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez'];
-  var head = '<th>Mitarbeiter</th>';
-  for (var m = 1; m <= 12; m++) head += '<th class="right">' + M[m-1] + '</th>';
-  document.getElementById('gridHead').innerHTML = head + '<th class="right">Σ Jahr</th>';
-  function row(name, base) {
-    var cells = '', sum = 0;
-    for (var m = 1; m <= 12; m++) { var v = base * m; sum += v;
-      cells += '<td class="right" data-m="' + m + '" data-v="' + v + '">' + v.toLocaleString('de-DE') + ' €</td>'; }
-    return '<tr class="emp-row" data-emp="' + name + '"><td class="emp">' + name + ' <span class="role">ADV</span></td>' + cells + '<td class="right">' + sum.toLocaleString('de-DE') + ' €</td></tr>';
-  }
-  document.getElementById('gridBody').innerHTML = row('Testperson', 1000) + row('Zweite', 500);
-</script>
 </body>
 </html>

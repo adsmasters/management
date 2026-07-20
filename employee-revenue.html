@@ -18,6 +18,8 @@
     table.matrix .fc-tag { font-size: 9px; background:#4f46e5; color:#fff; border-radius:3px; padding:0 3px; vertical-align:middle; }
     table.matrix td.tot { font-weight: 700; }
     table.matrix tr.sum-row { background: var(--bg, #f9fafb); font-weight: 700; border-top: 2px solid var(--border); }
+    table.matrix tr.cnt-row { color: var(--text-secondary); font-size: 12px; }
+    table.matrix tr.cnt-row td.emp { font-weight: 600; color: var(--text-secondary); }
     table.matrix td.pos { color:#065f46; }
     table.matrix td.neg { color:#991b1b; font-weight:600; }
     .muted { color: var(--text-secondary); }
@@ -81,6 +83,7 @@
           <option value="revenue">Umsatz / MA</option>
           <option value="hours">Gebuchte Stunden</option>
           <option value="free">Freie Kapazität</option>
+          <option value="clients">Betreute Kunden</option>
         </select>
       </div>
       <button id="loadBtn" class="btn btn-primary">Laden</button>
@@ -100,7 +103,7 @@
         </table>
       </div>
       <div style="padding:8px 12px;font-size:12px;color:var(--text-secondary)">
-        <span class="fc-tag" style="font-size:9px">P</span> = Prognose (laufender + zukünftige Monate). Ist-Monate: Umsatz anteilig nach gebuchten Stunden je Kunde. Prognose-Grundlast = Ø der letzten 3 Monate (tatsächliche Stunden/Umsatz), ± Szenario (verlorene Kunden/Neukunden). Freie Kapazität = verfügbare Stunden − Grundlast. <b>Tipp:</b> Monatszellen mit gedrückter Maustaste überstreichen → Summe &amp; Ø des Zeitraums.
+        <span class="fc-tag" style="font-size:9px">P</span> = Prognose (laufender + zukünftige Monate). Ist-Monate: Umsatz anteilig nach gebuchten Stunden je Kunde. Prognose-Grundlast = Ø der letzten 3 Monate (tatsächliche Stunden/Umsatz), ± Szenario (verlorene Kunden/Neukunden). Freie Kapazität = verfügbare Stunden − Grundlast. Betreute Kunden = Kunden mit gebuchten Stunden im Monat; „Kunden abgerechnet" = verschiedene Kunden mit Rechnung im Monat. <b>Tipp:</b> Monatszellen mit gedrückter Maustaste überstreichen → Summe &amp; Ø des Zeitraums.
       </div>
     </div>
 
@@ -132,7 +135,7 @@
 <script src="js/db.js?v=20260703h"></script>
 <script src="js/utils.js"></script>
 <script src="js/auth.js"></script>
-<script src="js/employee-revenue.js?v=20260720a"></script>
+<script src="js/employee-revenue.js?v=20260720b"></script>
   <script defer src="https://adsmasters.github.io/hub/backlink.js"></script>
   <script src="js/nav.js"></script>
 </body>

@@ -22,6 +22,7 @@
 
   function fmtEur(n) { return Math.round(n).toLocaleString('de-DE') + ' €'; }
   function fmtH(n)   { return (Math.round(n * 10) / 10).toLocaleString('de-DE') + ' h'; }
+  function fmtCnt(n) { return (Math.round(n * 10) / 10).toLocaleString('de-DE'); }
   function norm(s)   { return (s || '').trim().toLowerCase(); }
 
   var EXCLUDED_CONTACTS = {}; // zentral ausgeschlossene Kontakte (contact_overrides, status='excluded')
@@ -439,6 +440,53 @@
     var avgHrs = {}; // (nicht mehr separat genutzt)
 
     // Für Drilldown-Modal speichern
+    // Betreute Kunden je MA je Monat (Kunden mit gebuchten Stunden) ------
+    var empClientSetM = {};    // empId → m → {clientId:1}
+    var allClientSetM = {};    // m → {clientId:1}
+    var empClientYearSet = {}; // empId → {clientId:1}
+    var allClientYearSet = {};
+    Object.keys(entryByClientEmpMonth).forEach(function (cid) {
+      var byM = entryByClientEmpMonth[cid];
+      Object.keys(byM).forEach(function (m) {
+        Object.keys(byM[m]).forEach(function (eid) {
+          if ((byM[m][eid] || 0) <= 0) return;
+          ((empClientSetM[eid] = empClientSetM[eid] || {})[m] = empClientSetM[eid][m] || {})[cid] = 1;
+          (allClientSetM[m] = allClientSetM[m] || {})[cid] = 1;
+          (empClientYearSet[eid] = empClientYearSet[eid] || {})[cid] = 1;
+          allClientYearSet[cid] = 1;
+        });
+      });
+    });
+    var empClientCount = {}, empClientYear = {}, allClientCount = {};
+    Object.keys(empClientSetM).forEach(function (eid) {
+      empClientCount[eid] = {};
+      Object.keys(empClientSetM[eid]).forEach(function (m) { empClientCount[eid][m] = Object.keys(empClientSetM[eid][m]).length; });
+      empClientYear[eid] = Object.keys(empClientYearSet[eid]).length;
+    });
+    for (var mcc = 1; mcc <= 12; mcc++) allClientCount[mcc] = Object.keys(allClientSetM[mcc] || {}).length;
+
+    // Abgerechnete Kunden je Monat: verschiedene Rechnungs-Kontakte,
+    // nach Kunden-Mapping zusammengefasst, ohne Ausschlüsse (bereits in
+    // revMapByMonth gefiltert) und ohne Kategorie-Kontakte (z.B. Software).
+    var contactToClient = {};
+    clients.forEach(function (c) {
+      (mappingsByClient[c.id] || []).forEach(function (lx) { contactToClient[norm(lx)] = c.id; });
+      var f1 = norm(c.lexoffice_name || c.name), f2 = norm(c.name);
+      if (!contactToClient[f1]) contactToClient[f1] = c.id;
+      if (!contactToClient[f2]) contactToClient[f2] = c.id;
+    });
+    var billedCount = {}, billedYearSet = {};
+    for (var mbb = 1; mbb <= 12; mbb++) {
+      var setB = {};
+      Object.keys(revMapByMonth[mbb] || {}).forEach(function (k) {
+        if ((revMapByMonth[mbb][k] || 0) <= 0.5) return;
+        if (CONTACT_CATEGORY[k]) return;
+        var idb = contactToClient[k] || k;
+        setB[idb] = 1; billedYearSet[idb] = 1;
+      });
+      billedCount[mbb] = Object.keys(setB).length;
+    }
+
     COMP = {
       year: year, employees: employees, clients: clients,
       entryByClientEmpMonth: entryByClientEmpMonth,
@@ -464,6 +512,9 @@
       year: year, employees: employees,
       empRev: empRev, empHours: empHours, utilMap: utilMap,
       fcRev: fcRev, fcHours: fcHours, available: available, avgHrs: avgHrs,
+      empClientCount: empClientCount, empClientYear: empClientYear,
+      allClientCount: allClientCount, allClientYear: Object.keys(allClientYearSet).length,
+      billedCount: billedCount, billedYear: Object.keys(billedYearSet).length,
     });
     renderScenario(clients, employees);
     renderUnattributed();
@@ -680,8 +731,9 @@
 
   // ── Rendering Hauptgrid ───────────────────────────────────────────────
   function render(M) {
-    var metric = metricSel.value; // revenue | hours | free
+    var metric = metricSel.value; // revenue | hours | free | clients
     var year = M.year;
+    var fmtAttr = metric === 'revenue' ? 'eur' : (metric === 'clients' ? 'n' : 'h');
 
     // Kopf
     var head = '<th style="min-width:170px">Mitarbeiter</th>';
@@ -693,6 +745,7 @@
     gridHead.innerHTML = head;
 
     function valueFor(empId, m) {
+      if (metric === 'clients') return (M.empClientCount[empId] || {})[m] || 0;
       var fut = isFuture(year, m);
       if (metric === 'revenue') {
         return fut ? ((M.fcRev[empId] || {})[m] || 0) : ((M.empRev[empId] || {})[m] || 0);
@@ -711,6 +764,7 @@
 
     function fmtVal(v) {
       if (metric === 'revenue') return fmtEur(v);
+      if (metric === 'clients') return fmtCnt(v);
       return fmtH(v);
     }
 
@@ -726,17 +780,38 @@
         colTot[m] = (colTot[m] || 0) + v;
         var cls = 'right' + (fut ? ' fc' : '');
         if (metric === 'free') cls += v < 0 ? ' neg' : (v > 0 ? ' pos' : '');
-        cells += '<td class="' + cls + '" data-m="' + m + '" data-v="' + v + '">' + (v === 0 ? '<span class="muted">–</span>' : fmtVal(v)) + '</td>';
+        cells += '<td class="' + cls + '" data-m="' + m + '" data-v="' + v + '" data-fmt="' + fmtAttr + '">' + (v === 0 ? '<span class="muted">–</span>' : fmtVal(v)) + '</td>';
       }
+      // Σ Jahr: bei "Betreute Kunden" verschiedene Kunden übers Jahr (keine Monats-Summe)
+      var yearVal = metric === 'clients' ? (M.empClientYear[emp.id] || 0) : rowSum;
       rows += '<tr class="emp-row" data-emp="' + emp.id + '" title="Klick: Aufschlüsselung nach Kunde"><td class="emp">' + emp.name + ' <span class="role">' + window.getRoleShort(emp.role) + '</span></td>' +
-        cells + '<td class="right tot">' + (metric === 'free' ? '' : fmtVal(rowSum)) + '</td></tr>';
+        cells + '<td class="right tot"' + (metric === 'clients' ? ' title="Verschiedene Kunden im Jahr"' : '') + '>' + (metric === 'free' ? '' : fmtVal(yearVal)) + '</td></tr>';
     });
 
-    // Summenzeile (nur revenue/hours sinnvoll)
+    // Summenzeile (nur revenue/hours/clients sinnvoll)
     if (metric !== 'free') {
       var sumCells = ''; var grand = 0;
-      for (var m2 = 1; m2 <= 12; m2++) { sumCells += '<td class="right tot" data-m="' + m2 + '" data-v="' + (colTot[m2] || 0) + '">' + fmtVal(colTot[m2] || 0) + '</td>'; grand += colTot[m2] || 0; }
-      rows += '<tr class="sum-row"><td class="emp">Gesamt</td>' + sumCells + '<td class="right tot">' + fmtVal(grand) + '</td></tr>';
+      if (metric === 'clients') {
+        // Verschiedene Kunden mit gebuchten Stunden (kein Aufsummieren der MA-Zellen,
+        // ein Kunde mit mehreren MAs zählt nur einmal)
+        for (var m2c = 1; m2c <= 12; m2c++) { var vc = M.allClientCount[m2c] || 0; sumCells += '<td class="right tot" data-m="' + m2c + '" data-v="' + vc + '" data-fmt="n">' + fmtVal(vc) + '</td>'; }
+        grand = M.allClientYear || 0;
+        rows += '<tr class="sum-row" title="Verschiedene Kunden mit gebuchten Stunden im Monat"><td class="emp">Gesamt (betreut)</td>' + sumCells + '<td class="right tot">' + fmtVal(grand) + '</td></tr>';
+      } else {
+        for (var m2 = 1; m2 <= 12; m2++) { sumCells += '<td class="right tot" data-m="' + m2 + '" data-v="' + (colTot[m2] || 0) + '" data-fmt="' + fmtAttr + '">' + fmtVal(colTot[m2] || 0) + '</td>'; grand += colTot[m2] || 0; }
+        rows += '<tr class="sum-row"><td class="emp">Gesamt</td>' + sumCells + '<td class="right tot">' + fmtVal(grand) + '</td></tr>';
+      }
+    }
+
+    // Abgerechnete Kunden je Monat (Umsatz- und Kunden-Ansicht)
+    if (metric === 'revenue' || metric === 'clients') {
+      var bCells = '';
+      for (var m3 = 1; m3 <= 12; m3++) {
+        var bv = M.billedCount[m3] || 0;
+        bCells += '<td class="right" data-m="' + m3 + '" data-v="' + bv + '" data-fmt="n">' + (bv === 0 ? '<span class="muted">–</span>' : fmtCnt(bv)) + '</td>';
+      }
+      rows += '<tr class="cnt-row" title="Verschiedene Kunden mit Rechnung im Monat (nach Kunden-Mapping, ohne Ausschlüsse und Kategorien wie Software)"><td class="emp">Kunden abgerechnet</td>' +
+        bCells + '<td class="right tot" title="Verschiedene Kunden mit Rechnung im Jahr">' + fmtCnt(M.billedYear || 0) + '</td></tr>';
     }
 
     gridBody.innerHTML = rows;
@@ -766,13 +841,17 @@
   function selApply(tr, a, b) {
     gridBody.querySelectorAll('td.rsel').forEach(function (td) { td.classList.remove('rsel'); });
     var lo = Math.min(a, b), hi = Math.max(a, b);
-    var sum = 0, n = 0;
+    var sum = 0, n = 0, fmtKey = null;
     tr.querySelectorAll('td[data-m]').forEach(function (td) {
       var m = +td.getAttribute('data-m');
-      if (m >= lo && m <= hi) { td.classList.add('rsel'); sum += parseFloat(td.getAttribute('data-v')) || 0; n++; }
+      if (m >= lo && m <= hi) {
+        td.classList.add('rsel');
+        sum += parseFloat(td.getAttribute('data-v')) || 0; n++;
+        if (!fmtKey) fmtKey = td.getAttribute('data-fmt');
+      }
     });
     if (!n) { selPill.style.display = 'none'; return; }
-    var fmt = metricSel.value === 'revenue' ? fmtEur : fmtH;
+    var fmt = fmtKey === 'eur' ? fmtEur : (fmtKey === 'n' ? fmtCnt : fmtH);
     var empTd = tr.querySelector('td.emp');
     var name = empTd ? (empTd.childNodes[0].nodeValue || empTd.textContent).trim() : '';
     selPill.innerHTML = '<b>' + name + '</b> · ' + MONTHS[lo - 1] + '–' + MONTHS[hi - 1] +
