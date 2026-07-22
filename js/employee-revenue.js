@@ -998,15 +998,18 @@
     }
 
     var rows = [];
-    var totHrs = 0, totRev = 0;
+    var totHrs = 0, totRev = 0, totAgH = 0, totAgRev = 0;
     Object.keys(COMP.entryByClientEmpMonth).forEach(function (cid) {
-      var hrs = 0, rev = 0, cTotH = 0, cRev = 0;
+      var hrs = 0, rev = 0, cTotH = 0, cRev = 0, aTotH = 0, aRev = 0;
       monthsInScope().forEach(function (m) {
+        var totalH = (COMP.clientHoursMonth[cid] || {})[m] || 0;
+        var r = (COMP.clientRevMonth[cid] || {})[m] || 0;
+        // Agentur-Sicht: alle Monate im Zeitraum, unabhängig davon, ob DIESER MA Stunden hatte
+        aTotH += totalH;
+        aRev += r;
         var emps = (COMP.entryByClientEmpMonth[cid][m]) || {};
         var h = emps[empId] || 0;
         if (!h) return;
-        var totalH = (COMP.clientHoursMonth[cid] || {})[m] || 0;
-        var r = (COMP.clientRevMonth[cid] || {})[m] || 0;
         hrs += h;
         cTotH += totalH;
         cRev += r;
@@ -1014,31 +1017,40 @@
       });
       if (hrs > 0) {
         rows.push({ cid: cid, name: (clientsById[cid] || {}).name || '?', hrs: hrs, rev: rev, cTotH: cTotH, cRev: cRev,
+                    aTotH: aTotH, aRev: aRev,
                     excluded: !!COMP.excludedSet[cid + '|' + empId] });
-        totHrs += hrs; totRev += rev;
+        totHrs += hrs; totRev += rev; totAgH += aTotH; totAgRev += aRev;
       }
     });
     rows.sort(function (a, b) { return b.rev - a.rev || b.hrs - a.hrs; });
 
     var single = scope !== 'all';
-    // Effektiver Stundensatz: MA-Umsatz ÷ MA-Stunden. Gesamt-Satz als Referenz;
+    // MA-Stundensatz: MA-Umsatz ÷ MA-Stunden. Gesamt-Satz als Referenz;
     // Kunden deutlich darunter (< 75 %) werden rot markiert.
     var totRate = totHrs > 0 ? totRev / totHrs : 0;
     function rateCell(rev, hrs, excluded) {
       if (excluded || hrs <= 0) return '<td class="right muted">–</td>';
       var rate = rev / hrs;
       var low = totRate > 0 && rate < totRate * 0.75;
-      return '<td class="right' + (low ? '' : '') + '" style="' + (low ? 'color:var(--danger);font-weight:600' : '') + '"' +
+      return '<td class="right" style="' + (low ? 'color:var(--danger);font-weight:600' : '') + '"' +
         (low ? ' title="Deutlich unter dem Ø-Stundensatz dieses Mitarbeiters (' + fmtEur(totRate) + '/h)"' : '') + '>' +
         fmtEur(rate) + '</td>';
+    }
+    // Agentur-Stundensatz: Kunden-Umsatz ÷ ALLE Kunden-Stunden (alle Mitarbeiter)
+    function agRateCell(aRev, aTotH) {
+      if (aTotH <= 0) return '<td class="right muted">–</td>';
+      return '<td class="right" style="color:var(--text-secondary)">' + fmtEur(aRev / aTotH) + '</td>';
     }
     var html = '<div class="table-wrap"><table class="mini-table"><thead><tr>' +
       '<th>Kunde</th><th class="right">MA-Std</th>' +
       (single ? '<th class="right">Kunden-Std ges.</th><th class="right">Anteil</th><th class="right">Kunden-Umsatz</th>' : '') +
-      '<th class="right">MA-Umsatz</th><th class="right" title="MA-Umsatz ÷ MA-Stunden – was die Arbeitszeit bei diesem Kunden effektiv einbringt">€ / Std</th><th></th></tr></thead><tbody>';
+      '<th class="right">MA-Umsatz</th>' +
+      '<th class="right" title="MA-Umsatz ÷ MA-Stunden – was die Arbeitszeit DIESES Mitarbeiters beim Kunden effektiv einbringt">€/Std (MA)</th>' +
+      '<th class="right" title="Kunden-Umsatz ÷ alle Kunden-Stunden (alle Mitarbeiter) – was der Kunde pro geleisteter Agentur-Stunde zahlt">€/Std (Agentur)</th>' +
+      '<th></th></tr></thead><tbody>';
 
     if (!rows.length) {
-      html += '<tr><td colspan="' + (single ? 8 : 5) + '" class="muted">Keine Stunden in diesem Zeitraum.</td></tr>';
+      html += '<tr><td colspan="' + (single ? 9 : 6) + '" class="muted">Keine Stunden in diesem Zeitraum.</td></tr>';
     } else {
       rows.forEach(function (r) {
         var share = (single && r.cTotH > 0) ? (r.hrs / r.cTotH * 100).toFixed(1) + ' %' : '';
@@ -1054,16 +1066,19 @@
           (single ? '<td class="right">' + fmtH(r.cTotH) + '</td><td class="right">' + share + '</td><td class="right">' + fmtEur(r.cRev) + '</td>' : '') +
           '<td class="right">' + (r.excluded ? '<span class="muted">0 €</span>' : fmtEur(r.rev)) + '</td>' +
           rateCell(r.rev, r.hrs, r.excluded) +
+          agRateCell(r.aRev, r.aTotH) +
           '<td class="right">' + btn + '</td></tr>';
       });
       html += '<tr style="font-weight:700;border-top:2px solid var(--border)"><td>Gesamt</td>' +
         '<td class="right">' + fmtH(totHrs) + '</td>' +
         (single ? '<td></td><td></td><td></td>' : '') +
         '<td class="right">' + fmtEur(totRev) + '</td>' +
-        '<td class="right" title="Gesamter MA-Umsatz ÷ gesamte MA-Stunden">' + (totHrs > 0 ? fmtEur(totRate) : '–') + '</td><td></td></tr>';
+        '<td class="right" title="Gesamter MA-Umsatz ÷ gesamte MA-Stunden">' + (totHrs > 0 ? fmtEur(totRate) : '–') + '</td>' +
+        '<td class="right" title="Summe Kunden-Umsatz ÷ Summe aller Kunden-Stunden (über die Kunden dieses Mitarbeiters)">' + (totAgH > 0 ? fmtEur(totAgRev / totAgH) : '–') + '</td>' +
+        '<td></td></tr>';
     }
     html += '</tbody></table></div>' +
-      '<div style="margin-top:8px;font-size:11px;color:var(--text-secondary)">🚫 Ausschließen = dieser Mitarbeiter wird beim Umsatz dieses Kunden nicht berücksichtigt (Umsatz geht ganz an die Owner). Stunden bleiben sichtbar. · <span style="color:var(--danger)">Rote €/Std</span> = unter 75 % des Ø-Stundensatzes dieses Mitarbeiters – Kandidat für „Kunde zahlt zu wenig für den Aufwand".</div>';
+      '<div style="margin-top:8px;font-size:11px;color:var(--text-secondary)">🚫 Ausschließen = dieser Mitarbeiter wird beim Umsatz dieses Kunden nicht berücksichtigt (Umsatz geht ganz an die Owner). Stunden bleiben sichtbar. · <b>€/Std (MA)</b> = MA-Umsatz ÷ MA-Stunden; <span style="color:var(--danger)">rot</span> = unter 75 % des Ø-Satzes dieses Mitarbeiters. · <b>€/Std (Agentur)</b> = Kunden-Umsatz ÷ alle Kunden-Stunden (alle Mitarbeiter) – was der Kunde pro geleisteter Agentur-Stunde zahlt.</div>';
     modalBody.innerHTML = html;
 
     // Ausschluss-Schalter
