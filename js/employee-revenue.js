@@ -1021,13 +1021,24 @@
     rows.sort(function (a, b) { return b.rev - a.rev || b.hrs - a.hrs; });
 
     var single = scope !== 'all';
+    // Effektiver Stundensatz: MA-Umsatz ÷ MA-Stunden. Gesamt-Satz als Referenz;
+    // Kunden deutlich darunter (< 75 %) werden rot markiert.
+    var totRate = totHrs > 0 ? totRev / totHrs : 0;
+    function rateCell(rev, hrs, excluded) {
+      if (excluded || hrs <= 0) return '<td class="right muted">–</td>';
+      var rate = rev / hrs;
+      var low = totRate > 0 && rate < totRate * 0.75;
+      return '<td class="right' + (low ? '' : '') + '" style="' + (low ? 'color:var(--danger);font-weight:600' : '') + '"' +
+        (low ? ' title="Deutlich unter dem Ø-Stundensatz dieses Mitarbeiters (' + fmtEur(totRate) + '/h)"' : '') + '>' +
+        fmtEur(rate) + '</td>';
+    }
     var html = '<div class="table-wrap"><table class="mini-table"><thead><tr>' +
       '<th>Kunde</th><th class="right">MA-Std</th>' +
       (single ? '<th class="right">Kunden-Std ges.</th><th class="right">Anteil</th><th class="right">Kunden-Umsatz</th>' : '') +
-      '<th class="right">MA-Umsatz</th><th></th></tr></thead><tbody>';
+      '<th class="right">MA-Umsatz</th><th class="right" title="MA-Umsatz ÷ MA-Stunden – was die Arbeitszeit bei diesem Kunden effektiv einbringt">€ / Std</th><th></th></tr></thead><tbody>';
 
     if (!rows.length) {
-      html += '<tr><td colspan="' + (single ? 7 : 4) + '" class="muted">Keine Stunden in diesem Zeitraum.</td></tr>';
+      html += '<tr><td colspan="' + (single ? 8 : 5) + '" class="muted">Keine Stunden in diesem Zeitraum.</td></tr>';
     } else {
       rows.forEach(function (r) {
         var share = (single && r.cTotH > 0) ? (r.hrs / r.cTotH * 100).toFixed(1) + ' %' : '';
@@ -1042,15 +1053,17 @@
           '<td class="right">' + fmtH(r.hrs) + '</td>' +
           (single ? '<td class="right">' + fmtH(r.cTotH) + '</td><td class="right">' + share + '</td><td class="right">' + fmtEur(r.cRev) + '</td>' : '') +
           '<td class="right">' + (r.excluded ? '<span class="muted">0 €</span>' : fmtEur(r.rev)) + '</td>' +
+          rateCell(r.rev, r.hrs, r.excluded) +
           '<td class="right">' + btn + '</td></tr>';
       });
       html += '<tr style="font-weight:700;border-top:2px solid var(--border)"><td>Gesamt</td>' +
         '<td class="right">' + fmtH(totHrs) + '</td>' +
         (single ? '<td></td><td></td><td></td>' : '') +
-        '<td class="right">' + fmtEur(totRev) + '</td><td></td></tr>';
+        '<td class="right">' + fmtEur(totRev) + '</td>' +
+        '<td class="right" title="Gesamter MA-Umsatz ÷ gesamte MA-Stunden">' + (totHrs > 0 ? fmtEur(totRate) : '–') + '</td><td></td></tr>';
     }
     html += '</tbody></table></div>' +
-      '<div style="margin-top:8px;font-size:11px;color:var(--text-secondary)">🚫 Ausschließen = dieser Mitarbeiter wird beim Umsatz dieses Kunden nicht berücksichtigt (Umsatz geht ganz an die Owner). Stunden bleiben sichtbar.</div>';
+      '<div style="margin-top:8px;font-size:11px;color:var(--text-secondary)">🚫 Ausschließen = dieser Mitarbeiter wird beim Umsatz dieses Kunden nicht berücksichtigt (Umsatz geht ganz an die Owner). Stunden bleiben sichtbar. · <span style="color:var(--danger)">Rote €/Std</span> = unter 75 % des Ø-Stundensatzes dieses Mitarbeiters – Kandidat für „Kunde zahlt zu wenig für den Aufwand".</div>';
     modalBody.innerHTML = html;
 
     // Ausschluss-Schalter
