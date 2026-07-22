@@ -315,16 +315,18 @@
     }
 
     // ── Nicht zugeordneter (Rest-)Umsatz je Kunde je Monat ──────────────
-    // Voller Kundenumsatz (inkl. bewusst ausgeschlossener Rechnungen) minus was
-    // Mitarbeiter tatsächlich bekommen haben = nicht zugeordnet. Ist der Kunde
-    // einem MA/Inhaber zugewiesen, wird dieser Rest ihm gutgeschrieben.
+    // MA-zurechenbarer Kundenumsatz minus was Mitarbeiter tatsächlich bekommen
+    // haben = nicht zugeordnet. Ist der Kunde einem MA/Inhaber zugewiesen, wird
+    // dieser Rest ihm gutgeschrieben. Bewusst ausgeschlossene Rechnungen
+    // (ma_revenue_exclusions, „nicht zurechnen") zählen hier NICHT mit — sonst
+    // würde der Ausschluss über die Rest-Zuweisung wieder ausgehebelt.
     var ownerAssign = {}; // cid → eid
     (DATA.residualAssignments || []).forEach(function (a) { ownerAssign[a.client_id] = a.employee_id; });
     var residualByClientMonth = {}; // cid → { m → rest }
     clients.forEach(function (c) {
       for (var rm = 1; rm <= 12; rm++) {
         if (isFuture(year, rm)) continue; // nur Ist-Monate
-        var full = ((clientRevMonth[c.id] || {})[rm] || 0) + ((maExclRevByMonth[c.id] || {})[rm] || 0);
+        var full = ((clientRevMonth[c.id] || {})[rm] || 0);
         if (full <= 0) continue;
         var attr = 0;
         var ecm = (empClientRevMonth[c.id] || {})[rm] || {};
