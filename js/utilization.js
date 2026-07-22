@@ -542,6 +542,16 @@
   }
 
   // ── Render table ──────────────────────────────────────────────────────
+  // Teilzeit-Faktor: capacity_pct (z.B. 70) skaliert die verfügbaren Stunden
+  // ab capacity_from; frühere Monate (und ohne capacity_pct) = 100 %.
+  function capFactor(emp, year, m) {
+    var pct = Number(emp && emp.capacity_pct);
+    if (!(pct > 0 && pct < 100)) return 1;
+    var mm = String(emp.capacity_from || '').match(/^(\d{4})-(\d{2})/);
+    if (mm && (year * 12 + (m - 1)) < (parseInt(mm[1], 10) * 12 + parseInt(mm[2], 10) - 1)) return 1;
+    return pct / 100;
+  }
+
   function renderTable(employees, empEntries, empIntern, forecastByEmp, internalPctByEmp,
                        available, netAvail, workDays, year, subtract, holidayDays,
                        clientBreakdown, clientMap, absenceMap) {
@@ -596,9 +606,10 @@
 
         if (isFuture) {
           var fcastClient = (forecastByEmp[emp.id] || {})[m] || 0;
-          var fcast = fcastClient ? Math.round((fcastClient + netAvail[m] * 0.15) * 4) / 4 : null;
+          var fnetCap = netAvail[m] * capFactor(emp, year, m);
+          var fcast = fcastClient ? Math.round((fcastClient + fnetCap * 0.15) * 4) / 4 : null;
           if (fcast) {
-            var fnet = netAvail[m];
+            var fnet = fnetCap;
             var fPct = fnet > 0 ? (fcast / fnet) * 100 : 0;
             var fCls = fPct > 100 ? 'high' : fPct > 80 ? 'medium' : 'low';
             var fW   = Math.min(fPct, 100).toFixed(0);
@@ -621,7 +632,7 @@
         var vacDays  = absData.vacation || 0;
         var sickDays = absData.sick     || 0;
         var absDays  = vacDays + sickDays;
-        var empNet   = Math.max(0, netAvail[m] - absDays * 8);
+        var empNet   = Math.max(0, (netAvail[m] - absDays * 8) * capFactor(emp, year, m));
 
         var pctUsed = empNet > 0 ? (hrs / empNet) * 100 : (hrs > 0 ? 100 : 0);
         var fillCls = pctUsed > 100 ? 'high' : pctUsed > 80 ? 'medium' : 'low';
@@ -738,7 +749,7 @@
       var utilTotal = (empEntries[empId] || {})[month] || 0;
       var absData   = (absenceMap[empId] || {})[month] || {};
       var absDays   = (absData.vacation || 0) + (absData.sick || 0);
-      var empAvail  = Math.max(0, (netAvail[month] || 0) - absDays * 8);
+      var empAvail  = Math.max(0, ((netAvail[month] || 0) - absDays * 8) * capFactor(emp, yr, month));
       showMonthDetail(emp, month, yr, clientBreakdown, clientMap, empIntern, utilTotal, empAvail);
     });
   }

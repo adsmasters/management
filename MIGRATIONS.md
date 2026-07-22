@@ -105,3 +105,31 @@ create policy "allow all churn_events" on churn_events for all using (true) with
 Nur nötig für **manuelle** Churn-Einträge. Die automatische Churn-Erkennung
 (≥ N aktive Monate, danach ≥ M Monate ohne Rechnung) läuft auch ohne diese
 Tabelle rein aus der `revenue`-Historie.
+
+## 7. Service-Klassifizierung: Kunden-Fallback (07/2026)
+
+```sql
+-- oder: supabase/service-overrides-schema.sql (inkl. Seed) im SQL-Editor ausführen
+CREATE TABLE IF NOT EXISTS service_overrides (
+  contact_name text PRIMARY KEY,
+  service      text NOT NULL,
+  created_at   timestamptz DEFAULT now()
+);
+ALTER TABLE service_overrides ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow all on service_overrides" ON service_overrides FOR ALL USING (true) WITH CHECK (true);
+```
+
+Bereits ausgeführt (20.07.2026). Fallback des LexOffice-Syncs für Kunden, deren
+Rechnungstexte keine Service-Keywords enthalten (z.B. MTS → Bilder).
+
+## 8. Teilzeit-Kapazität (07/2026)
+
+```sql
+ALTER TABLE employees
+  ADD COLUMN IF NOT EXISTS capacity_pct numeric,   -- z.B. 70 für 70 %; NULL = Vollzeit
+  ADD COLUMN IF NOT EXISTS capacity_from date;      -- NULL = gilt immer; sonst ab diesem Monat
+```
+
+Bereits ausgeführt (20.07.2026). Skaliert die verfügbaren Stunden in
+Auslastung (utilization.js) und Freier Kapazität (employee-revenue.js);
+Monate vor `capacity_from` rechnen mit 100 %. Pflegbar im Mitarbeiter-Formular.

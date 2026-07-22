@@ -23,6 +23,11 @@
   function fmtEur(n) { return Math.round(n).toLocaleString('de-DE') + ' €'; }
   function fmtH(n)   { return (Math.round(n * 10) / 10).toLocaleString('de-DE') + ' h'; }
   function fmtCnt(n) { return (Math.round(n * 10) / 10).toLocaleString('de-DE'); }
+  // 'YYYY-MM-DD' → Jahr*12 + Monatsindex (String-Parsing, keine Zeitzonen-Falle)
+  function calMonthIdx(s) {
+    var m = String(s || '').match(/^(\d{4})-(\d{2})/);
+    return m ? parseInt(m[1], 10) * 12 + (parseInt(m[2], 10) - 1) : null;
+  }
   function norm(s)   { return (s || '').trim().toLowerCase(); }
 
   var EXCLUDED_CONTACTS = {}; // zentral ausgeschlossene Kontakte (contact_overrides, status='excluded')
@@ -370,7 +375,24 @@
     DATA.absences.forEach(function (a) {
       (absenceMap[a.employee_id] = absenceMap[a.employee_id] || {})[a.month] = (a.vacation_days || 0) + (a.sick_days || 0);
     });
-    function available(empId, m) { return Math.max(0, availBase[m] - ((absenceMap[empId] || {})[m] || 0) * 8); }
+    // Teilzeit: capacity_pct (z.B. 70) skaliert die verfügbaren Stunden,
+    // ab capacity_from (ohne Datum: alle Monate). Frühere Monate = 100 %.
+    var capByEmp = {};
+    employees.forEach(function (e) {
+      var pct = Number(e.capacity_pct);
+      if (pct > 0 && pct < 100) {
+        capByEmp[e.id] = { f: pct / 100, fromIdx: e.capacity_from ? calMonthIdx(e.capacity_from) : null };
+      }
+    });
+    function capFactor(empId, m) {
+      var c = capByEmp[empId];
+      if (!c) return 1;
+      if (c.fromIdx != null && (year * 12 + (m - 1)) < c.fromIdx) return 1;
+      return c.f;
+    }
+    function available(empId, m) {
+      return Math.max(0, (availBase[m] - ((absenceMap[empId] || {})[m] || 0) * 8) * capFactor(empId, m));
+    }
 
     // util_hours (tatsächliche Gesamtstunden) je MA je Monat
     var utilMap = {};
