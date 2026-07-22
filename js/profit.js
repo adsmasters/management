@@ -163,9 +163,14 @@
             var leaveVal = lsm ? parseInt(lsm[1], 10) * 12 + (parseInt(lsm[2], 10) - 1)
                                : (function () { var d = new Date(emp.leave_start); return d.getUTCFullYear() * 12 + d.getUTCMonth(); })();
             var leaveDay = lsm ? parseInt(lsm[3], 10) : 1;
+            var lum = String(emp.leave_until || '').match(/^(\d{4})-(\d{2})/);
+            var untilVal = lum ? parseInt(lum[1], 10) * 12 + (parseInt(lum[2], 10) - 1) : null;
             // Austritt am 1. → schon dieser Monat kostenfrei; mitten im Monat
             // (z.B. 15.07.) → gearbeitete Stunden des Monats zählen noch als Kosten.
-            if (leaveCutoff > leaveVal || (leaveCutoff === leaveVal && leaveDay === 1)) return;
+            // Mit leave_until (Elternzeit): nach dem Enddatum zählen Kosten wieder.
+            var absent = leaveCutoff > leaveVal || (leaveCutoff === leaveVal && leaveDay === 1);
+            if (absent && untilVal != null && leaveCutoff > untilVal) absent = false;
+            if (absent) return;
           }
           var rate = effectiveRate(emp, y, m, ratesByEmp);
           var cost = 0;

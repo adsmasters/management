@@ -23,6 +23,7 @@
   const salaryFields    = document.getElementById('salaryFields');
   const hourlyField     = document.getElementById('hourlyField');
   const empLeaveStart   = document.getElementById('empLeaveStart');
+  const empLeaveUntil   = document.getElementById('empLeaveUntil');
   const empCapacity     = document.getElementById('empCapacity');
   const empCapacityFrom = document.getElementById('empCapacityFrom');
   const empActive       = document.getElementById('empActive');
@@ -83,6 +84,7 @@
     empHourlyRate.value   = emp?.hourly_rate    > 0 ? emp.hourly_rate    : '';
     empBillingRate.value  = emp?.billing_rate   > 0 ? emp.billing_rate   : '';
     empLeaveStart.value   = emp?.leave_start ? emp.leave_start.substring(0, 10) : '';
+    empLeaveUntil.value   = emp?.leave_until ? emp.leave_until.substring(0, 10) : '';
     empCapacity.value     = emp?.capacity_pct != null && emp.capacity_pct < 100 ? emp.capacity_pct : '';
     empCapacityFrom.value = emp?.capacity_from ? emp.capacity_from.substring(0, 7) : '';
     empCostTotal.style.display = 'none';
@@ -120,6 +122,7 @@
 
     // type="date" liefert bereits YYYY-MM-DD (ältere Einträge waren Monatsanfang)
     const leaveStart = empLeaveStart.value || null;
+    const leaveUntil = leaveStart ? (empLeaveUntil.value || null) : null; // "bis" nur mit "ab" sinnvoll
     const capacityPct = empCapacity.value === '' ? null : parseFloat(empCapacity.value);
     const fields = { name, role, email, active,
                      gross_salary:   isFreelancer ? null : (gross        || null),
@@ -128,6 +131,7 @@
                      hourly_rate:    isFreelancer ? (hourlyRate || null) : null,
                      billing_rate:   isFreelancer ? (billingRate || null) : null,
                      leave_start:    leaveStart,
+                     leave_until:    leaveUntil,
                      capacity_pct:   capacityPct != null && capacityPct >= 0 && capacityPct < 100 ? capacityPct : null,
                      capacity_from:  empCapacityFrom.value ? empCapacityFrom.value + '-01' : null };
     const promise = editingId

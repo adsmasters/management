@@ -133,3 +133,15 @@ ALTER TABLE employees
 Bereits ausgeführt (20.07.2026). Skaliert die verfügbaren Stunden in
 Auslastung (utilization.js) und Freier Kapazität (employee-revenue.js);
 Monate vor `capacity_from` rechnen mit 100 %. Pflegbar im Mitarbeiter-Formular.
+
+## 9. Abwesenheit vs. Austritt (07/2026)
+
+```sql
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS leave_until date;
+```
+
+Bereits ausgeführt (20.07.2026). `leave_start` OHNE `leave_until` = endgültig
+ausgeschieden (in Kapazitäts-Ansicht ausgeblendet, Umsatz-Historie bleibt).
+`leave_start` MIT `leave_until` = vorübergehend abwesend (Mutterschutz/
+Elternzeit): bleibt sichtbar mit 0 Kapazität, nach dem Enddatum wieder volle
+Kapazität und Kosten. Austrittsmonat zählt anteilig nach Tagen.

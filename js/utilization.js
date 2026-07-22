@@ -557,7 +557,9 @@
     var lv = String((emp && emp.leave_start) || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
     if (lv) {
       var lidx = parseInt(lv[1], 10) * 12 + (parseInt(lv[2], 10) - 1);
-      if (idx > lidx) return 0;
+      var uv = String((emp && emp.leave_until) || '').match(/^(\d{4})-(\d{2})/);
+      var uidx = uv ? parseInt(uv[1], 10) * 12 + (parseInt(uv[2], 10) - 1) : null;
+      if (idx > lidx && !(uidx != null && idx > uidx)) return 0; // abwesend (bis leave_until bzw. dauerhaft)
       if (idx === lidx) f *= Math.max(0, (parseInt(lv[3], 10) - 1) / new Date(year, m, 0).getDate());
     }
     return f;

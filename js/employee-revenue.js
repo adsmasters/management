@@ -375,11 +375,15 @@
     DATA.absences.forEach(function (a) {
       (absenceMap[a.employee_id] = absenceMap[a.employee_id] || {})[a.month] = (a.vacation_days || 0) + (a.sick_days || 0);
     });
-    // Teilzeit & Austritt:
+    // Teilzeit, Abwesenheit & Austritt:
     //  • capacity_pct (0–99, z.B. 70) skaliert die verfügbaren Stunden ab
     //    capacity_from (ohne Datum: alle Monate); 0 = keine Kapazität (Pseudo-MA).
-    //  • leave_start (Austritt/Abwesend ab): Kapazität und Forecast sind ab dem
-    //    Folgemonat 0, im Austrittsmonat anteilig nach Tagen.
+    //  • leave_start: Kapazität und Forecast sind ab dem Folgemonat 0, im
+    //    Startmonat anteilig nach Tagen.
+    //  • leave_until gesetzt = TEMPORÄRE Abwesenheit (Mutterschutz/Elternzeit):
+    //    Zeile bleibt in der Kapazitäts-Ansicht sichtbar, nach dem Enddatum
+    //    zählt wieder volle Kapazität. Ohne leave_until = ausgeschieden →
+    //    Zeile wird in der Kapazitäts-Ansicht ausgeblendet.
     var capByEmp = {};
     employees.forEach(function (e) {
       var pct = e.capacity_pct == null ? null : Number(e.capacity_pct);
@@ -392,6 +396,7 @@
         entry = entry || { f: 1, fromIdx: null };
         entry.leaveIdx = parseInt(lv[1], 10) * 12 + (parseInt(lv[2], 10) - 1);
         entry.leaveDay = parseInt(lv[3], 10);
+        entry.untilIdx = e.leave_until ? calMonthIdx(e.leave_until) : null;
       }
       if (entry) capByEmp[e.id] = entry;
     });
@@ -399,9 +404,10 @@
       var c = capByEmp[empId];
       if (!c || c.leaveIdx == null) return 1;
       var idx = year * 12 + (m - 1);
-      if (idx > c.leaveIdx) return 0;
       if (idx < c.leaveIdx) return 1;
-      return Math.max(0, (c.leaveDay - 1) / new Date(year, m, 0).getDate());
+      if (idx === c.leaveIdx) return Math.max(0, (c.leaveDay - 1) / new Date(year, m, 0).getDate());
+      if (c.untilIdx != null && idx > c.untilIdx) return 1; // zurück aus Elternzeit o.ä.
+      return 0;
     }
     function capFactor(empId, m) {
       var c = capByEmp[empId];
@@ -412,15 +418,16 @@
     function available(empId, m) {
       return Math.max(0, (availBase[m] - ((absenceMap[empId] || {})[m] || 0) * 8) * capFactor(empId, m));
     }
-    // Für die Kapazitäts-Ansicht ausblenden: bereits ausgeschieden (Stand heute)
-    // oder dauerhaft ohne Kapazität (z.B. Pseudo-MA "PPC Software").
+    // Für die Kapazitäts-Ansicht ausblenden: endgültig ausgeschieden (Stand
+    // heute, ohne Rückkehrdatum) oder dauerhaft ohne Kapazität (Pseudo-MA).
+    // Temporär Abwesende (mit leave_until) bleiben sichtbar – mit 0 Kapazität.
     var hideInFree = {};
     employees.forEach(function (e) {
       var c = capByEmp[e.id];
       if (!c) return;
       var nowIdx = ym.year * 12 + (ym.month - 1);
-      if (c.leaveIdx != null && c.leaveIdx <= nowIdx) hideInFree[e.id] = true;
-      if (c.f === 0 && c.fromIdx == null) hideInFree[e.id] = true;
+      if (c.leaveIdx != null && c.leaveIdx <= nowIdx && c.untilIdx == null) hideInFree[e.id] = true;
+      if (c.f === 0 && c.fromIdx == null && c.leaveIdx == null) hideInFree[e.id] = true;
     });
 
     // util_hours (tatsächliche Gesamtstunden) je MA je Monat

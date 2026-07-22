@@ -136,6 +136,11 @@
         <span class="hint">Ab diesem Datum: keine Kosten mehr, keine Kapazität/Forecast (im Monat des Datums anteilig nach Tagen)</span>
       </div>
       <div class="field">
+        <label for="empLeaveUntil">Abwesend bis <span style="color:var(--text-muted);font-weight:400">(optional – nur bei vorübergehender Abwesenheit)</span></label>
+        <input type="date" id="empLeaveUntil">
+        <span class="hint"><strong>Mit</strong> Enddatum (z.B. Mutterschutz/Elternzeit): bleibt in der Kapazitäts-Ansicht sichtbar, danach wieder volle Kapazität &amp; Kosten. <strong>Ohne</strong> = endgültig ausgeschieden → wird dort ausgeblendet</span>
+      </div>
+      <div class="field">
         <label for="empCapacity">Kapazität in % <span style="color:var(--text-muted);font-weight:400">(optional – Teilzeit)</span></label>
         <input type="number" id="empCapacity" min="0" max="100" step="5" placeholder="100">
         <span class="hint">Verfügbare Stunden in Auslastung &amp; Freier Kapazität, z.B. <strong>70</strong> für 70 % · <strong>0</strong> = keine Kapazität (z.B. Pseudo-MA)</span>
@@ -179,7 +184,7 @@
 <script src="js/db.js?v=20260611"></script>
 <script src="js/utils.js"></script>
 <script src="js/auth.js"></script>
-<script src="js/employees.js?v=20260720b"></script>
+<script src="js/employees.js?v=20260720c"></script>
   <script defer src="https://adsmasters.github.io/hub/backlink.js"></script>
   <script src="js/nav.js"></script>
 </body>
