@@ -375,24 +375,53 @@
     DATA.absences.forEach(function (a) {
       (absenceMap[a.employee_id] = absenceMap[a.employee_id] || {})[a.month] = (a.vacation_days || 0) + (a.sick_days || 0);
     });
-    // Teilzeit: capacity_pct (z.B. 70) skaliert die verfügbaren Stunden,
-    // ab capacity_from (ohne Datum: alle Monate). Frühere Monate = 100 %.
+    // Teilzeit & Austritt:
+    //  • capacity_pct (0–99, z.B. 70) skaliert die verfügbaren Stunden ab
+    //    capacity_from (ohne Datum: alle Monate); 0 = keine Kapazität (Pseudo-MA).
+    //  • leave_start (Austritt/Abwesend ab): Kapazität und Forecast sind ab dem
+    //    Folgemonat 0, im Austrittsmonat anteilig nach Tagen.
     var capByEmp = {};
     employees.forEach(function (e) {
-      var pct = Number(e.capacity_pct);
-      if (pct > 0 && pct < 100) {
-        capByEmp[e.id] = { f: pct / 100, fromIdx: e.capacity_from ? calMonthIdx(e.capacity_from) : null };
+      var pct = e.capacity_pct == null ? null : Number(e.capacity_pct);
+      var entry = null;
+      if (pct != null && pct >= 0 && pct < 100) {
+        entry = { f: pct / 100, fromIdx: e.capacity_from ? calMonthIdx(e.capacity_from) : null };
       }
+      var lv = String(e.leave_start || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+      if (lv) {
+        entry = entry || { f: 1, fromIdx: null };
+        entry.leaveIdx = parseInt(lv[1], 10) * 12 + (parseInt(lv[2], 10) - 1);
+        entry.leaveDay = parseInt(lv[3], 10);
+      }
+      if (entry) capByEmp[e.id] = entry;
     });
+    function leaveFactor(empId, m) {
+      var c = capByEmp[empId];
+      if (!c || c.leaveIdx == null) return 1;
+      var idx = year * 12 + (m - 1);
+      if (idx > c.leaveIdx) return 0;
+      if (idx < c.leaveIdx) return 1;
+      return Math.max(0, (c.leaveDay - 1) / new Date(year, m, 0).getDate());
+    }
     function capFactor(empId, m) {
       var c = capByEmp[empId];
       if (!c) return 1;
-      if (c.fromIdx != null && (year * 12 + (m - 1)) < c.fromIdx) return 1;
-      return c.f;
+      var f = (c.fromIdx != null && (year * 12 + (m - 1)) < c.fromIdx) ? 1 : c.f;
+      return f * leaveFactor(empId, m);
     }
     function available(empId, m) {
       return Math.max(0, (availBase[m] - ((absenceMap[empId] || {})[m] || 0) * 8) * capFactor(empId, m));
     }
+    // Für die Kapazitäts-Ansicht ausblenden: bereits ausgeschieden (Stand heute)
+    // oder dauerhaft ohne Kapazität (z.B. Pseudo-MA "PPC Software").
+    var hideInFree = {};
+    employees.forEach(function (e) {
+      var c = capByEmp[e.id];
+      if (!c) return;
+      var nowIdx = ym.year * 12 + (ym.month - 1);
+      if (c.leaveIdx != null && c.leaveIdx <= nowIdx) hideInFree[e.id] = true;
+      if (c.f === 0 && c.fromIdx == null) hideInFree[e.id] = true;
+    });
 
     // util_hours (tatsächliche Gesamtstunden) je MA je Monat
     var utilMap = {};
@@ -455,8 +484,10 @@
           if (p.amEmpId === emp.id) { h += amB; r += tot ? rev * amB / tot : (advB ? 0 : rev); }
           if (p.advEmpId === emp.id) { h += advB; r += tot ? rev * advB / tot : 0; }
         });
-        (fcHours[emp.id] = fcHours[emp.id] || {})[m] = Math.max(0, h);
-        (fcRev[emp.id] = fcRev[emp.id] || {})[m] = Math.max(0, r);
+        // Ausgeschiedene: kein Forecast mehr (Austrittsmonat anteilig)
+        var lf = leaveFactor(emp.id, m);
+        (fcHours[emp.id] = fcHours[emp.id] || {})[m] = Math.max(0, h) * lf;
+        (fcRev[emp.id] = fcRev[emp.id] || {})[m] = Math.max(0, r) * lf;
       }
     });
     var avgHrs = {}; // (nicht mehr separat genutzt)
@@ -537,6 +568,7 @@
       empClientCount: empClientCount, empClientYear: empClientYear,
       allClientCount: allClientCount, allClientYear: Object.keys(allClientYearSet).length,
       billedCount: billedCount, billedYear: Object.keys(billedYearSet).length,
+      hideInFree: hideInFree,
     });
     renderScenario(clients, employees);
     renderUnattributed();
@@ -793,6 +825,8 @@
     var rows = '';
     var colTot = {}; // m → sum (für Summenzeile bei revenue/hours)
     M.employees.forEach(function (emp) {
+      // Kapazitäts-Ansicht: Ausgeschiedene & Pseudo-MAs (ohne Kapazität) ausblenden
+      if (metric === 'free' && (M.hideInFree || {})[emp.id]) return;
       var rowSum = 0;
       var cells = '';
       for (var m = 1; m <= 12; m++) {

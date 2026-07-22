@@ -542,14 +542,25 @@
   }
 
   // ── Render table ──────────────────────────────────────────────────────
-  // Teilzeit-Faktor: capacity_pct (z.B. 70) skaliert die verfügbaren Stunden
-  // ab capacity_from; frühere Monate (und ohne capacity_pct) = 100 %.
+  // Teilzeit-/Austritts-Faktor für verfügbare Stunden:
+  //  • capacity_pct (0–99) skaliert ab capacity_from; frühere Monate = 100 %;
+  //    0 = keine Kapazität (Pseudo-MA wie "PPC Software").
+  //  • leave_start: ab Folgemonat 0, im Austrittsmonat anteilig nach Tagen.
   function capFactor(emp, year, m) {
-    var pct = Number(emp && emp.capacity_pct);
-    if (!(pct > 0 && pct < 100)) return 1;
-    var mm = String(emp.capacity_from || '').match(/^(\d{4})-(\d{2})/);
-    if (mm && (year * 12 + (m - 1)) < (parseInt(mm[1], 10) * 12 + parseInt(mm[2], 10) - 1)) return 1;
-    return pct / 100;
+    var idx = year * 12 + (m - 1);
+    var f = 1;
+    var pct = (emp && emp.capacity_pct != null) ? Number(emp.capacity_pct) : null;
+    if (pct != null && pct >= 0 && pct < 100) {
+      var mm = String(emp.capacity_from || '').match(/^(\d{4})-(\d{2})/);
+      if (!(mm && idx < (parseInt(mm[1], 10) * 12 + parseInt(mm[2], 10) - 1))) f = pct / 100;
+    }
+    var lv = String((emp && emp.leave_start) || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (lv) {
+      var lidx = parseInt(lv[1], 10) * 12 + (parseInt(lv[2], 10) - 1);
+      if (idx > lidx) return 0;
+      if (idx === lidx) f *= Math.max(0, (parseInt(lv[3], 10) - 1) / new Date(year, m, 0).getDate());
+    }
+    return f;
   }
 
   function renderTable(employees, empEntries, empIntern, forecastByEmp, internalPctByEmp,
@@ -606,8 +617,10 @@
 
         if (isFuture) {
           var fcastClient = (forecastByEmp[emp.id] || {})[m] || 0;
-          var fnetCap = netAvail[m] * capFactor(emp, year, m);
-          var fcast = fcastClient ? Math.round((fcastClient + fnetCap * 0.15) * 4) / 4 : null;
+          var cfFc = capFactor(emp, year, m);
+          var fnetCap = netAvail[m] * cfFc;
+          // Ausgeschiedene (Faktor 0): kein Forecast, Zelle bleibt leer
+          var fcast = (cfFc > 0 && fcastClient) ? Math.round((fcastClient + fnetCap * 0.15) * 4) / 4 : null;
           if (fcast) {
             var fnet = fnetCap;
             var fPct = fnet > 0 ? (fcast / fnet) * 100 : 0;

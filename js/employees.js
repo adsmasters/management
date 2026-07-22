@@ -82,8 +82,8 @@
     empEmployerCost.value = emp?.employer_costs > 0 ? emp.employer_costs : '';
     empHourlyRate.value   = emp?.hourly_rate    > 0 ? emp.hourly_rate    : '';
     empBillingRate.value  = emp?.billing_rate   > 0 ? emp.billing_rate   : '';
-    empLeaveStart.value   = emp?.leave_start ? emp.leave_start.substring(0, 7) : '';
-    empCapacity.value     = emp?.capacity_pct > 0 && emp.capacity_pct < 100 ? emp.capacity_pct : '';
+    empLeaveStart.value   = emp?.leave_start ? emp.leave_start.substring(0, 10) : '';
+    empCapacity.value     = emp?.capacity_pct != null && emp.capacity_pct < 100 ? emp.capacity_pct : '';
     empCapacityFrom.value = emp?.capacity_from ? emp.capacity_from.substring(0, 7) : '';
     empCostTotal.style.display = 'none';
     if ((emp?.gross_salary || 0) + (emp?.employer_costs || 0) > 0) updateCostTotal();
@@ -118,8 +118,9 @@
     empModalSave.disabled = true;
     empModalSave.textContent = 'Speichern…';
 
-    const leaveStart = empLeaveStart.value ? empLeaveStart.value + '-01' : null;
-    const capacityPct = parseFloat(empCapacity.value) || 0;
+    // type="date" liefert bereits YYYY-MM-DD (ältere Einträge waren Monatsanfang)
+    const leaveStart = empLeaveStart.value || null;
+    const capacityPct = empCapacity.value === '' ? null : parseFloat(empCapacity.value);
     const fields = { name, role, email, active,
                      gross_salary:   isFreelancer ? null : (gross        || null),
                      employer_costs: isFreelancer ? null : (employerCost || null),
@@ -127,7 +128,7 @@
                      hourly_rate:    isFreelancer ? (hourlyRate || null) : null,
                      billing_rate:   isFreelancer ? (billingRate || null) : null,
                      leave_start:    leaveStart,
-                     capacity_pct:   capacityPct > 0 && capacityPct < 100 ? capacityPct : null,
+                     capacity_pct:   capacityPct != null && capacityPct >= 0 && capacityPct < 100 ? capacityPct : null,
                      capacity_from:  empCapacityFrom.value ? empCapacityFrom.value + '-01' : null };
     const promise = editingId
       ? window.db.employees.update(editingId, fields)

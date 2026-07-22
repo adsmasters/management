@@ -159,9 +159,13 @@
           var hrs = ch[cid][eid];
           if (!emp) return; // unbekannter/inaktiver Mitarbeiter: Stunden zählen, aber keine Kosten
           if (emp.leave_start) {
-            var ls = new Date(emp.leave_start);
-            var leaveVal = ls.getUTCFullYear() * 12 + ls.getUTCMonth();
-            if (leaveCutoff >= leaveVal) return; // in diesem Monat bereits abwesend
+            var lsm = String(emp.leave_start).match(/^(\d{4})-(\d{2})-(\d{2})/);
+            var leaveVal = lsm ? parseInt(lsm[1], 10) * 12 + (parseInt(lsm[2], 10) - 1)
+                               : (function () { var d = new Date(emp.leave_start); return d.getUTCFullYear() * 12 + d.getUTCMonth(); })();
+            var leaveDay = lsm ? parseInt(lsm[3], 10) : 1;
+            // Austritt am 1. → schon dieser Monat kostenfrei; mitten im Monat
+            // (z.B. 15.07.) → gearbeitete Stunden des Monats zählen noch als Kosten.
+            if (leaveCutoff > leaveVal || (leaveCutoff === leaveVal && leaveDay === 1)) return;
           }
           var rate = effectiveRate(emp, y, m, ratesByEmp);
           var cost = 0;

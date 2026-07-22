@@ -131,14 +131,14 @@
         </div>
       </div>
       <div class="field">
-        <label for="empLeaveStart">Abwesend ab <span style="color:var(--text-muted);font-weight:400">(optional – z.B. Mutterschutz, Elternzeit)</span></label>
-        <input type="month" id="empLeaveStart">
-        <span class="hint">Ab diesem Monat werden keine Kosten mehr für diese Person berechnet</span>
+        <label for="empLeaveStart">Abwesend/ausgeschieden ab <span style="color:var(--text-muted);font-weight:400">(optional – z.B. Austritt, Mutterschutz, Elternzeit)</span></label>
+        <input type="date" id="empLeaveStart">
+        <span class="hint">Ab diesem Datum: keine Kosten mehr, keine Kapazität/Forecast (im Monat des Datums anteilig nach Tagen)</span>
       </div>
       <div class="field">
         <label for="empCapacity">Kapazität in % <span style="color:var(--text-muted);font-weight:400">(optional – Teilzeit)</span></label>
-        <input type="number" id="empCapacity" min="1" max="100" step="5" placeholder="100">
-        <span class="hint">Verfügbare Stunden in Auslastung &amp; Freier Kapazität, z.B. <strong>70</strong> für 70 %</span>
+        <input type="number" id="empCapacity" min="0" max="100" step="5" placeholder="100">
+        <span class="hint">Verfügbare Stunden in Auslastung &amp; Freier Kapazität, z.B. <strong>70</strong> für 70 % · <strong>0</strong> = keine Kapazität (z.B. Pseudo-MA)</span>
       </div>
       <div class="field">
         <label for="empCapacityFrom">Kapazität gültig ab <span style="color:var(--text-muted);font-weight:400">(optional)</span></label>
@@ -179,7 +179,7 @@
 <script src="js/db.js?v=20260611"></script>
 <script src="js/utils.js"></script>
 <script src="js/auth.js"></script>
-<script src="js/employees.js?v=20260720"></script>
+<script src="js/employees.js?v=20260720b"></script>
   <script defer src="https://adsmasters.github.io/hub/backlink.js"></script>
   <script src="js/nav.js"></script>
 </body>
