@@ -12,6 +12,8 @@
   var CAT_PREFIX = 'cat:';                          // Sentinel-Prefix: Kategorie manuell gesetzt
   function isManualCat(r) { return typeof r === 'string' && r.indexOf(CAT_PREFIX) === 0; }
   var lastMissing = [];                            // gerenderte Gruppen (für Aktionen)
+  var lastVend = [];                               // gerenderte Top-Lieferanten (für Drill-down)
+  var openVendor = null;                           // aufgeklappter Lieferant in der Top-Liste
 
   var state = {
     categoryRules: [], vatRules: [], excludeRules: [],
@@ -355,13 +357,19 @@
       kpiCard('Buchungen', String(s.tx.length), '') +
       kpiCard('Ø pro Monat', fmt(s.total / nMonths), '') +
       kpiCard('Größte Kategorie', cats[0] || '—', '', cats[0] ? fmt(s.byCat[cats[0]]) : '');
-    // Top-Lieferanten-Tabelle
+    // Top-Lieferanten-Tabelle (Klick auf Zeile = Einzelbuchungen aufklappen)
     var vend = Object.keys(s.byVendor).map(function (k) { return [k, s.byVendor[k]]; }).sort(function (a, b) { return b[1] - a[1]; });
-    var vrows = vend.slice(0, 15).map(function (x, i) {
-      return '<tr><td>' + (i + 1) + '. ' + esc(x[0]) + '</td><td class="num cost">' + fmt(x[1]) + '</td><td class="num muted">' + (s.total ? pct(x[1] / s.total * 100) : '—') + '</td></tr>';
+    lastVend = vend.slice(0, 15);
+    var vrows = lastVend.map(function (x, i) {
+      var open = openVendor === x[0];
+      var r = '<tr class="vend-row" data-vi="' + i + '" title="Klick: Einzelbuchungen anzeigen"><td>' + (i + 1) + '. ' + esc(x[0]) +
+        ' <span class="vend-caret">' + (open ? '▾' : '▸') + '</span></td><td class="num cost">' + fmt(x[1]) + '</td><td class="num muted">' + (s.total ? pct(x[1] / s.total * 100) : '—') + '</td></tr>';
+      if (open) r += vendorDetailRow(x[0], s);
+      return r;
     }).join('');
     el('vendorTable').innerHTML = '<thead><tr><th>Lieferant</th><th>Ausgaben</th><th>%</th></tr></thead><tbody>' +
       (vrows || '<tr><td colspan="3" class="muted">Keine Daten.</td></tr>') + '</tbody>';
+    bindVendorDrilldown();
     // Detailtabelle (letzte Buchungen)
     var recent = s.tx.slice().sort(function (a, b) { return a.tx_date < b.tx_date ? 1 : -1; }).slice(0, 80);
     var drows = recent.map(function (t) {
@@ -371,6 +379,65 @@
     el('spendDetailTable').innerHTML = '<thead><tr><th>Datum</th><th>Lieferant</th><th>Kategorie</th><th>Quelle</th><th>Betrag</th></tr></thead><tbody>' +
       (drows || '<tr><td colspan="5" class="muted">Keine Daten.</td></tr>') + '</tbody>';
   }
+  // Aufgeklappte Einzelbuchungen eines Lieferanten (innerhalb der Top-Liste).
+  // ✎ nutzt denselben Anpassen-Mechanismus wie der Buchungen-Tab (z.B. „1/2" bei geteilten Kosten).
+  function vendorDetailRow(vendor, s) {
+    var txs = s.tx.filter(function (t) { return vendorName(t) === vendor; })
+      .sort(function (a, b) { return a.tx_date < b.tx_date ? 1 : -1; });
+    var rules = rulesObj();
+    var rows = txs.map(function (t) {
+      var adjusted = t.exclude_reason === ADJUSTED_REASON;
+      var orig = adjusted ? E.enrich(t, rules).amount_net : null;
+      return '<tr><td>' + esc(t.tx_date) + '</td>' +
+        '<td class="muted" style="max-width:320px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="' + esc(t.description || '') + '">' + esc((t.description || '').slice(0, 70)) + '</td>' +
+        '<td class="muted">' + (t.source === 'kreissparkasse' ? 'Bank' : 'AMEX') + '</td>' +
+        '<td class="num cost">' + fmt(s.net(t)) + (adjusted ? ' <span class="pill" title="Original: ' + fmt(orig) + '">angepasst</span>' : '') + '</td>' +
+        '<td class="right" style="white-space:nowrap">' +
+        (adjusted ? '<button class="btn btn-ghost btn-sm" data-vd-reset="' + t.id + '" data-orig="' + orig + '" title="Originalbetrag wiederherstellen">↺</button> ' : '') +
+        '<button class="btn btn-secondary btn-sm" data-vd-adjust="' + t.id + '" title="Betrag anteilig anpassen, z.B. 1/2 bei geteilten Kosten">✎</button> ' +
+        '<button class="btn btn-ghost btn-sm" data-vd-excl="' + t.id + '" title="Nicht als Kosten zählen">⊘</button></td></tr>';
+    }).join('');
+    var sum = txs.reduce(function (a, t) { return a + s.net(t); }, 0);
+    return '<tr class="vend-detail"><td colspan="3"><table class="ka vd-table">' +
+      '<thead><tr><th>Datum</th><th>Buchung</th><th>Quelle</th><th>Netto</th><th></th></tr></thead><tbody>' +
+      (rows || '<tr><td colspan="5" class="muted">Keine Buchungen im Zeitraum.</td></tr>') + '</tbody></table>' +
+      '<div class="muted" style="margin-top:6px">' + txs.length + ' Buchung(en) · Summe ' + fmt(sum) +
+      ' · ✎ = Betrag anteilig anpassen (z.B. „1/2" bei geteilten Kosten) · ⊘ = ausschließen</div></td></tr>';
+  }
+  function bindVendorDrilldown() {
+    var tbl = el('vendorTable'); if (!tbl) return;
+    Array.prototype.forEach.call(tbl.querySelectorAll('.vend-row'), function (r) {
+      r.addEventListener('click', function () {
+        var v = lastVend[r.dataset.vi] && lastVend[r.dataset.vi][0];
+        openVendor = (openVendor === v) ? null : v;
+        renderSpendStats();
+      });
+    });
+    Array.prototype.forEach.call(tbl.querySelectorAll('[data-vd-adjust]'), function (b) {
+      b.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var t = txById(b.dataset.vdAdjust); if (t) adjustSingle(t, b);
+      });
+    });
+    Array.prototype.forEach.call(tbl.querySelectorAll('[data-vd-excl]'), function (b) {
+      b.addEventListener('click', function (e) {
+        e.stopPropagation();
+        var t = txById(b.dataset.vdExcl); if (!t) return;
+        if (!confirm('„' + vendorName(t) + '" vom ' + t.tx_date + ' (' + fmt(t.amount_net != null ? t.amount_net : t.amount_gross) + ') ausschließen? Zählt dann nicht als Kosten.')) return;
+        b.disabled = true;
+        window.db.cost.transactions.bulkExclude([t.id], true, MANUAL_REASON).then(reloadAndRender).catch(function (err) { alert(err.message); b.disabled = false; });
+      });
+    });
+    Array.prototype.forEach.call(tbl.querySelectorAll('[data-vd-reset]'), function (b) {
+      b.addEventListener('click', function (e) {
+        e.stopPropagation();
+        b.disabled = true;
+        window.db.cost.transactions.update(b.dataset.vdReset, { amount_net: parseFloat(b.dataset.orig), exclude_reason: null })
+          .then(reloadAndRender).catch(function (err) { alert(err.message); b.disabled = false; });
+      });
+    });
+  }
+
   function drawSpendCharts() {
     var s = spendData();
     var focus = dash.focusCat;
