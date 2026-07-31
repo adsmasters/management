@@ -148,6 +148,7 @@
     'Software': '#0891b2', 'Reisekosten': '#db2777', 'Equipment': '#ca8a04', 'Büro': '#0d9488',
     'Restaurant': '#dc2626', 'PayPal': '#64748b', 'Andere': '#94a3b8', 'Hotel': '#e11d48',
     'Steuern': '#9333ea', 'Umsatzsteuer': '#f59e0b', 'Team-Event': '#10b981',
+    'Recruitment': '#f97316',
   };
   var PALETTE = ['#2563eb', '#7c3aed', '#16a34a', '#0891b2', '#db2777', '#ca8a04', '#0d9488',
     '#dc2626', '#64748b', '#9333ea', '#f59e0b', '#e11d48', '#10b981', '#475569', '#a16207'];
@@ -402,7 +403,7 @@
       '<thead><tr><th>Datum</th><th>Buchung</th><th>Quelle</th><th>Netto</th><th></th></tr></thead><tbody>' +
       (rows || '<tr><td colspan="5" class="muted">Keine Buchungen im Zeitraum.</td></tr>') + '</tbody></table>' +
       '<div class="muted" style="margin-top:6px">' + txs.length + ' Buchung(en) · Summe ' + fmt(sum) +
-      ' · ✎ = Betrag anteilig anpassen (z.B. „1/2" bei geteilten Kosten) · ⊘ = ausschließen</div></td></tr>';
+      ' · ✎ = Betrag anpassen („1/2" = Hälfte, „-5000" = Abzug z.B. bei Förderung) · ⊘ = ausschließen</div></td></tr>';
   }
   function bindVendorDrilldown() {
     var tbl = el('vendorTable'); if (!tbl) return;
@@ -645,28 +646,24 @@
         var g = lastMissing[b.dataset.adjust];
         if (!g) return;
         var ans = prompt(
-          'Wie viel von „' + g.pattern + '" soll als Kosten zählen?\n\n' +
-          '• Anteil als Bruch, z.B.  1/3   (ein Drittel, Rest wurde erstattet)\n' +
-          '• oder Prozent, z.B.  33%\n' +
-          '• oder fester Euro-Betrag, z.B.  1332,00\n\n' +
-          'Aktuell: ' + fmt(g.sum) + (g.count > 1 ? ' (' + g.count + ' Buchungen, Anteil/Prozent gilt je Buchung)' : ''), '1/3');
+          'Wie viel von „' + g.pattern + '" soll als Kosten zählen?\n\n' + ADJUST_HELP + '\n\n' +
+          'Aktuell: ' + fmt(g.sum) + (g.count > 1 ? ' (' + g.count + ' Buchungen, nur Anteil/Prozent möglich, gilt je Buchung)' : ''), '1/3');
         if (ans == null) return;
         ans = ans.trim();
-        var frac = null, abs = null;
-        var mFrac = ans.match(/^(\d+(?:[.,]\d+)?)\s*\/\s*(\d+(?:[.,]\d+)?)$/);
-        var mPct = ans.match(/^(\d+(?:[.,]\d+)?)\s*%$/);
-        if (mFrac) frac = parseFloat(mFrac[1].replace(',', '.')) / parseFloat(mFrac[2].replace(',', '.'));
-        else if (mPct) frac = parseFloat(mPct[1].replace(',', '.')) / 100;
-        else { abs = parseFloat(ans.replace(/[^0-9,.-]/g, '').replace(/\.(?=\d{3}\b)/g, '').replace(',', '.')); }
-        if (frac == null && !isFinite(abs)) { alert('Bitte „1/3", „33%" oder einen Euro-Betrag eingeben.'); return; }
-        if (abs != null && g.count > 1) { alert('Bei mehreren Buchungen bitte einen Anteil/Prozent angeben (gilt je Buchung).'); return; }
+        var isRatio = /^(\d+(?:[.,]\d+)?)\s*(\/\s*\d+(?:[.,]\d+)?|%)$/.test(ans);
+        if (!isRatio && g.count > 1) { alert('Bei mehreren Buchungen bitte einen Anteil/Prozent angeben (gilt je Buchung).'); return; }
         b.disabled = true;
         var rules = rulesObj();
+        var bad = false;
         Promise.all(g.txs.map(function (t) {
           var orig = E.enrich(t, rules).amount_net;                 // immer vom Originalbetrag rechnen
-          var nn = frac != null ? Math.round(orig * frac * 100) / 100 : abs;
+          var nn = parseAdjustInput(ans, orig);
+          if (nn == null || nn < 0) { bad = true; return Promise.resolve(); }
           return window.db.cost.transactions.update(t.id, { amount_net: nn, exclude_reason: ADJUSTED_REASON });
-        })).then(reloadAndRender).catch(function (e) { alert(e.message); b.disabled = false; });
+        })).then(function () {
+          if (bad) alert('Eingabe nicht verwertbar oder Ergebnis negativ – bitte „1/3", „33%", Euro-Betrag oder Abzug wie „-5000" eingeben.');
+          return reloadAndRender();
+        }).catch(function (e) { alert(e.message); b.disabled = false; });
       });
     });
 
@@ -994,17 +991,29 @@
       b.addEventListener('click', function () { var t = txById(b.dataset.txAdjust); if (t) adjustSingle(t, b); });
     });
   }
+  // Eingabe → neuer Netto-Betrag: Bruch (1/3), Prozent (33%), Euro-Betrag (1332,00)
+  // oder Abzug mit Minus (-5000 = Original minus 5.000, z.B. Förderung/Gutschrift).
+  function parseAdjustInput(ans, orig) {
+    ans = ans.trim();
+    var mF = ans.match(/^(\d+(?:[.,]\d+)?)\s*\/\s*(\d+(?:[.,]\d+)?)$/), mP = ans.match(/^(\d+(?:[.,]\d+)?)\s*%$/);
+    if (mF) return Math.round(orig * (parseFloat(mF[1].replace(',', '.')) / parseFloat(mF[2].replace(',', '.'))) * 100) / 100;
+    if (mP) return Math.round(orig * (parseFloat(mP[1].replace(',', '.')) / 100) * 100) / 100;
+    var deduct = ans.charAt(0) === '-';
+    var abs = parseFloat(ans.replace(/[^0-9,.]/g, '').replace(/\.(?=\d{3}\b)/g, '').replace(',', '.'));
+    if (!isFinite(abs)) return null;
+    return deduct ? Math.round((orig - abs) * 100) / 100 : abs;
+  }
+  var ADJUST_HELP = '• Bruch z.B.  1/2   (die Hälfte, Rest wurde erstattet)\n' +
+    '• Prozent z.B.  33%\n' +
+    '• Euro-Betrag z.B.  1332,00   (so viel zählt als Kosten)\n' +
+    '• Abzug mit Minus z.B.  -5000   (Original minus 5.000 €, z.B. Förderung/Gutschrift)';
   function adjustSingle(t, btn) {
     var orig = E.enrich(t, rulesObj()).amount_net;
-    var ans = prompt('Wie viel von „' + vendorName(t) + '" soll als Kosten zählen?\n\n• Bruch z.B.  1/3\n• Prozent z.B.  33%\n• oder Euro-Betrag z.B.  1332,00\n\nOriginal: ' + fmt(orig), '1/2');
-    if (ans == null) return; ans = ans.trim();
-    var frac = null, abs = null;
-    var mF = ans.match(/^(\d+(?:[.,]\d+)?)\s*\/\s*(\d+(?:[.,]\d+)?)$/), mP = ans.match(/^(\d+(?:[.,]\d+)?)\s*%$/);
-    if (mF) frac = parseFloat(mF[1].replace(',', '.')) / parseFloat(mF[2].replace(',', '.'));
-    else if (mP) frac = parseFloat(mP[1].replace(',', '.')) / 100;
-    else abs = parseFloat(ans.replace(/[^0-9,.-]/g, '').replace(/\.(?=\d{3}\b)/g, '').replace(',', '.'));
-    if (frac == null && !isFinite(abs)) { alert('Bitte „1/3", „33%" oder Euro-Betrag.'); return; }
-    var nn = frac != null ? Math.round(orig * frac * 100) / 100 : abs;
+    var ans = prompt('Wie viel von „' + vendorName(t) + '" soll als Kosten zählen?\n\n' + ADJUST_HELP + '\n\nOriginal: ' + fmt(orig), '1/2');
+    if (ans == null) return;
+    var nn = parseAdjustInput(ans, orig);
+    if (nn == null) { alert('Bitte „1/2", „33%", einen Euro-Betrag oder einen Abzug wie „-5000" eingeben.'); return; }
+    if (nn < 0) { alert('Ergebnis wäre negativ (' + fmt(nn) + ') – der Abzug ist größer als der Originalbetrag ' + fmt(orig) + '.'); return; }
     if (btn) btn.disabled = true;
     window.db.cost.transactions.update(t.id, { amount_net: nn, exclude_reason: ADJUSTED_REASON }).then(reloadAndRender).catch(function (e) { alert(e.message); if (btn) btn.disabled = false; });
   }
