@@ -674,8 +674,7 @@
         if (!pattern || !category) { alert('Bitte Text und Kategorie angeben.'); return; }
         b.disabled = true;
         window.db.cost.categoryRules.add('contains', pattern, category)
-          .then(function () { return reapplyRules(); })
-          .then(reloadAndRender)
+          .then(reloadReapplyRender)
           .catch(function (e) { alert(e.message); b.disabled = false; });
       });
     });
@@ -1051,6 +1050,11 @@
   // ── Plumbing ───────────────────────────────────────────────────────────────
   function reloadData() { return loadAll(); }
   function reloadAndRender() { return loadAll().then(renderAll); }
+  // Nach dem Anlegen neuer Regeln: erst State neu laden (sonst wendet
+  // reapplyRules den alten Regelstand an), dann anwenden, dann rendern.
+  function reloadReapplyRender() {
+    return reloadData().then(function () { return reapplyRules(); }).then(reloadAndRender);
+  }
   function renderAll() {
     renderProfitStats(); renderSpendStats(); renderCompare();
     renderImports(); renderMissing(); renderRules(); renderCategories(); renderTransactions();
@@ -1174,8 +1178,7 @@
       if (!confirm(toAdd.length + ' Regel(n) anlegen und auf alle Buchungen anwenden?')) return;
       var btn = el('missingBulkBtn'); btn.disabled = true; btn.textContent = '… wird angelegt';
       window.db.cost.categoryRules.addMany(toAdd)
-        .then(function () { return reapplyRules(); })
-        .then(reloadAndRender)
+        .then(reloadReapplyRender)
         .then(function () { switchTab('missing'); btn.disabled = false; btn.textContent = '✓ Alle ausgefüllten anlegen'; })
         .catch(function (e) { alert(e.message); btn.disabled = false; btn.textContent = '✓ Alle ausgefüllten anlegen'; });
     });
@@ -1195,14 +1198,14 @@
       var p = el('catRulePattern').value.trim(), c = el('catRuleCategory').value.trim();
       if (!p || !c) return alert('Text und Kategorie angeben.');
       window.db.cost.categoryRules.add(el('catRuleType').value, p, c).then(function () {
-        el('catRulePattern').value = ''; el('catRuleCategory').value = ''; return reloadAndRender();
+        el('catRulePattern').value = ''; el('catRuleCategory').value = ''; return reloadReapplyRender();
       }).catch(function (e) { alert(e.message); });
     });
     el('vatRuleAdd').addEventListener('click', function () {
       var p = el('vatRulePattern').value.trim(), rate = parseFloat((el('vatRuleRate').value || '').replace(',', '.'));
       if (!p || !isFinite(rate)) return alert('Lieferant und MwSt-Satz angeben.');
       window.db.cost.vatRules.add(el('vatRuleType').value, p, rate / 100).then(function () {
-        el('vatRulePattern').value = ''; el('vatRuleRate').value = ''; return reloadAndRender();
+        el('vatRulePattern').value = ''; el('vatRuleRate').value = ''; return reloadReapplyRender();
       }).catch(function (e) { alert(e.message); });
     });
     el('excRuleAdd').addEventListener('click', function () {
@@ -1213,7 +1216,7 @@
       window.db.cost.excludeRules.add(el('excRuleType').value, p, reason, start, end).then(function () {
         el('excRulePattern').value = ''; el('excRuleReason').value = '';
         el('excRuleStart').value = ''; el('excRuleEnd').value = '';
-        return reloadAndRender();
+        return reloadReapplyRender();
       }).catch(function (e) { alert(e.message); });
     });
   }
