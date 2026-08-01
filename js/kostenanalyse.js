@@ -118,19 +118,27 @@
   }
 
   // Umsatz (Lexoffice) für alle Monate mit Kostenbuchungen.
+  // Inkl. manueller Umsatz-Korrekturen (adjustments.revenue_deduction),
+  // damit die Summen mit der Profitabilitäts-Seite übereinstimmen.
   function loadRevenue() {
     var months = {};
     state.transactions.forEach(function (t) { months[t.year + '-' + pad2(t.month)] = { y: t.year, m: t.month }; });
     var keys = Object.keys(months);
     return Promise.all(keys.map(function (k) {
-      return window.db.revenue.forMonth(months[k].y, months[k].m).catch(function () { return []; });
+      return Promise.all([
+        window.db.revenue.forMonth(months[k].y, months[k].m).catch(function () { return []; }),
+        window.db.adjustments.forMonth(months[k].y, months[k].m).catch(function () { return []; }),
+      ]);
     })).then(function (results) {
       state.revenueByMonth = {};
       keys.forEach(function (k, i) {
         var sum = 0;
-        (results[i] || []).forEach(function (row) {
+        (results[i][0] || []).forEach(function (row) {
           if (isExcludedRevenue(row.contact_name)) return;
           sum += Number(row.total_amount) || 0;
+        });
+        (results[i][1] || []).forEach(function (a) {
+          sum += Number(a.revenue_deduction) || 0;
         });
         state.revenueByMonth[k] = sum;
       });
