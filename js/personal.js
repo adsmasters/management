@@ -166,8 +166,10 @@
     var sd = emp.start_date ? String(emp.start_date).slice(0, 10) : null;
     if (sd && +sd.slice(0, 4) > year) return 0;
     if (sd && +sd.slice(0, 4) === year) {
-      var m = +sd.slice(5, 7);
-      return Math.round(q * (12 - m + 1) / 12 * 2) / 2;
+      // 1/12 je VOLLEM Beschäftigungsmonat: Eintrittsmonat zählt nur bei Eintritt am 1.
+      var m = +sd.slice(5, 7), day = +sd.slice(8, 10);
+      var months = 12 - m + (day === 1 ? 1 : 0);
+      return Math.round(q * months / 12 * 2) / 2;
     }
     return q;
   }
