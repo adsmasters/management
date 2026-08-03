@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Personal – Adsmasters Management</title>
+  <link rel="stylesheet" href="css/style.css">
+  <style>
+    .hr-toolbar { display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:18px; }
+    .hr-toolbar .df-sel { padding:8px 12px; border:1px solid var(--border); border-radius:10px; background:var(--surface); color:var(--text); font-size:13px; font-weight:600; cursor:pointer; }
+    .muted { color:var(--text-muted); font-size:12px; }
+    .right { text-align:right; }
+    .pill { font-size:11px; padding:2px 8px; border-radius:10px; background:var(--border); color:var(--text-secondary); }
+    .pill.vac { background:#dbeafe; color:#1d4ed8; }
+    .pill.sick { background:#fee2e2; color:#b91c1c; }
+    .pill.gcal { background:#dcfce7; color:#166534; }
+    .pill.today { background:#fef9c3; color:#854d0e; border:1px solid #fde047; }
+
+    /* Heute-Abwesend-Leiste */
+    .away-strip { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:18px; }
+    .away-chip { display:inline-flex; align-items:center; gap:7px; background:var(--surface); border:1px solid var(--border);
+      border-radius:999px; padding:6px 13px 6px 7px; font-size:13px; font-weight:600; }
+    .away-chip .avatar { width:24px; height:24px; font-size:10px; }
+    .away-chip .until { font-weight:400; color:var(--text-muted); font-size:12px; }
+
+    /* Mitarbeiter-Karten */
+    .emp-grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(300px, 1fr)); gap:16px; }
+    .emp-card { background:var(--surface); border:1px solid var(--border); border-radius:16px; padding:18px;
+      cursor:pointer; box-shadow:0 1px 2px rgba(16,24,40,.04); transition:transform .15s, box-shadow .15s; }
+    .emp-card:hover { transform:translateY(-2px); box-shadow:0 8px 24px rgba(16,24,40,.09); }
+    .emp-card.inactive { opacity:.55; }
+    .emp-head { display:flex; align-items:center; gap:12px; margin-bottom:12px; }
+    .avatar { width:44px; height:44px; border-radius:50%; display:inline-flex; align-items:center; justify-content:center;
+      color:#fff; font-weight:700; font-size:15px; flex-shrink:0; letter-spacing:.02em; }
+    .emp-head .en { font-weight:700; font-size:15px; }
+    .emp-head .er { font-size:12px; color:var(--text-secondary); }
+    .emp-meta { display:flex; flex-wrap:wrap; gap:6px 14px; font-size:12px; color:var(--text-secondary); margin-bottom:12px; min-height:16px; }
+    .emp-meta .mi { display:inline-flex; align-items:center; gap:5px; }
+    .vac-bar { height:7px; border-radius:5px; background:var(--border); overflow:hidden; margin:5px 0 4px; }
+    .vac-bar > div { height:100%; border-radius:5px; background:#2563eb; }
+    .vac-bar > div.over { background:#dc2626; }
+    .emp-kpis { display:flex; gap:0; }
+    .emp-kpis .ek { flex:1; }
+    .emp-kpis .ek + .ek { border-left:1px solid var(--border); padding-left:14px; margin-left:14px; }
+    .ek .ekl { font-size:11px; color:var(--text-muted); text-transform:uppercase; letter-spacing:.03em; font-weight:600; }
+    .ek .ekv { font-size:16px; font-weight:700; margin-top:2px; }
+    .next-vac { margin-top:10px; font-size:12px; color:var(--text-secondary); }
+
+    /* Jahresübersicht */
+    table.ka { width:100%; border-collapse:collapse; font-size:13px; }
+    table.ka th, table.ka td { padding:8px 10px; border-bottom:1px solid var(--border); text-align:right; white-space:nowrap; }
+    table.ka th:first-child, table.ka td:first-child { text-align:left; }
+    table.ka th { font-size:11px; text-transform:uppercase; letter-spacing:.03em; color:var(--text-secondary); }
+    td.num { font-variant-numeric:tabular-nums; }
+
+    /* Detail-Modal */
+    .hrm-overlay { position:fixed; inset:0; background:rgba(15,23,42,.45); z-index:60; display:flex;
+      align-items:flex-start; justify-content:center; padding:4vh 16px; overflow:auto; }
+    .hrm { background:var(--bg, #f8fafc); border-radius:18px; width:min(980px, 100%); max-height:92vh; overflow:auto;
+      box-shadow:0 24px 64px rgba(15,23,42,.35); }
+    .hrm-head { display:flex; align-items:center; gap:14px; padding:20px 24px; border-bottom:1px solid var(--border);
+      position:sticky; top:0; background:var(--surface); z-index:2; border-radius:18px 18px 0 0; }
+    .hrm-head .hn { font-size:18px; font-weight:750; }
+    .hrm-head .hx { margin-left:auto; background:none; border:none; font-size:22px; cursor:pointer; color:var(--text-muted); }
+    .hrm-body { display:grid; grid-template-columns:1fr 1fr; gap:18px; padding:20px 24px 24px; }
+    @media (max-width:840px){ .hrm-body { grid-template-columns:1fr; } }
+    .hrm-col .card { margin-bottom:0; }
+    .fld { margin-bottom:11px; }
+    .fld label { display:block; font-size:11px; font-weight:600; color:var(--text-secondary); text-transform:uppercase; letter-spacing:.03em; margin-bottom:4px; }
+    .fld label .fdel { color:var(--text-muted); cursor:pointer; text-transform:none; font-weight:400; margin-left:6px; }
+    .fld label .fdel:hover { color:var(--danger, #dc2626); }
+    .fld input, .fld textarea, .fld select { width:100%; padding:8px 10px; border:1px solid var(--border); border-radius:8px;
+      background:var(--surface); color:var(--text); font-size:13px; font-family:inherit; box-sizing:border-box; }
+    .fld textarea { min-height:64px; resize:vertical; }
+    .fld-row { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+    .abs-add { display:grid; grid-template-columns:auto 1fr 1fr auto auto; gap:8px; align-items:end; margin-bottom:12px; }
+    .abs-add .fld { margin-bottom:0; }
+    .abs-add .fld input, .abs-add .fld select { width:auto; }
+    table.abs { width:100%; border-collapse:collapse; font-size:12.5px; }
+    table.abs td { padding:6px 8px; border-bottom:1px solid var(--border); white-space:nowrap; }
+  </style>
+</head>
+<body>
+
+<header class="header">
+  <div class="header-inner">
+    <a href="index.html" class="logo">Adsmasters <span>Management</span></a>
+    <nav id="mainnav"></nav>
+  </div>
+</header>
+
+<main class="main">
+  <div class="page-header">
+    <div>
+      <h1>Personal</h1>
+      <div class="sub">Mitarbeiterprofile · Urlaubs- & Krankheitstage · Urlaubskalender-Sync</div>
+    </div>
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end">
+      <span id="syncInfo" class="muted"></span>
+      <button id="syncBtn" class="btn btn-secondary btn-sm" title="Urlaubs-Einträge aus dem Google-Urlaubskalender übernehmen">↻ Urlaubskalender syncen</button>
+      <button id="icsCfgBtn" class="btn btn-ghost btn-sm" title="ICS-Adresse des Urlaubskalenders hinterlegen">⚙︎</button>
+    </div>
+  </div>
+
+  <div id="setupHint" class="alert alert-info hidden">Keine Supabase-Verbindung. Bitte <a href="settings.html">Einstellungen</a> prüfen.</div>
+  <div id="loading" class="alert alert-info">Lade Daten …</div>
+  <div id="error" class="alert alert-danger" style="display:none"></div>
+
+  <div id="app" style="display:none">
+    <div id="awayStrip" class="away-strip"></div>
+
+    <div class="hr-toolbar">
+      <select id="yearSel" class="df-sel"></select>
+      <button id="addAbsBtn" class="btn btn-primary btn-sm">+ Abwesenheit erfassen</button>
+      <button id="addFieldBtn" class="btn btn-secondary btn-sm" title="Eigenes Profilfeld für alle Mitarbeiter anlegen">+ Eigenes Feld</button>
+      <label style="display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--text-secondary);cursor:pointer;margin-left:auto">
+        <input type="checkbox" id="showInactive"> auch Inaktive zeigen
+      </label>
+    </div>
+
+    <div id="empGrid" class="emp-grid"></div>
+
+    <div class="card" style="margin-top:22px"><div class="card-header"><h2 id="yearTableTitle">Jahresübersicht</h2></div>
+      <div class="card-body table-wrap"><table class="ka" id="yearTable"></table></div>
+    </div>
+
+    <div class="muted" style="margin-top:12px" id="footNote"></div>
+  </div>
+
+  <div id="hrModalWrap"></div>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="js/db.js?v=4"></script>
+<script src="js/utils.js"></script>
+<script src="js/auth.js"></script>
+<script src="js/personal.js?v=1"></script>
+<script src="js/nav.js"></script>
+</body>
+</html>

@@ -145,3 +145,46 @@ ausgeschieden (in Kapazitäts-Ansicht ausgeblendet, Umsatz-Historie bleibt).
 `leave_start` MIT `leave_until` = vorübergehend abwesend (Mutterschutz/
 Elternzeit): bleibt sichtbar mit 0 Kapazität, nach dem Enddatum wieder volle
 Kapazität und Kosten. Austrittsmonat zählt anteilig nach Tagen.
+
+## 12. Personal-Seite: HR-Felder + Abwesenheits-Einträge (ausgeführt 03.08.2026)
+
+```sql
+ALTER TABLE employees
+  ADD COLUMN IF NOT EXISTS iban text,
+  ADD COLUMN IF NOT EXISTS start_date date,
+  ADD COLUMN IF NOT EXISTS work_location text,
+  ADD COLUMN IF NOT EXISTS applied_via text,
+  ADD COLUMN IF NOT EXISTS personality_test text,
+  ADD COLUMN IF NOT EXISTS vacation_days_per_year numeric,
+  ADD COLUMN IF NOT EXISTS hr_notes text,
+  ADD COLUMN IF NOT EXISTS hr_custom jsonb DEFAULT '{}'::jsonb;
+
+CREATE TABLE IF NOT EXISTS hr_fields (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  label text NOT NULL,
+  sort integer DEFAULT 0,
+  created_at timestamptz DEFAULT now()
+);
+ALTER TABLE hr_fields ENABLE ROW LEVEL SECURITY;
+CREATE POLICY authenticated_all ON hr_fields FOR ALL TO authenticated USING (true) WITH CHECK (true);
+
+CREATE TABLE IF NOT EXISTS absence_entries (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  employee_id uuid NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+  type text NOT NULL DEFAULT 'vacation',        -- vacation | sick
+  start_date date NOT NULL,
+  end_date date NOT NULL,
+  days numeric NOT NULL DEFAULT 0,              -- Arbeitstage (0.5 = halber Tag)
+  note text,
+  source text DEFAULT 'manual',                 -- manual | gcal
+  gcal_uid text UNIQUE,                         -- Google-Event-ID (Sync-Dedupe)
+  created_at timestamptz DEFAULT now(),
+  updated_at timestamptz DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS absence_entries_emp_idx ON absence_entries (employee_id, start_date);
+ALTER TABLE absence_entries ENABLE ROW LEVEL SECURITY;
+CREATE POLICY authenticated_all ON absence_entries FOR ALL TO authenticated USING (true) WITH CHECK (true);
+```
+
+Hinweis: `employee_absences` (Monats-Aggregate, Auslastung) wird von personal.js
+automatisch aus `absence_entries` neu berechnet (pro Typ nur, wenn Einträge existieren).

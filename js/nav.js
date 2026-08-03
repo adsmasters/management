@@ -17,6 +17,7 @@
     ] },
     { label: 'Team', items: [
       { href: 'employees.html',       label: 'Mitarbeiter' },
+      { href: 'personal.html',        label: 'Personal' },
       { href: 'utilization.html',     label: 'Auslastung' },
       { href: 'employee-revenue.html',label: 'MA-Umsatz' },
     ] },

@@ -129,6 +129,37 @@
         ).select().single()),
     },
 
+    hr: {
+      fields: {
+        list: () =>
+          q(s => s.from('hr_fields').select('*').order('sort').order('created_at')),
+        add: (label) =>
+          q(s => s.from('hr_fields').insert({ label }).select().single()),
+        delete: (id) =>
+          q(s => s.from('hr_fields').delete().eq('id', id)),
+      },
+      absenceEntries: {
+        listAll: () =>
+          q(s => s.from('absence_entries').select('*').order('start_date', { ascending: false })),
+        create: (row) =>
+          q(s => s.from('absence_entries').insert(row).select().single()),
+        update: (id, fields) =>
+          q(s => s.from('absence_entries').update(
+            Object.assign({}, fields, { updated_at: new Date().toISOString() })).eq('id', id).select().single()),
+        delete: (id) =>
+          q(s => s.from('absence_entries').delete().eq('id', id)),
+        // Kalender-Sync: upsert über gcal_uid (Event geändert → Zeile aktualisiert)
+        upsertByUid: (rows) =>
+          q(s => s.from('absence_entries').upsert(rows, { onConflict: 'gcal_uid' }).select()),
+        deleteGcalNotIn: (uids) =>
+          q(s => {
+            var query = s.from('absence_entries').delete().eq('source', 'gcal');
+            if (uids.length) query = query.not('gcal_uid', 'in', '(' + uids.map(u => '"' + u + '"').join(',') + ')');
+            return query.select();
+          }),
+      },
+    },
+
     revenue: {
       forMonth: (year, month) =>
         q(s => s.from('revenue').select('*').eq('year', year).eq('month', month)),
