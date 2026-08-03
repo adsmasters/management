@@ -206,3 +206,14 @@ ALTER TABLE employees ADD COLUMN IF NOT EXISTS federal_state text DEFAULT 'NW';
 
 Feiertage werden je Mitarbeiter nach Bundesland berechnet (Default NW).
 Sonderwert 'XX' = keine deutschen Feiertage (Ausland, nur Wochenenden).
+
+## 15. Personal-Bereich: hr_hidden-Schalter (ausgeführt 03.08.2026)
+
+```sql
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS hr_hidden boolean DEFAULT false;
+```
+
+Blendet einzelne Personen aus dem Personal-Bereich aus (z.B. Freelancer mit
+role=advertising wie Laura G), ohne role/active anzufassen — Auslastung
+bleibt unberührt. Mitarbeiter in Abwesenheit (leave_start/leave_until,
+z.B. Mutterschutz) werden auf der Personal-Seite automatisch ausgeblendet.

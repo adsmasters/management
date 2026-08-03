@@ -208,12 +208,19 @@
   }
 
   // ── Rendering: Übersicht ───────────────────────────────────────────────────
+  // Aktuell abwesend laut Stammdaten (leave_start/leave_until, z.B. Mutterschutz)
+  function onLeave(emp) {
+    if (!emp.leave_start) return false;
+    var today = todayIso();
+    return emp.leave_start <= today && (!emp.leave_until || emp.leave_until >= today);
+  }
   function visibleEmployees() {
     return state.employees.filter(function (e) {
       if (e.name === 'PPC Software') return false;              // Kostenstelle, kein Mensch
       if (e.role === 'freelancer') return false;                // Freelancer: kein Urlaubs-/HR-Tracking
       if (e.name === 'Tobias') return false;                    // Inhaber, nicht als Mitarbeiter führen
-      return state.showInactive || e.active;
+      if (state.showInactive) return true;
+      return e.active && !e.hr_hidden && !onLeave(e);           // Standard: aktive, sichtbare, nicht abwesende
     });
   }
   function renderAwayStrip() {
@@ -247,7 +254,10 @@
       if (emp.work_location) meta.push('<span class="mi">📍 ' + esc(emp.work_location) + '</span>');
       return '<div class="emp-card' + (emp.active ? '' : ' inactive') + '" data-emp="' + emp.id + '">' +
         '<div class="emp-head"><span class="avatar" style="background:' + avatarColor(emp.name) + '">' + esc(initials(emp.name)) + '</span>' +
-        '<div><div class="en">' + esc(emp.name) + (cur ? ' <span class="pill today">' + (cur.type === 'sick' ? 'krank' : 'Urlaub') + '</span>' : '') + '</div>' +
+        '<div><div class="en">' + esc(emp.name) +
+        (cur ? ' <span class="pill today">' + (cur.type === 'sick' ? 'krank' : 'Urlaub') + '</span>' : '') +
+        (onLeave(emp) ? ' <span class="pill today">Abwesend' + (emp.leave_until ? ' bis ' + deDate(emp.leave_until) : '') + '</span>' : '') +
+        (emp.hr_hidden ? ' <span class="pill">ausgeblendet</span>' : '') + '</div>' +
         '<div class="er">' + esc(window.getRoleLabel(emp.role)) + '</div></div></div>' +
         '<div class="emp-meta">' + meta.join('') + '</div>' +
         '<div class="emp-kpis">' +
@@ -342,6 +352,8 @@
         '<div class="hrm-col"><div class="card"><div class="card-header"><h2>Profil</h2></div><div class="card-body">' +
           fixedHtml + customHtml +
           '<div class="fld"><label>Notizen</label><textarea data-fx="hr_notes">' + esc(emp.hr_notes || '') + '</textarea></div>' +
+          '<div class="fld"><label style="display:inline-flex;align-items:center;gap:7px;cursor:pointer;text-transform:none;font-size:13px;font-weight:400;color:var(--text)">' +
+            '<input type="checkbox" id="hrHiddenCb"' + (emp.hr_hidden ? ' checked' : '') + '> Im Personal-Bereich ausblenden (z.B. Freelancer)</label></div>' +
           '<div style="display:flex;gap:8px;align-items:center"><button class="btn btn-primary btn-sm" id="hrmSave">Profil speichern</button>' +
           '<button class="btn btn-secondary btn-sm" id="hrmAddField">+ Eigenes Feld</button><span class="muted" id="hrmSaveInfo"></span></div>' +
         '</div></div></div>' +
@@ -383,6 +395,7 @@
         if (v === '') delete custom[inp.dataset.cf]; else custom[inp.dataset.cf] = v;
       });
       fields.hr_custom = custom;
+      fields.hr_hidden = el('hrHiddenCb').checked;
       el('hrmSave').disabled = true;
       window.db.employees.update(emp.id, fields).then(function () {
         return loadAll();
