@@ -185,6 +185,8 @@
   function visibleEmployees() {
     return state.employees.filter(function (e) {
       if (e.name === 'PPC Software') return false;              // Kostenstelle, kein Mensch
+      if (e.role === 'freelancer') return false;                // Freelancer: kein Urlaubs-/HR-Tracking
+      if (e.name === 'Tobias') return false;                    // Inhaber, nicht als Mitarbeiter führen
       return state.showInactive || e.active;
     });
   }
