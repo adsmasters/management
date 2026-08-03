@@ -51,37 +51,65 @@
       da = ((h + l - 7 * m + 114) % 31) + 1;
     return Date.UTC(y, mo - 1, da);
   }
+  // Feiertage je Bundesland. 'XX' = keine deutschen Feiertage (Ausland).
+  var STATES = [
+    ['NW', 'Nordrhein-Westfalen'], ['BW', 'Baden-Württemberg'], ['BY', 'Bayern'], ['BE', 'Berlin'],
+    ['BB', 'Brandenburg'], ['HB', 'Bremen'], ['HH', 'Hamburg'], ['HE', 'Hessen'],
+    ['MV', 'Mecklenburg-Vorpommern'], ['NI', 'Niedersachsen'], ['RP', 'Rheinland-Pfalz'],
+    ['SL', 'Saarland'], ['SN', 'Sachsen'], ['ST', 'Sachsen-Anhalt'], ['SH', 'Schleswig-Holstein'],
+    ['TH', 'Thüringen'], ['XX', 'Ausland (keine dt. Feiertage)'],
+  ];
   var _holCache = {};
-  function holidaysNRW(y) {
-    if (_holCache[y]) return _holCache[y];
-    var E = easter(y), D = 86400000;
-    var iso = function (t) { return new Date(t).toISOString().slice(0, 10); };
-    _holCache[y] = {};
-    [y + '-01-01', iso(E - 2 * D), iso(E + D), y + '-05-01', iso(E + 39 * D), iso(E + 50 * D),
-     iso(E + 60 * D), y + '-10-03', y + '-11-01', y + '-12-25', y + '-12-26']
-      .forEach(function (d) { _holCache[y][d] = 1; });
-    return _holCache[y];
+  function holidaysFor(y, st) {
+    var key = st + '|' + y;
+    if (_holCache[key]) return _holCache[key];
+    var m = {};
+    if (st !== 'XX') {
+      var E = easter(y), D = 86400000;
+      var iso = function (t) { return new Date(t).toISOString().slice(0, 10); };
+      var add = function (d) { m[d] = 1; };
+      var has = function (list) { return list.indexOf(st) !== -1; };
+      // bundesweit
+      [y + '-01-01', iso(E - 2 * D), iso(E + D), y + '-05-01', iso(E + 39 * D), iso(E + 50 * D),
+       y + '-10-03', y + '-12-25', y + '-12-26'].forEach(add);
+      if (has(['BW', 'BY', 'ST'])) add(y + '-01-06');                                  // Heilige Drei Könige
+      if (has(['BE', 'MV'])) add(y + '-03-08');                                        // Frauentag
+      if (has(['BW', 'BY', 'HE', 'NW', 'RP', 'SL'])) add(iso(E + 60 * D));             // Fronleichnam
+      if (has(['SL'])) add(y + '-08-15');                                              // Mariä Himmelfahrt (BY nur teilw. → nicht pauschal)
+      if (has(['TH'])) add(y + '-09-20');                                              // Weltkindertag
+      if (has(['BB', 'HB', 'HH', 'MV', 'NI', 'SN', 'ST', 'SH', 'TH'])) add(y + '-10-31'); // Reformationstag
+      if (has(['BW', 'BY', 'NW', 'RP', 'SL'])) add(y + '-11-01');                      // Allerheiligen
+      if (has(['SN'])) {                                                               // Buß- und Bettag: Mittwoch vor dem 23.11.
+        var d22 = new Date(Date.UTC(y, 10, 22, 12));
+        while (d22.getUTCDay() !== 3) d22.setUTCDate(d22.getUTCDate() - 1);
+        add(d22.toISOString().slice(0, 10));
+      }
+    }
+    _holCache[key] = m;
+    return m;
   }
-  function isWorkday(iso) {
+  function stateOf(emp) { return (emp && emp.federal_state) || 'NW'; }
+  function isWorkday(iso, st) {
     var d = new Date(iso + 'T12:00:00Z'), wd = d.getUTCDay();
     if (wd === 0 || wd === 6) return false;
-    return !holidaysNRW(+iso.slice(0, 4))[iso];
+    return !holidaysFor(+iso.slice(0, 4), st || 'NW')[iso];
   }
   function addDaysIso(iso, n) {
     var d = new Date(iso + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + n);
     return d.toISOString().slice(0, 10);
   }
-  function workdays(startIso, endIso) {
+  function workdays(startIso, endIso, st) {
     var n = 0, d = startIso, guard = 0;
-    while (d <= endIso && guard++ < 800) { if (isWorkday(d)) n++; d = addDaysIso(d, 1); }
+    while (d <= endIso && guard++ < 800) { if (isWorkday(d, st)) n++; d = addDaysIso(d, 1); }
     return n;
   }
   // Verteilung eines Eintrags auf Monate: {'YYYY-MM': Tage}. Weicht entry.days
   // vom rechnerischen Wert ab (z.B. 0,5 Tage), wird proportional skaliert.
   function monthlyBreakdown(entry) {
+    var st = stateOf(empById(entry.employee_id));
     var per = {}, total = 0, d = entry.start_date, guard = 0;
     while (d <= entry.end_date && guard++ < 800) {
-      if (isWorkday(d)) { var ym = d.slice(0, 7); per[ym] = (per[ym] || 0) + 1; total++; }
+      if (isWorkday(d, st)) { var ym = d.slice(0, 7); per[ym] = (per[ym] || 0) + 1; total++; }
       d = addDaysIso(d, 1);
     }
     var days = Number(entry.days) || 0;
@@ -110,18 +138,15 @@
   function empById(id) { for (var i = 0; i < state.employees.length; i++) if (state.employees[i].id === id) return state.employees[i]; return null; }
 
   // ── Statistik pro Mitarbeiter/Jahr ─────────────────────────────────────────
+  // Jeder Eintrag zählt KOMPLETT im Jahr seines Startdatums (Silvester-Urlaub →
+  // altes Jahr). So entspricht die Kartensumme exakt der Eintragsliste des Jahres.
   function empYearStats(empId, year) {
     var taken = 0, planned = 0, sick = 0, today = todayIso();
     state.entries.forEach(function (e) {
-      if (e.employee_id !== empId) return;
-      var bd = monthlyBreakdown(e);
-      Object.keys(bd).forEach(function (ym) {
-        if (+ym.slice(0, 4) !== year) return;
-        if (e.type === 'sick') { sick += bd[ym]; return; }
-        // Urlaub: vergangen vs. geplant (grob über Startdatum des Monats-Anteils)
-        if (ym < today.slice(0, 7) || (ym === today.slice(0, 7) && e.start_date <= today)) taken += bd[ym];
-        else planned += bd[ym];
-      });
+      if (e.employee_id !== empId || +e.start_date.slice(0, 4) !== year) return;
+      var d = Number(e.days) || 0;
+      if (e.type === 'sick') { sick += d; return; }
+      if (e.start_date <= today) taken += d; else planned += d;
     });
     return { taken: Math.round(taken * 100) / 100, planned: Math.round(planned * 100) / 100, sick: Math.round(sick * 100) / 100 };
   }
@@ -254,7 +279,7 @@
     el('yearTable').innerHTML =
       '<thead><tr><th>Mitarbeiter</th><th>Anspruch</th><th>Genommen</th><th>Verplant</th><th>Rest</th><th>Krank</th></tr></thead>' +
       '<tbody>' + (rows || '<tr><td colspan="6" class="muted">Keine Daten.</td></tr>') + '</tbody>';
-    el('footNote').textContent = 'Urlaubstage = Arbeitstage Mo–Fr ohne NRW-Feiertage (Sa/So zählen nie). Werkstudenten/Teilzeit: anteilig über „Arbeitstage pro Woche" im Profil (z.B. 2/Woche → volle Woche Urlaub = 2 Tage). „Genommen" = bis heute, „Verplant" = zukünftig. Quelle: Google-Urlaubskalender (Sync) + manuelle Einträge. Die Auslastungs-Seite wird automatisch mitaktualisiert.';
+    el('footNote').textContent = 'Urlaubstage = Arbeitstage Mo–Fr ohne Feiertage des Bundeslands aus dem Profil (Sa/So zählen nie; Default NRW). Werkstudenten/Teilzeit: anteilig über „Arbeitstage pro Woche" (z.B. 2/Woche → volle Woche Urlaub = 2 Tage). Jeder Urlaub zählt komplett im Jahr seines Startdatums (Silvester-Urlaub → altes Jahr). „Genommen" = bis heute, „Verplant" = zukünftig. Quelle: Google-Urlaubskalender (Sync) + manuelle Einträge.';
   }
   function renderAll() {
     renderYearSel(); renderAwayStrip(); renderCards(); renderYearTable();
@@ -263,7 +288,8 @@
   // ── Detail-Modal ───────────────────────────────────────────────────────────
   var FIXED_FIELDS = [
     ['email', 'E-Mail', 'text'], ['iban', 'IBAN', 'text'], ['start_date', 'Eintrittsdatum', 'date'],
-    ['work_location', 'Arbeitsort', 'text'], ['applied_via', 'Beworben über', 'text'],
+    ['work_location', 'Arbeitsort', 'text'], ['federal_state', 'Bundesland (Feiertage)', 'select'],
+    ['applied_via', 'Beworben über', 'text'],
     ['personality_test', 'Persönlichkeitstest', 'text'], ['vacation_days_per_year', 'Urlaubsanspruch (Tage/Jahr)', 'number'],
     ['work_days_per_week', 'Arbeitstage pro Woche', 'number'],   // z.B. 2 bei Werkstudenten → Urlaub zählt anteilig
   ];
@@ -273,7 +299,7 @@
     return (isFinite(w) && w > 0 && w < 5) ? w / 5 : 1;
   }
   function scaledWorkdays(emp, startIso, endIso) {
-    return Math.round(workdays(startIso, endIso) * workdayFactor(emp) * 2) / 2;   // auf halbe Tage
+    return Math.round(workdays(startIso, endIso, stateOf(emp)) * workdayFactor(emp) * 2) / 2;   // auf halbe Tage
   }
   function openModal(empId) {
     state.openEmpId = empId;
@@ -282,6 +308,11 @@
     var fixedHtml = FIXED_FIELDS.map(function (f) {
       var v = emp[f[0]] == null ? '' : emp[f[0]];
       if (f[2] === 'date' && v) v = String(v).slice(0, 10);
+      if (f[2] === 'select') {   // aktuell nur Bundesland
+        return '<div class="fld"><label>' + f[1] + '</label><select data-fx="' + f[0] + '">' +
+          STATES.map(function (s) { return '<option value="' + s[0] + '"' + (String(v || 'NW') === s[0] ? ' selected' : '') + '>' + esc(s[1]) + '</option>'; }).join('') +
+          '</select></div>';
+      }
       return '<div class="fld"><label>' + f[1] + '</label><input type="' + f[2] + '" data-fx="' + f[0] + '" value="' + esc(v) + '"></div>';
     }).join('');
     var customHtml = state.fields.map(function (f) {
@@ -292,20 +323,13 @@
     var allEntries = state.entries.filter(function (e) { return e.employee_id === empId; })
       .sort(function (a, b) { return a.start_date < b.start_date ? 1 : -1; });
     var entries = (state.modalAllYears ? allEntries : allEntries.filter(function (e) {
-      return +e.start_date.slice(0, 4) === state.year || +e.end_date.slice(0, 4) === state.year;
+      return +e.start_date.slice(0, 4) === state.year;   // Eintrag gehört zum Jahr seines Startdatums
     })).slice(0, 80);
     var nHidden = allEntries.length - entries.length;
     var entriesHtml = entries.map(function (e) {
-      // Jahreswechsel-Einträge: zeigen, wie viele Tage ins gewählte Jahr fallen
-      var hint = '';
-      if (!state.modalAllYears && e.start_date.slice(0, 4) !== e.end_date.slice(0, 4)) {
-        var bd = monthlyBreakdown(e), inYear = 0;
-        Object.keys(bd).forEach(function (ym) { if (+ym.slice(0, 4) === state.year) inYear += bd[ym]; });
-        hint = '<div class="muted">davon ' + fmtDays(inYear) + ' in ' + state.year + '</div>';
-      }
       return '<tr><td><span class="pill ' + (e.type === 'sick' ? 'sick' : 'vac') + '">' + (e.type === 'sick' ? 'Krank' : 'Urlaub') + '</span></td>' +
         '<td>' + deDate(e.start_date) + (e.end_date !== e.start_date ? ' – ' + deDate(e.end_date) : '') + '</td>' +
-        '<td class="num" style="font-weight:600">' + fmtDays(e.days) + ' T' + hint + '</td>' +
+        '<td class="num" style="font-weight:600">' + fmtDays(e.days) + ' T</td>' +
         '<td>' + (e.source === 'gcal' ? '<span class="pill gcal" title="aus Google-Urlaubskalender">📅 Kalender</span>' : '<span class="pill">manuell</span>') + '</td>' +
         '<td class="right"><button class="btn btn-ghost btn-sm" data-edel="' + e.id + '">✕</button></td></tr>';
     }).join('');

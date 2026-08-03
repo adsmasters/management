@@ -197,3 +197,12 @@ ALTER TABLE employees ADD COLUMN IF NOT EXISTS work_days_per_week numeric DEFAUL
 
 Urlaubstage werden mit Faktor (work_days_per_week ÷ 5) gezählt, z.B. 2/Woche →
 volle Urlaubswoche = 2 Tage. Gilt für Auto-Berechnung und Kalender-Sync.
+
+## 14. Bundesland pro Mitarbeiter für Feiertage (ausgeführt 03.08.2026)
+
+```sql
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS federal_state text DEFAULT 'NW';
+```
+
+Feiertage werden je Mitarbeiter nach Bundesland berechnet (Default NW).
+Sonderwert 'XX' = keine deutschen Feiertage (Ausland, nur Wochenenden).
