@@ -98,9 +98,16 @@
     var d = new Date(iso + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + n);
     return d.toISOString().slice(0, 10);
   }
+  // Wert eines Tages als Urlaubstag: 0 = Wochenende/Feiertag, 0,5 = Heiligabend/
+  // Silvester (Firmenregel: 24.12. und 31.12. sind halbe Arbeitstage), sonst 1.
+  function dayValue(iso, st) {
+    if (!isWorkday(iso, st)) return 0;
+    var mmdd = iso.slice(5);
+    return (mmdd === '12-24' || mmdd === '12-31') ? 0.5 : 1;
+  }
   function workdays(startIso, endIso, st) {
     var n = 0, d = startIso, guard = 0;
-    while (d <= endIso && guard++ < 800) { if (isWorkday(d, st)) n++; d = addDaysIso(d, 1); }
+    while (d <= endIso && guard++ < 800) { n += dayValue(d, st); d = addDaysIso(d, 1); }
     return n;
   }
   // Verteilung eines Eintrags auf Monate: {'YYYY-MM': Tage}. Weicht entry.days
@@ -109,7 +116,8 @@
     var st = stateOf(empById(entry.employee_id));
     var per = {}, total = 0, d = entry.start_date, guard = 0;
     while (d <= entry.end_date && guard++ < 800) {
-      if (isWorkday(d, st)) { var ym = d.slice(0, 7); per[ym] = (per[ym] || 0) + 1; total++; }
+      var dv = dayValue(d, st);
+      if (dv) { var ym = d.slice(0, 7); per[ym] = (per[ym] || 0) + dv; total += dv; }
       d = addDaysIso(d, 1);
     }
     var days = Number(entry.days) || 0;
@@ -150,6 +158,43 @@
     });
     return { taken: Math.round(taken * 100) / 100, planned: Math.round(planned * 100) / 100, sick: Math.round(sick * 100) / 100 };
   }
+  // ── Urlaubsanspruch & Übertrag ─────────────────────────────────────────────
+  // Anspruch im Eintrittsjahr anteilig (volle Monate ab Eintritt, 1/12 je Monat).
+  function quotaFor(emp, year) {
+    var q = Number(emp.vacation_days_per_year) || 0;
+    if (!q) return 0;
+    var sd = emp.start_date ? String(emp.start_date).slice(0, 10) : null;
+    if (sd && +sd.slice(0, 4) > year) return 0;
+    if (sd && +sd.slice(0, 4) === year) {
+      var m = +sd.slice(5, 7);
+      return Math.round(q * (12 - m + 1) / 12 * 2) / 2;
+    }
+    return q;
+  }
+  function vacTakenInYear(empId, year) {
+    var s = 0;
+    state.entries.forEach(function (e) {
+      if (e.employee_id === empId && e.type === 'vacation' && +e.start_date.slice(0, 4) === year) s += Number(e.days) || 0;
+    });
+    return s;
+  }
+  // Übertrag ins Jahr `year`: Summe (Anspruch − genommen) aller Vorjahre,
+  // beginnend beim späteren von Eintrittsjahr / erstem erfasstem Urlaubsjahr
+  // (frühere Jahre ohne Daten würden den Übertrag sonst verfälschen).
+  function carryover(emp, year) {
+    if (!(Number(emp.vacation_days_per_year) > 0)) return 0;
+    var years = [];
+    state.entries.forEach(function (e) {
+      if (e.employee_id === emp.id && e.type === 'vacation') years.push(+e.start_date.slice(0, 4));
+    });
+    if (!years.length) return 0;
+    var first = Math.min.apply(null, years);
+    if (emp.start_date) first = Math.max(first, +String(emp.start_date).slice(0, 4));
+    var co = 0;
+    for (var y = first; y < year; y++) co += quotaFor(emp, y) - vacTakenInYear(emp.id, y);
+    return Math.round(co * 100) / 100;
+  }
+
   function currentAbsence(empId) {
     var today = todayIso();
     return state.entries.find(function (e) {
@@ -245,9 +290,11 @@
     var grid = el('empGrid');
     grid.innerHTML = visibleEmployees().map(function (emp) {
       var s = empYearStats(emp.id, state.year);
-      var quota = Number(emp.vacation_days_per_year) || 0;
+      var quota = quotaFor(emp, state.year);
+      var co = quota ? carryover(emp, state.year) : 0;
+      var avail = Math.round((quota + co) * 100) / 100;
       var used = s.taken + s.planned;
-      var pct = quota ? Math.min(100, used / quota * 100) : 0;
+      var pct = avail > 0 ? Math.min(100, used / avail * 100) : 0;
       var cur = currentAbsence(emp.id), nxt = nextAbsence(emp.id);
       var meta = [];
       if (emp.start_date) meta.push('<span class="mi">🗓 seit ' + deDate(emp.start_date) + '</span>');
@@ -261,8 +308,10 @@
         '<div class="er">' + esc(window.getRoleLabel(emp.role)) + '</div></div></div>' +
         '<div class="emp-meta">' + meta.join('') + '</div>' +
         '<div class="emp-kpis">' +
-          '<div class="ek"><div class="ekl">Urlaub ' + state.year + '</div><div class="ekv">' + fmtDays(used) + (quota ? ' / ' + fmtDays(quota) : '') + '</div>' +
-            (quota ? '<div class="vac-bar"><div class="' + (used > quota ? 'over' : '') + '" style="width:' + pct + '%"></div></div><div class="muted">Rest ' + fmtDays(quota - used) + (s.planned ? ' · ' + fmtDays(s.planned) + ' verplant' : '') + '</div>' : '<div class="muted">kein Anspruch hinterlegt</div>') +
+          '<div class="ek"><div class="ekl">Urlaub ' + state.year + '</div><div class="ekv">' + fmtDays(used) + (quota ? ' / ' + fmtDays(avail) : '') + '</div>' +
+            (quota ? '<div class="vac-bar"><div class="' + (used > avail ? 'over' : '') + '" style="width:' + pct + '%"></div></div><div class="muted">Rest ' + fmtDays(avail - used) +
+              (co ? ' · Übertrag ' + (co > 0 ? '+' : '') + fmtDays(co) : '') +
+              (s.planned ? ' · ' + fmtDays(s.planned) + ' verplant' : '') + '</div>' : '<div class="muted">kein Anspruch hinterlegt</div>') +
           '</div>' +
           '<div class="ek"><div class="ekl">Krank</div><div class="ekv">' + fmtDays(s.sick) + '</div><div class="muted">Tage</div></div>' +
         '</div>' +
@@ -277,19 +326,21 @@
     el('yearTableTitle').textContent = 'Jahresübersicht ' + state.year;
     var rows = visibleEmployees().map(function (emp) {
       var s = empYearStats(emp.id, state.year);
-      var quota = Number(emp.vacation_days_per_year) || 0;
-      var rest = quota ? quota - s.taken - s.planned : null;
+      var quota = quotaFor(emp, state.year);
+      var co = quota ? carryover(emp, state.year) : 0;
+      var rest = quota ? Math.round((quota + co - s.taken - s.planned) * 100) / 100 : null;
       return '<tr><td>' + esc(emp.name) + '</td>' +
         '<td class="num">' + (quota ? fmtDays(quota) : '<span class="muted">—</span>') + '</td>' +
+        '<td class="num">' + (quota ? ((co > 0 ? '+' : '') + fmtDays(co)) : '<span class="muted">—</span>') + '</td>' +
         '<td class="num">' + fmtDays(s.taken) + '</td>' +
         '<td class="num">' + fmtDays(s.planned) + '</td>' +
         '<td class="num" style="font-weight:600' + (rest != null && rest < 0 ? ';color:#b91c1c' : '') + '">' + (rest != null ? fmtDays(rest) : '—') + '</td>' +
         '<td class="num">' + fmtDays(s.sick) + '</td></tr>';
     }).join('');
     el('yearTable').innerHTML =
-      '<thead><tr><th>Mitarbeiter</th><th>Anspruch</th><th>Genommen</th><th>Verplant</th><th>Rest</th><th>Krank</th></tr></thead>' +
-      '<tbody>' + (rows || '<tr><td colspan="6" class="muted">Keine Daten.</td></tr>') + '</tbody>';
-    el('footNote').textContent = 'Urlaubstage = Arbeitstage Mo–Fr ohne Feiertage des Bundeslands aus dem Profil (Sa/So zählen nie; Default NRW). Werkstudenten/Teilzeit: anteilig über „Arbeitstage pro Woche" (z.B. 2/Woche → volle Woche Urlaub = 2 Tage). Jeder Urlaub zählt komplett im Jahr seines Startdatums (Silvester-Urlaub → altes Jahr). „Genommen" = bis heute, „Verplant" = zukünftig. Quelle: Google-Urlaubskalender (Sync) + manuelle Einträge.';
+      '<thead><tr><th>Mitarbeiter</th><th>Anspruch</th><th>Übertrag</th><th>Genommen</th><th>Verplant</th><th>Rest</th><th>Krank</th></tr></thead>' +
+      '<tbody>' + (rows || '<tr><td colspan="7" class="muted">Keine Daten.</td></tr>') + '</tbody>';
+    el('footNote').textContent = 'Urlaubstage = Arbeitstage Mo–Fr ohne Feiertage des Bundeslands aus dem Profil (Sa/So zählen nie; Default NRW). 24.12. und 31.12. zählen als halbe Tage (Firmenregel). Werkstudenten/Teilzeit: anteilig über „Arbeitstage pro Woche". Jeder Urlaub zählt komplett im Jahr seines Startdatums (Silvester-Urlaub → altes Jahr). Übertrag = nicht genommener Resturlaub der Vorjahre seit Eintritt (Eintrittsjahr anteilig, 1/12 je vollem Monat); verfügbar = Anspruch + Übertrag. „Genommen" = bis heute, „Verplant" = zukünftig. Quelle: Google-Urlaubskalender (Sync) + manuelle Einträge.';
   }
   function renderAll() {
     renderYearSel(); renderAwayStrip(); renderCards(); renderYearTable();
@@ -304,12 +355,34 @@
     ['work_days_per_week', 'Arbeitstage pro Woche', 'number'],   // z.B. 2 bei Werkstudenten → Urlaub zählt anteilig
   ];
   // Werkstudenten & Teilzeit: Urlaubstage zählen anteilig (Arbeitstage/Woche ÷ 5).
-  function workdayFactor(emp) {
-    var w = Number(emp && emp.work_days_per_week);
-    return (isFinite(w) && w > 0 && w < 5) ? w / 5 : 1;
+  // Unterjährige Wechsel stehen im workdays_history ([{from, days}]) und gelten
+  // tagesgenau ab ihrem Datum; davor gilt work_days_per_week (Basis).
+  function wdPerWeekAt(emp, iso) {
+    var w = Number(emp && emp.work_days_per_week) || 5;
+    var best = null;
+    ((emp && emp.workdays_history) || []).forEach(function (h) {
+      if (h && h.from && h.from <= iso && (!best || h.from > best.from)) best = h;
+    });
+    if (best && isFinite(Number(best.days)) && Number(best.days) > 0) w = Number(best.days);
+    return (isFinite(w) && w > 0) ? w : 5;
   }
+  function factorAt(emp, iso) { var w = wdPerWeekAt(emp, iso); return w < 5 ? w / 5 : 1; }
   function scaledWorkdays(emp, startIso, endIso) {
-    return Math.round(workdays(startIso, endIso, stateOf(emp)) * workdayFactor(emp) * 2) / 2;   // auf halbe Tage
+    var n = 0, d = startIso, guard = 0, st = stateOf(emp);
+    while (d <= endIso && guard++ < 800) { n += dayValue(d, st) * factorAt(emp, d); d = addDaysIso(d, 1); }
+    return Math.round(n * 2) / 2;   // auf halbe Tage
+  }
+  function parseWdHistory(text) {
+    var out = [];
+    String(text || '').split(/[;\n]/).forEach(function (part) {
+      var m = part.match(/(\d{1,2})\.(\d{1,2})\.(\d{4})\s*:?\s*(\d+(?:[.,]\d+)?)/);
+      if (m) out.push({ from: m[3] + '-' + m[2].padStart(2, '0') + '-' + m[1].padStart(2, '0'), days: parseFloat(m[4].replace(',', '.')) });
+    });
+    out.sort(function (a, b) { return a.from < b.from ? -1 : 1; });
+    return out;
+  }
+  function wdHistoryText(hist) {
+    return (hist || []).map(function (h) { return 'ab ' + deDate(h.from) + ': ' + String(h.days).replace('.', ','); }).join('; ');
   }
   function openModal(empId) {
     state.openEmpId = empId;
@@ -324,7 +397,9 @@
           '</select></div>';
       }
       return '<div class="fld"><label>' + f[1] + '</label><input type="' + f[2] + '" data-fx="' + f[0] + '" value="' + esc(v) + '"></div>';
-    }).join('');
+    }).join('') +
+    '<div class="fld"><label>Arbeitstage-Verlauf <span style="text-transform:none;font-weight:400">– bei unterjährigem Wechsel, z.B. „ab 01.06.2026: 2,5"</span></label>' +
+      '<input type="text" id="wdHist" value="' + esc(wdHistoryText(emp.workdays_history)) + '" placeholder="leer = konstant wie oben; mehrere mit ; trennen"></div>';
     var customHtml = state.fields.map(function (f) {
       return '<div class="fld"><label>' + esc(f.label) +
         '<span class="fdel" data-fdel="' + f.id + '" title="Feld für alle Mitarbeiter entfernen">✕ Feld löschen</span></label>' +
@@ -396,6 +471,7 @@
       });
       fields.hr_custom = custom;
       fields.hr_hidden = el('hrHiddenCb').checked;
+      fields.workdays_history = parseWdHistory(el('wdHist').value);
       el('hrmSave').disabled = true;
       window.db.employees.update(emp.id, fields).then(function () {
         return loadAll();

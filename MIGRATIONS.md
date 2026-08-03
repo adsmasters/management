@@ -217,3 +217,14 @@ Blendet einzelne Personen aus dem Personal-Bereich aus (z.B. Freelancer mit
 role=advertising wie Laura G), ohne role/active anzufassen — Auslastung
 bleibt unberührt. Mitarbeiter in Abwesenheit (leave_start/leave_until,
 z.B. Mutterschutz) werden auf der Personal-Seite automatisch ausgeblendet.
+
+## 16. Arbeitstage-Verlauf für unterjährige Wechsel (ausgeführt 03.08.2026)
+
+```sql
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS workdays_history jsonb DEFAULT '[]'::jsonb;
+```
+
+Format: `[{"from":"2026-06-01","days":2.5}]` — Arbeitstage/Woche ab Datum.
+Urlaubszählung nutzt tagesgenau den zum jeweiligen Datum gültigen Wert
+(Basis: work_days_per_week). Kapazitäts-% (capacity_pct) beeinflusst die
+Urlaubszählung bewusst NICHT (nur Wochentage zählen).
