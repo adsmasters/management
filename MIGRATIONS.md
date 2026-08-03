@@ -188,3 +188,12 @@ CREATE POLICY authenticated_all ON absence_entries FOR ALL TO authenticated USIN
 
 Hinweis: `employee_absences` (Monats-Aggregate, Auslastung) wird von personal.js
 automatisch aus `absence_entries` neu berechnet (pro Typ nur, wenn Einträge existieren).
+
+## 13. Werkstudenten: anteilige Urlaubszählung (ausgeführt 03.08.2026)
+
+```sql
+ALTER TABLE employees ADD COLUMN IF NOT EXISTS work_days_per_week numeric DEFAULT 5;
+```
+
+Urlaubstage werden mit Faktor (work_days_per_week ÷ 5) gezählt, z.B. 2/Woche →
+volle Urlaubswoche = 2 Tage. Gilt für Auto-Berechnung und Kalender-Sync.

@@ -17,6 +17,7 @@
     year: new Date().getFullYear(),
     showInactive: false,
     openEmpId: null,
+    modalAllYears: false,   // Abwesenheiten im Profil: standardmäßig nur das gewählte Jahr
   };
 
   var AVATAR_COLORS = ['#2563eb', '#7c3aed', '#16a34a', '#0891b2', '#db2777', '#ca8a04', '#0d9488', '#dc2626', '#9333ea', '#f59e0b', '#e11d48', '#10b981'];
@@ -253,7 +254,7 @@
     el('yearTable').innerHTML =
       '<thead><tr><th>Mitarbeiter</th><th>Anspruch</th><th>Genommen</th><th>Verplant</th><th>Rest</th><th>Krank</th></tr></thead>' +
       '<tbody>' + (rows || '<tr><td colspan="6" class="muted">Keine Daten.</td></tr>') + '</tbody>';
-    el('footNote').textContent = 'Urlaubstage = Arbeitstage Mo–Fr ohne NRW-Feiertage. „Genommen" = bis heute, „Verplant" = zukünftig. Quelle: Google-Urlaubskalender (Sync) + manuelle Einträge. Die Auslastungs-Seite wird automatisch mitaktualisiert.';
+    el('footNote').textContent = 'Urlaubstage = Arbeitstage Mo–Fr ohne NRW-Feiertage (Sa/So zählen nie). Werkstudenten/Teilzeit: anteilig über „Arbeitstage pro Woche" im Profil (z.B. 2/Woche → volle Woche Urlaub = 2 Tage). „Genommen" = bis heute, „Verplant" = zukünftig. Quelle: Google-Urlaubskalender (Sync) + manuelle Einträge. Die Auslastungs-Seite wird automatisch mitaktualisiert.';
   }
   function renderAll() {
     renderYearSel(); renderAwayStrip(); renderCards(); renderYearTable();
@@ -264,7 +265,16 @@
     ['email', 'E-Mail', 'text'], ['iban', 'IBAN', 'text'], ['start_date', 'Eintrittsdatum', 'date'],
     ['work_location', 'Arbeitsort', 'text'], ['applied_via', 'Beworben über', 'text'],
     ['personality_test', 'Persönlichkeitstest', 'text'], ['vacation_days_per_year', 'Urlaubsanspruch (Tage/Jahr)', 'number'],
+    ['work_days_per_week', 'Arbeitstage pro Woche', 'number'],   // z.B. 2 bei Werkstudenten → Urlaub zählt anteilig
   ];
+  // Werkstudenten & Teilzeit: Urlaubstage zählen anteilig (Arbeitstage/Woche ÷ 5).
+  function workdayFactor(emp) {
+    var w = Number(emp && emp.work_days_per_week);
+    return (isFinite(w) && w > 0 && w < 5) ? w / 5 : 1;
+  }
+  function scaledWorkdays(emp, startIso, endIso) {
+    return Math.round(workdays(startIso, endIso) * workdayFactor(emp) * 2) / 2;   // auf halbe Tage
+  }
   function openModal(empId) {
     state.openEmpId = empId;
     var emp = empById(empId); if (!emp) return;
@@ -279,12 +289,23 @@
         '<span class="fdel" data-fdel="' + f.id + '" title="Feld für alle Mitarbeiter entfernen">✕ Feld löschen</span></label>' +
         '<input type="text" data-cf="' + f.id + '" value="' + esc(custom[f.id] == null ? '' : custom[f.id]) + '"></div>';
     }).join('');
-    var entries = state.entries.filter(function (e) { return e.employee_id === empId; })
-      .sort(function (a, b) { return a.start_date < b.start_date ? 1 : -1; }).slice(0, 60);
+    var allEntries = state.entries.filter(function (e) { return e.employee_id === empId; })
+      .sort(function (a, b) { return a.start_date < b.start_date ? 1 : -1; });
+    var entries = (state.modalAllYears ? allEntries : allEntries.filter(function (e) {
+      return +e.start_date.slice(0, 4) === state.year || +e.end_date.slice(0, 4) === state.year;
+    })).slice(0, 80);
+    var nHidden = allEntries.length - entries.length;
     var entriesHtml = entries.map(function (e) {
+      // Jahreswechsel-Einträge: zeigen, wie viele Tage ins gewählte Jahr fallen
+      var hint = '';
+      if (!state.modalAllYears && e.start_date.slice(0, 4) !== e.end_date.slice(0, 4)) {
+        var bd = monthlyBreakdown(e), inYear = 0;
+        Object.keys(bd).forEach(function (ym) { if (+ym.slice(0, 4) === state.year) inYear += bd[ym]; });
+        hint = '<div class="muted">davon ' + fmtDays(inYear) + ' in ' + state.year + '</div>';
+      }
       return '<tr><td><span class="pill ' + (e.type === 'sick' ? 'sick' : 'vac') + '">' + (e.type === 'sick' ? 'Krank' : 'Urlaub') + '</span></td>' +
         '<td>' + deDate(e.start_date) + (e.end_date !== e.start_date ? ' – ' + deDate(e.end_date) : '') + '</td>' +
-        '<td class="num" style="font-weight:600">' + fmtDays(e.days) + ' T</td>' +
+        '<td class="num" style="font-weight:600">' + fmtDays(e.days) + ' T' + hint + '</td>' +
         '<td>' + (e.source === 'gcal' ? '<span class="pill gcal" title="aus Google-Urlaubskalender">📅 Kalender</span>' : '<span class="pill">manuell</span>') + '</td>' +
         '<td class="right"><button class="btn btn-ghost btn-sm" data-edel="' + e.id + '">✕</button></td></tr>';
     }).join('');
@@ -300,7 +321,10 @@
           '<div style="display:flex;gap:8px;align-items:center"><button class="btn btn-primary btn-sm" id="hrmSave">Profil speichern</button>' +
           '<button class="btn btn-secondary btn-sm" id="hrmAddField">+ Eigenes Feld</button><span class="muted" id="hrmSaveInfo"></span></div>' +
         '</div></div></div>' +
-        '<div class="hrm-col"><div class="card"><div class="card-header"><h2>Abwesenheiten</h2></div><div class="card-body">' +
+        '<div class="hrm-col"><div class="card"><div class="card-header" style="display:flex;align-items:center;justify-content:space-between;gap:10px">' +
+          '<h2>Abwesenheiten ' + (state.modalAllYears ? '(alle Jahre)' : state.year) + '</h2>' +
+          '<label class="muted" style="cursor:pointer;display:inline-flex;align-items:center;gap:5px;white-space:nowrap"><input type="checkbox" id="absAllYears"' + (state.modalAllYears ? ' checked' : '') + '> alle Jahre</label>' +
+        '</div><div class="card-body">' +
           '<div class="abs-add">' +
             '<div class="fld"><label>Typ</label><select id="naType"><option value="vacation">Urlaub</option><option value="sick">Krank</option></select></div>' +
             '<div class="fld"><label>Von</label><input type="date" id="naFrom"></div>' +
@@ -308,7 +332,8 @@
             '<div class="fld"><label>Tage</label><input type="number" id="naDays" step="0.5" style="width:70px" title="Arbeitstage; wird automatisch berechnet, kann überschrieben werden"></div>' +
             '<button class="btn btn-primary btn-sm" id="naAdd">+</button>' +
           '</div>' +
-          '<table class="abs"><tbody>' + (entriesHtml || '<tr><td class="muted">Noch keine Einträge.</td></tr>') + '</tbody></table>' +
+          '<table class="abs"><tbody>' + (entriesHtml || '<tr><td class="muted">Keine Einträge' + (state.modalAllYears ? '' : ' in ' + state.year) + '.</td></tr>') + '</tbody></table>' +
+          (nHidden > 0 && !state.modalAllYears ? '<div class="muted" style="margin-top:8px">' + nHidden + ' ältere Einträge ausgeblendet – „alle Jahre" anhaken zum Anzeigen.</div>' : '') +
         '</div></div></div>' +
       '</div></div></div>';
     bindModal(emp);
@@ -317,6 +342,10 @@
   function bindModal(emp) {
     el('hrmClose').addEventListener('click', closeModal);
     el('hrmOverlay').addEventListener('click', function (e) { if (e.target === el('hrmOverlay')) closeModal(); });
+    el('absAllYears').addEventListener('change', function () {
+      state.modalAllYears = el('absAllYears').checked;
+      openModal(emp.id);
+    });
 
     el('hrmSave').addEventListener('click', function () {
       var fields = {};
@@ -352,7 +381,7 @@
     // Abwesenheit hinzufügen: Tage automatisch berechnen
     function autoDays() {
       var f = el('naFrom').value, t = el('naTo').value || f;
-      if (f) el('naDays').value = workdays(f, t);
+      if (f) el('naDays').value = scaledWorkdays(emp, f, t);
     }
     el('naFrom').addEventListener('change', function () { if (!el('naTo').value || el('naTo').value < el('naFrom').value) el('naTo').value = el('naFrom').value; autoDays(); });
     el('naTo').addEventListener('change', autoDays);
@@ -488,7 +517,7 @@
         if (ev.endIsDate) end = addDaysIso(end, -1);                // DTEND (DATE) ist exklusiv
         if (!start || !end || end < start) return;
         var half = /halber tag|halbtags|0[.,]5/i.test(ev.summary);
-        var days = half ? 0.5 : workdays(start, end);
+        var days = half ? 0.5 : scaledWorkdays(emp, start, end);
         var uid = ev.uid.replace(/@google\.com$/, '');
         uids.push(uid);
         rows.push({ employee_id: emp.id, type: 'vacation', start_date: start, end_date: end,
