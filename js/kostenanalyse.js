@@ -330,6 +330,7 @@
   // ── Spend ───────────────────────────────────────────────────────────────────
   function setFocus(cat) {
     dash.focusCat = (dash.focusCat === cat) ? null : cat;   // gleiche Kategorie nochmal = Fokus aufheben
+    dash.vendorSkip = 0;                                    // „Übrige"-Blättern zurücksetzen
     renderSpendStats(); drawSpendCharts();
   }
   function spendData() {
@@ -453,17 +454,24 @@
     var cats = Object.keys(s.byCat).sort(function (a, b) { return s.byCat[b] - s.byCat[a]; });
     // Titel des Donuts an Fokus anpassen
     if (el('spendCatTitle')) el('spendCatTitle').textContent = focus ? ('Aufschlüsselung: ' + focus) : 'Ausgaben nach Kategorie';
-    if (el('spendCatSub')) el('spendCatSub').textContent = focus ? 'nach Lieferant · Klick = zurück' : 'Klick = nur diese Kategorie';
+    if (el('spendCatSub')) el('spendCatSub').textContent = focus
+      ? 'nach Lieferant · Klick auf „Übrige" = weitere Lieferanten · sonst Klick = zurück'
+      : 'Klick = nur diese Kategorie';
 
     // Im Fokus: Donut zeigt Lieferanten der Kategorie; sonst Kategorien
-    var dLabels, dData, dColors, dClickTargets;
+    // Klick auf „Übrige" blättert zu den nächsten Lieferanten statt den Fokus zu verlassen.
+    var dLabels, dData, dColors, dClickTargets, restIdx = -1;
     if (focus) {
       var fv = Object.keys(s.byVendor).map(function (k) { return [k, s.byVendor[k]]; }).sort(function (a, b) { return b[1] - a[1]; });
-      var topF = fv.slice(0, 9), restF = fv.slice(9).reduce(function (a, x) { return a + x[1]; }, 0);
-      dLabels = topF.map(function (x) { return x[0]; }).concat(restF > 0 ? ['Übrige'] : []);
+      var skip = dash.vendorSkip || 0;
+      if (skip >= fv.length) skip = dash.vendorSkip = 0;
+      var topF = fv.slice(skip, skip + 9), restArr = fv.slice(skip + 9);
+      var restF = restArr.reduce(function (a, x) { return a + x[1]; }, 0);
+      dLabels = topF.map(function (x) { return x[0]; }).concat(restF > 0 ? ['Übrige (' + restArr.length + ' weitere) ▸'] : []);
       dData = topF.map(function (x) { return round2(x[1]); }).concat(restF > 0 ? [round2(restF)] : []);
       dColors = dLabels.map(function (_, i) { return PALETTE[i % PALETTE.length]; });
-      dClickTargets = null;   // Klick im Fokus = Fokus aufheben
+      if (restF > 0) restIdx = dLabels.length - 1;
+      dClickTargets = null;   // Klick im Fokus = Fokus aufheben (außer „Übrige")
     } else {
       dLabels = cats; dData = cats.map(function (c) { return round2(s.byCat[c]); });
       dColors = cats.map(function (c, i) { return catColor(c, i); }); dClickTargets = cats;
@@ -473,11 +481,22 @@
       data: { labels: dLabels, datasets: [{ data: dData, backgroundColor: dColors, borderWidth: 2, borderColor: '#fff' }] },
       options: {
         responsive: true, maintainAspectRatio: false, cutout: '58%',
-        onClick: function (e, els) { if (focus) { setFocus(focus); return; } if (els && els.length) setFocus(dClickTargets[els[0].index]); },
+        onClick: function (e, els) {
+          if (focus) {
+            if (els && els.length && els[0].index === restIdx) { dash.vendorSkip = (dash.vendorSkip || 0) + 9; drawSpendCharts(); }
+            else setFocus(focus);
+            return;
+          }
+          if (els && els.length) setFocus(dClickTargets[els[0].index]);
+        },
         onHover: function (e, els) { if (e.native && e.native.target) e.native.target.style.cursor = els.length ? 'pointer' : 'default'; },
         plugins: {
           legend: { position: 'right', labels: { boxWidth: 12, usePointStyle: true, font: { size: 11 } },
-            onClick: function (e, item) { if (focus) setFocus(focus); else setFocus(dLabels[item.index]); } },
+            onClick: function (e, item) {
+              if (!focus) { setFocus(dLabels[item.index]); return; }
+              if (item.index === restIdx) { dash.vendorSkip = (dash.vendorSkip || 0) + 9; drawSpendCharts(); }
+              else setFocus(focus);
+            } },
           tooltip: { callbacks: { label: function (ctx) { return ctx.label + ': ' + fmt(ctx.parsed) + ' (' + (s.total ? (ctx.parsed / s.total * 100).toFixed(1) : 0) + '%)'; } } },
         },
       },
