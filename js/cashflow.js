@@ -544,12 +544,17 @@
       return (a.kind || 'bank') !== 'credit_card' && !Number(a.opening_balance);
     });
     var hint = el('saldoHint');
+    var heute = C.balances(state.txs, state.accounts).bank;
     if (ohneStart) {
-      hint.classList.remove('hidden');
-      hint.innerHTML = 'Der Kontostand rechnet ab der ersten importierten Buchung (' + esc(von) + '). '
-        + 'Hattest du davor schon Geld auf dem Konto, ist die ganze Kurve um diesen Betrag verschoben – '
-        + 'dann im Reiter <strong>Konten</strong> den Anfangssaldo eintragen.';
-    } else hint.classList.add('hidden');
+      hint.innerHTML = 'Die Linie ist der Kontostand am Monatsende (Vormonat + Eingänge − Ausgänge) und '
+        + 'startet in ' + esc(von) + ' bei 0 €, weil kein Anfangssaldo hinterlegt ist. '
+        + '<strong>Stimmt ' + fmt(heute) + ' mit deinem echten Kontostand überein?</strong> '
+        + 'Wenn ja, passt die Kurve. Wenn nein, die Differenz im Reiter <strong>Konten</strong> als '
+        + 'Anfangssaldo eintragen – die monatlichen Veränderungen bleiben davon unberührt.';
+    } else {
+      hint.innerHTML = 'Die Linie ist der Kontostand am Monatsende: Anfangssaldo plus alle Buchungen bis dahin '
+        + '(gleiche Zahl wie die Spalte „Endsaldo" unten).';
+    }
 
     el('actualsBody').innerHTML = months.map(function (m) {
       var row = '<tr class="month-row" data-month="' + m.key + '">' +
