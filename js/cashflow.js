@@ -101,6 +101,34 @@
     };
   }
 
+  // Die importierten Kontoumsätze im Format von cost_transactions: so kann
+  // derselbe Vorschlags-Algorithmus auf beiden Quellen laufen. Nur Abflüsse,
+  // Karten-Einzelposten bleiben draußen (die zahlt die Sammelabbuchung).
+  function bankAsCostRows() {
+    return state.txs.filter(function (t) {
+      return t.amount < 0 && t.source !== 'amex';
+    }).map(function (t) {
+      var gross = Math.abs(Number(t.amount) || 0);
+      var net = gross;
+      if (E.isBundledTaxPayment(t)) {
+        var lst = E.extractLohnsteuer(t.description);
+        if (lst != null) net = lst;
+      }
+      return {
+        tx_date: t.tx_date, payee: t.payee, description: t.description,
+        amount_gross: gross, amount_net: net, category: t.category,
+        is_card_settlement: t.is_card_settlement, excluded: false,
+      };
+    });
+  }
+
+  // Monate, die die importierten Kontoumsätze abdecken.
+  function bankMonthCount() {
+    var m = {};
+    state.txs.forEach(function (t) { if (t.source !== 'amex') m[t.tx_date.slice(0, 7)] = 1; });
+    return Object.keys(m).length;
+  }
+
   // Kostenanalyse-Buchungen nachladen (1.900+ Zeilen) – nur wenn gebraucht.
   function ensureCostTxs() {
     if (state.costTxs) return Promise.resolve(state.costTxs);
@@ -572,6 +600,12 @@
     chain.then(reload).then(function () {
       preview.innerHTML = '<div class="alert alert-success">' + summaries.join('<br>') + '</div>';
       el('csvFile').value = '';
+      // Solange kein Fixkosten-Betrag gepflegt ist, direkt aus den frisch
+      // importierten Buchungen vorschlagen – ohne Abtippen.
+      var leer = !state.fixedCosts.some(function (f) { return Number(f.amount) > 0; });
+      if (leer && bankMonthCount() >= 3) {
+        return loadFcSuggestions().then(function () { showTab('fixed'); });
+      }
     }).catch(function (e) {
       preview.innerHTML = '<div class="alert alert-danger">Fehler: ' + esc(e.message) + '</div>';
     });
@@ -604,7 +638,7 @@
   var RHYTHM_LABEL = { monthly: 'monatlich', quarterly: 'quartalsweise', yearly: 'jährlich' };
   var BUCKET_OPTIONS = [
     ['salary', 'Gehälter'], ['supplier', 'Lieferanten'], ['adspend_amazon', 'Ad-Spend an Amazon'],
-    ['tax', 'Steuern'], ['other_out', 'Sonstige Ausgaben'],
+    ['tax', 'Steuern'], ['other_out', 'Sonstige Ausgaben'], ['card_settlement', 'Kartenabrechnung'],
   ];
 
   function renderFixed() {
@@ -782,7 +816,8 @@
     var fresh = state.fcSuggestions.filter(function (x) { return !existing[E.norm(x.label)]; });
     var known = state.fcSuggestions.length - fresh.length;
 
-    el('fcSuggestNote').innerHTML = 'Aus den Buchungen der Kostenanalyse: <strong>' + fresh.length + '</strong> wiederkehrende '
+    el('fcSuggestNote').innerHTML = 'Aus ' + (state.fcSource === 'bank' ? 'deinen importierten Kontoumsätzen' : 'den Buchungen der Kostenanalyse')
+      + ': <strong>' + fresh.length + '</strong> wiederkehrende '
       + 'Zahlungen der letzten 6 Monate' + (known ? ' (' + known + ' stehen schon im Plan)' : '') + '. '
       + 'Betrag und Zahltag sind der <strong>Median</strong> der Monate, nicht der letzte Wert – Ausreißer verzerren so nichts. '
       + 'Steuern fehlen bewusst: die laufen über den Reiter Steuertermine, sonst zählt die Umsatzsteuer doppelt.';
@@ -813,16 +848,24 @@
     });
   }
 
+  // Quelle für den Vorschlag: die eigenen Kontoumsätze, sobald genug Monate
+  // importiert sind – sonst die Buchungshistorie der Kostenanalyse.
+  function suggestionSource() {
+    if (bankMonthCount() >= 3) return Promise.resolve({ rows: bankAsCostRows(), from: 'bank' });
+    return ensureCostTxs().then(function (txs) { return { rows: txs, from: 'cost' }; });
+  }
+
   function loadFcSuggestions() {
     var btn = el('fcSuggest');
     btn.disabled = true; btn.textContent = 'Lädt…';
-    return ensureCostTxs().then(function (txs) {
-      state.fcSuggestions = C.suggestFixedCosts(txs, { today: todayIso(), months: 6 });
-      btn.disabled = false; btn.textContent = 'Aus Kostenanalyse vorschlagen';
+    return suggestionSource().then(function (src) {
+      state.fcSource = src.from;
+      state.fcSuggestions = C.suggestFixedCosts(src.rows, { today: todayIso(), months: 6 });
+      btn.disabled = false; btn.textContent = 'Aus Buchungen vorschlagen';
       el('fcSuggestPanel').classList.remove('hidden');
       renderFcSuggestions();
     }).catch(function (e) {
-      btn.disabled = false; btn.textContent = 'Aus Kostenanalyse vorschlagen';
+      btn.disabled = false; btn.textContent = 'Aus Buchungen vorschlagen';
       alert(e.message);
     });
   }

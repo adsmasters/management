@@ -486,7 +486,12 @@
       var bundled = E.isBundledTaxPayment(t);
       var isLohnsteuer = /lohnsteuer/i.test(t.description || '');
       var category = t.category, amount = gross, label = null;
-      if (bundled) {
+      if (t.is_card_settlement) {
+        // Kartenabrechnung ist eine echte wiederkehrende Zahlung – aber eine
+        // eigene Zeile, damit sie nicht mit der nächsten Abbuchung kollidiert.
+        label = 'Amex-Sammelabbuchung';
+        category = null;
+      } else if (bundled) {
         // Sammellastschrift ans Finanzamt: nur der Lohnsteuer-Anteil ist
         // planbare Personalzahlung, der USt-Anteil steckt in der UStVA-Zeile.
         amount = Number(t.amount_net) || 0;
@@ -519,7 +524,8 @@
       return {
         label: g.label,
         category: g.category || null,
-        bucket: BUCKET_BY_CATEGORY[g.category] || 'other_out',
+        bucket: g.label === 'Amex-Sammelabbuchung' ? 'card_settlement'
+                : (BUCKET_BY_CATEGORY[g.category] || 'other_out'),
         amount: amount,
         pay_day: Math.round(median(g.days)) || 1,
         rhythm: 'monthly',
@@ -640,13 +646,18 @@
     });
 
     // Fixkosten
-    var bucketMap = { salary: 'salaries', supplier: 'suppliers', adspend_amazon: 'adSpendAmazon', tax: 'taxes', other_out: 'otherOut' };
+    var bucketMap = { salary: 'salaries', supplier: 'suppliers', adspend_amazon: 'adSpendAmazon',
+                      tax: 'taxes', other_out: 'otherOut', card_settlement: 'otherOut' };
+    var cs0 = opts.cardSettlement;
     (opts.fixedCosts || []).forEach(function (fc) {
       if (fc.active === false) return;
       var amt = Number(fc.amount) || 0;
       if (!amt) return;
       var bucket = bucketMap[fc.bucket] || 'otherOut';
       fixedCostDates(fc, start, lastDay).forEach(function (iso) {
+        // Die nächste Kartenabrechnung steht mit dem echten offenen Saldo drin –
+        // der wiederkehrende Planwert würde sie sonst doppelt buchen.
+        if (fc.bucket === 'card_settlement' && cs0 && cs0.amount && iso === cs0.date) return;
         add(iso, bucket, -Math.abs(amt), fc.label);
       });
     });

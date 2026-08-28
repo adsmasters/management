@@ -436,4 +436,28 @@ test('UStVA: effektiver Satz aus Zahlung ÷ Netto-Umsatz', () => {
   assert.ok(Math.abs(r2.rate - 0.1630066) < 1e-6, 'erwartet ~16,3 %, bekam ' + r2.rate);
 });
 
+test('Fixkosten-Vorschlag: Kartenabrechnung wird eigene Zeile', () => {
+  const rows = ['2026-03', '2026-04', '2026-05', '2026-06', '2026-07', '2026-08'].map((m) =>
+    costTx(m + '-31', 'Kr Spk Heinsberg Erkelenz', 3500, null, {
+      description: 'EIGENE KREDITKARTENABRECHN. | KREDITKARTENABRECHNUNG', is_card_settlement: true }));
+  const s = C.suggestFixedCosts(rows, { today: '2026-08-28', months: 6 });
+  assert.strictEqual(s.length, 1);
+  assert.strictEqual(s[0].label, 'Amex-Sammelabbuchung');
+  assert.strictEqual(s[0].bucket, 'card_settlement');
+  assert.strictEqual(s[0].amount, 3500);
+});
+
+test('Vorschau: geplante Kartenabrechnung kollidiert nicht mit dem offenen Saldo', () => {
+  const opts = {
+    today: '2026-08-27', weeks: 13, startBalance: 0, invoices: [], apInvoices: [], taxDates: [],
+    fixedCosts: [{ label: 'Amex-Sammelabbuchung', amount: 3500, pay_day: 30, rhythm: 'monthly', bucket: 'card_settlement' }],
+    cardSettlement: { amount: 4200, date: '2026-08-30' },
+  };
+  const w = C.buildForecast(opts);
+  const august = w.filter((x) => x.from === '2026-08-24')[0];
+  assert.strictEqual(august.otherOut, -4200, 'erste Abrechnung mit echtem offenem Saldo, nicht zusätzlich geplant');
+  const september = w.filter((x) => x.from === '2026-09-28')[0];
+  assert.strictEqual(september.otherOut, -3500, 'spätere Monate laufen über den Planwert');
+});
+
 console.log('\n' + passed + ' Tests bestanden.\n');
