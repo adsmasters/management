@@ -228,3 +228,37 @@ Format: `[{"from":"2026-06-01","days":2.5}]` — Arbeitstage/Woche ab Datum.
 Urlaubszählung nutzt tagesgenau den zum jeweiligen Datum gültigen Wert
 (Basis: work_days_per_week). Kapazitäts-% (capacity_pct) beeinflusst die
 Urlaubszählung bewusst NICHT (nur Wochentage zählen).
+
+## 17. Cashflow-Modul (ausgeführt 27.08.2026)
+
+`supabase/cashflow-schema.sql` im SQL-Editor ausführen – legt an:
+`bank_accounts` (Konten inkl. **Anfangssaldo** je Konto), `bank_imports`,
+`bank_transactions` (vorzeichenbehaftet: + Eingang / − Ausgang, UNIQUE-Index
+`bank_tx_dedup_uidx` auf dem Duplikatschlüssel), `fixed_costs`, `tax_dates`,
+`ap_invoices` (Eingangsrechnungen + sonstige geplante Zahlungen) und
+`cashflow_settings`. RLS wie bei `employees`: Policy `owner_full`, nur
+`hallo@tobias-dziuba.de`.
+
+Bereits ausgeführt (27.08.2026), inkl. Startwerten für beide Konten und sechs
+Fixkosten-Zeilen (Beträge auf 0 – in der App anpassen).
+
+**Edge Function** `cashflow-invoices` (deployed 27.08.2026, verify_jwt=true):
+liefert offene Ausgangsrechnungen (brutto + Kennzeichen „Ad-Spend-Weiter-
+berechnung" aus Titel/Positionen, gleiche Keywords wie `DEFAULT_EXCLUDE` im
+Umsatz-Sync) **und** offene Eingangsrechnungen (`voucherType=purchaseinvoice`).
+Gibt LexOffice keine Eingangsrechnungen frei, kommt `purchaseError` zurück und
+die Seite fällt auf die manuelle Eingabemaske zurück.
+
+**Warum eigene Tabelle statt `cost_transactions`:** die Kostenanalyse importiert
+bewusst nur Abflüsse (Gutschriften sind Umsatz aus Lexoffice). Für den
+Kontostand braucht es beide Richtungen. Parser, Dedup-Logik, Kategorie- und
+MwSt-Regeln werden trotzdem geteilt (`js/cost-engine.js` →
+`js/cashflow-engine.js`), es gibt also weiterhin nur einen Regelsatz.
+
+**Doppelzählung Kreditkarte:** Der Kontostand rechnet die Sammelabbuchung im
+Bankkonto MIT (sonst weicht er vom echten Kontoauszug ab) und lässt die
+Amex-Einzelposten außen vor. Die Kategorie-Aufschlüsselung macht es umgekehrt
+(Einzelposten zählen, Sammelabbuchung raus) – wie im Skill `monatskosten-analyse`.
+
+Tests: `node test/cashflow-engine.test.js` (30 Tests, u.a. gegen die echten
+CSV-Fixtures). Oberfläche gegen Fixture-DB: `test/cashflow-test.html`.

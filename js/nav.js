@@ -25,6 +25,7 @@
       { href: 'profit.html',          label: 'Profitabilität' },
       { href: 'funnel.html',          label: 'Profit-Funnel' },
       { href: 'kostenanalyse.html',   label: 'Kostenanalyse' },
+      { href: 'cashflow.html',        label: 'Cashflow' },
       { href: 'revenue-timeline.html',label: 'Umsatz-Verlauf' },
     ] },
     { label: 'Rechnungen', items: [

@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cashflow – Adsmasters Management</title>
+  <link rel="stylesheet" href="css/style.css">
+  <style>
+    .summary-strip { display:flex; gap:16px; flex-wrap:wrap; margin-bottom:20px; }
+    .kpi-card { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); padding:16px 20px; flex:1; min-width:190px; }
+    .kpi-card .kpi-label { font-size:12px; color:var(--text-secondary); text-transform:uppercase; letter-spacing:.04em; font-weight:600; }
+    .kpi-card .kpi-value { font-size:26px; font-weight:700; margin-top:4px; color:var(--text); font-variant-numeric:tabular-nums; }
+    .kpi-card .kpi-sub { font-size:12px; margin-top:4px; color:var(--text-secondary); }
+    .kpi-card.good .kpi-value { color:#047857; }
+    .kpi-card.warn { border-color:#f59e0b; }
+    .kpi-card.warn .kpi-value { color:#b45309; }
+    .kpi-card.danger { border-color:var(--danger); }
+    .kpi-card.danger .kpi-value { color:#991b1b; }
+
+    .card { background:var(--surface); border:1px solid var(--border); border-radius:var(--radius); margin-bottom:20px; }
+    .card-head { padding:14px 20px 0; display:flex; justify-content:space-between; align-items:baseline; gap:12px; flex-wrap:wrap; }
+    .card-head h2 { font-size:15px; font-weight:600; }
+    .card-head .sub { font-size:12px; color:var(--text-secondary); }
+
+    .cf-tabs { display:flex; gap:4px; border-bottom:1px solid var(--border); margin-bottom:22px; flex-wrap:wrap; }
+    .cf-tab { padding:10px 16px; cursor:pointer; border:none; background:none; color:var(--text-secondary);
+      font-size:14px; font-weight:500; border-bottom:2px solid transparent; font-family:inherit; }
+    .cf-tab.active { color:var(--text); border-bottom-color:var(--primary); }
+    .cf-tab .count { font-size:11px; background:var(--border); border-radius:10px; padding:1px 7px; margin-left:6px; }
+
+    table.cf { width:100%; border-collapse:collapse; font-size:13px; }
+    table.cf th, table.cf td { padding:8px 10px; border-bottom:1px solid var(--border); text-align:right; white-space:nowrap; }
+    table.cf th:first-child, table.cf td:first-child { text-align:left; }
+    table.cf thead th { font-size:11px; text-transform:uppercase; letter-spacing:.03em; color:var(--text-secondary); font-weight:600; }
+    table.cf td.num { font-variant-numeric:tabular-nums; }
+    table.cf tbody tr:hover td { background:#f8fafc; }
+    table.cf tr.neg td { background:#fef2f2; }
+    table.cf tr.neg:hover td { background:#fee2e2; }
+    table.cf tr.neg td.end { color:#991b1b; font-weight:700; }
+    table.cf tr.week-row { cursor:pointer; }
+    table.cf td.end { font-weight:600; }
+    table.cf .in { color:#047857; }
+    table.cf .out { color:#b91c1c; }
+    table.cf .zero { color:var(--text-muted); }
+    .detail-row td { background:#f8fafc; padding:0 !important; }
+    .detail-inner { padding:10px 16px; display:flex; flex-direction:column; gap:4px; font-size:12px; }
+    .detail-line { display:flex; justify-content:space-between; gap:16px; }
+    .detail-line .lbl { color:var(--text-secondary); }
+
+    .form-grid { display:flex; gap:8px; flex-wrap:wrap; align-items:flex-end; padding:14px 20px; }
+    .form-grid label { font-size:11px; color:var(--text-secondary); display:block; margin-bottom:3px; text-transform:uppercase; letter-spacing:.03em; }
+    .inp { padding:6px 10px; border:1px solid var(--border); border-radius:var(--radius); font-size:13px; background:var(--surface); color:var(--text); font-family:inherit; }
+    .inp.sm { width:90px; }
+    .inp.md { width:140px; }
+    .drop { border:2px dashed var(--border); border-radius:var(--radius); padding:26px; text-align:center; color:var(--text-secondary); font-size:13px; margin:14px 20px; cursor:pointer; }
+    .drop.over { border-color:var(--primary); background:var(--primary-light); color:var(--primary); }
+    .muted { color:var(--text-secondary); }
+    .chart-wrap { position:relative; height:260px; padding:12px 20px 18px; }
+    .pill { display:inline-block; padding:1px 9px; border-radius:10px; font-size:11px; font-weight:600; }
+    .pill-ad { background:#ede9fe; color:#5b21b6; }
+    .pill-in { background:#dcfce7; color:#065f46; }
+    .pill-out { background:#fee2e2; color:#991b1b; }
+    .note { font-size:12px; color:var(--text-secondary); padding:0 20px 14px; }
+  </style>
+</head>
+<body>
+<header class="header">
+  <div class="header-inner">
+    <a href="index.html" class="logo">Adsmasters <span>Management</span></a>
+    <nav id="mainnav"></nav>
+  </div>
+</header>
+
+<main class="main">
+  <div id="error"></div>
+
+  <div class="page-header" style="flex-wrap:wrap;gap:12px">
+    <div>
+      <h1>Cashflow</h1>
+      <div class="sub">Kontoumsätze aus CSV · 13-Wochen-Vorschau aus Rechnungen, Fixkosten und Steuerterminen</div>
+    </div>
+    <div class="toolbar">
+      <button id="reloadInvoices" class="btn btn-primary">↻ Rechnungen aus LexOffice</button>
+      <span id="stamp" style="font-size:12px;color:var(--text-secondary)"></span>
+    </div>
+  </div>
+
+  <div id="loading"><div class="loading-bar"><div class="spinner"></div>Daten werden geladen…</div></div>
+
+  <div id="content" class="hidden">
+    <div class="summary-strip">
+      <div class="kpi-card" id="kBalCard"><div class="kpi-label">Kontostand heute</div><div class="kpi-value" id="kBalance">—</div><div class="kpi-sub" id="kBalanceSub"></div></div>
+      <div class="kpi-card good"><div class="kpi-label">Eingänge letzte 30 Tage</div><div class="kpi-value" id="kIn">—</div><div class="kpi-sub" id="kInSub"></div></div>
+      <div class="kpi-card"><div class="kpi-label">Ausgänge letzte 30 Tage</div><div class="kpi-value" id="kOut">—</div><div class="kpi-sub" id="kOutSub"></div></div>
+      <div class="kpi-card" id="kLowCard"><div class="kpi-label">Tiefster Punkt (13 Wochen)</div><div class="kpi-value" id="kLow">—</div><div class="kpi-sub" id="kLowSub"></div></div>
+    </div>
+
+    <div class="cf-tabs">
+      <button class="cf-tab active" data-tab="overview">📊 Übersicht</button>
+      <button class="cf-tab" data-tab="import">Import <span class="count" id="cImports">0</span></button>
+      <button class="cf-tab" data-tab="fixed">Fixkosten <span class="count" id="cFixed">0</span></button>
+      <button class="cf-tab" data-tab="taxes">Steuertermine <span class="count" id="cTaxes">0</span></button>
+      <button class="cf-tab" data-tab="ap">Eingangsrechnungen <span class="count" id="cAp">0</span></button>
+      <button class="cf-tab" data-tab="accounts">Konten</button>
+    </div>
+
+    <!-- ── Übersicht ── -->
+    <section data-panel="overview">
+      <div class="card">
+        <div class="card-head">
+          <div>
+            <h2>13-Wochen-Vorschau</h2>
+            <div class="sub" id="forecastSub"></div>
+          </div>
+          <div class="sub">Zeile anklicken zeigt die einzelnen Posten der Woche</div>
+        </div>
+        <div class="table-wrap" style="overflow-x:auto">
+          <table class="cf" id="forecastTable">
+            <thead><tr>
+              <th>Woche</th><th>Startsaldo</th><th>Kunden&shy;zahlungen</th><th>Ad-Spend-Erstattungen</th>
+              <th>Sonstige Eingänge</th><th>Gehälter</th><th>Lieferanten</th><th>Ad-Spend an Amazon</th>
+              <th>Steuern</th><th>Sonstige Ausgaben</th><th>Endsaldo</th>
+            </tr></thead>
+            <tbody id="forecastBody"></tbody>
+          </table>
+        </div>
+        <div class="chart-wrap"><canvas id="forecastChart"></canvas></div>
+        <div class="note" id="forecastNote"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <div><h2>Ist-Cashflow je Monat</h2><div class="sub" id="actualsSub">Aus den importierten Kontoumsätzen</div></div>
+        </div>
+        <div class="table-wrap" style="overflow-x:auto">
+          <table class="cf" id="actualsTable">
+            <thead><tr><th>Monat</th><th>Eingänge</th><th>Ausgänge</th><th>Veränderung</th><th>Endsaldo</th></tr></thead>
+            <tbody id="actualsBody"></tbody>
+          </table>
+        </div>
+        <div class="note">Monatszeile anklicken: Ausgaben nach Kategorie (Regeln der Kostenanalyse; Kartenposten einzeln, Sammelabbuchung ausgeklammert).</div>
+      </div>
+    </section>
+
+    <!-- ── Import ── -->
+    <section data-panel="import" class="hidden">
+      <div class="card">
+        <div class="card-head"><div><h2>Kontoumsätze importieren</h2><div class="sub">Sparkassen-CSV (CAMT) und Amex-CSV – Format wird automatisch erkannt</div></div></div>
+        <div class="form-grid">
+          <div><label>Quelle</label>
+            <select id="importSource" class="inp md">
+              <option value="auto">automatisch erkennen</option>
+              <option value="kreissparkasse">Sparkasse</option>
+              <option value="amex">American Express</option>
+            </select>
+          </div>
+          <div><label>Amex-Vorzeichen</label>
+            <select id="amexSign" class="inp md">
+              <option value="auto">automatisch</option>
+              <option value="charge_positive">Belastung positiv</option>
+              <option value="charge_negative">Belastung negativ</option>
+            </select>
+          </div>
+        </div>
+        <div class="drop" id="drop">CSV-Dateien hierher ziehen oder klicken<input type="file" id="csvFile" accept=".csv,text/csv" multiple hidden></div>
+        <div id="importPreview" style="padding:0 20px 14px"></div>
+        <div class="table-wrap"><table class="cf" id="importsTable"></table></div>
+      </div>
+    </section>
+
+    <!-- ── Fixkosten ── -->
+    <section data-panel="fixed" class="hidden">
+      <div class="card">
+        <div class="card-head"><div><h2>Fixkosten-Plan</h2><div class="sub">Basis der geplanten Ausgaben in der Vorschau</div></div></div>
+        <div class="form-grid">
+          <div><label>Bezeichnung</label><input id="fcLabel" class="inp md" type="text" placeholder="z.B. Miete"></div>
+          <div><label>Betrag €</label><input id="fcAmount" class="inp sm" type="text" placeholder="1999,20"></div>
+          <div><label>Zahltag</label><input id="fcDay" class="inp sm" type="number" min="1" max="31" value="1"></div>
+          <div><label>Rhythmus</label>
+            <select id="fcRhythm" class="inp md">
+              <option value="monthly">monatlich</option>
+              <option value="quarterly">quartalsweise</option>
+              <option value="yearly">jährlich</option>
+            </select>
+          </div>
+          <div><label>Startmonat</label>
+            <select id="fcStartMonth" class="inp md"></select>
+          </div>
+          <div><label>Vorschau-Zeile</label>
+            <select id="fcBucket" class="inp md">
+              <option value="salary">Gehälter</option>
+              <option value="supplier">Lieferanten</option>
+              <option value="adspend_amazon">Ad-Spend an Amazon</option>
+              <option value="tax">Steuern</option>
+              <option value="other_out">Sonstige Ausgaben</option>
+            </select>
+          </div>
+          <button id="fcAdd" class="btn btn-primary">Hinzufügen</button>
+        </div>
+        <div class="table-wrap"><table class="cf" id="fixedTable"></table></div>
+        <div class="note">Beträge und Zahltage sind direkt in der Tabelle editierbar; Änderungen werden sofort gespeichert.</div>
+      </div>
+    </section>
+
+    <!-- ── Steuertermine ── -->
+    <section data-panel="taxes" class="hidden">
+      <div class="card">
+        <div class="card-head"><div><h2>Umsatzsteuer-Voranmeldung</h2><div class="sub">Zahlung am 10. des Folgemonats – mit Dauerfristverlängerung am 10. des übernächsten</div></div></div>
+        <div class="form-grid">
+          <div><label>Dauerfristverlängerung</label>
+            <select id="ustExt" class="inp md"><option value="1">ja</option><option value="0">nein</option></select>
+          </div>
+          <div><label>Steuersatz</label><input id="ustRate" class="inp sm" type="text" value="19"></div>
+          <div><label>Automatische Schätzung</label>
+            <select id="ustAuto" class="inp md"><option value="1">an</option><option value="0">aus</option></select>
+          </div>
+        </div>
+        <div class="note" id="ustNote"></div>
+        <div class="table-wrap"><table class="cf" id="ustTable"></table></div>
+      </div>
+      <div class="card">
+        <div class="card-head"><div><h2>Körperschaft- & Gewerbesteuer-Vorauszahlungen</h2><div class="sub">Feste Termine, Beträge selbst eintragen</div></div></div>
+        <div class="form-grid">
+          <div><label>Art</label>
+            <select id="txKind" class="inp md">
+              <option value="kst">Körperschaftsteuer</option>
+              <option value="gewst">Gewerbesteuer</option>
+              <option value="other">Sonstige Steuer</option>
+            </select>
+          </div>
+          <div><label>Bezeichnung</label><input id="txLabel" class="inp md" type="text" placeholder="KSt VZ Q3"></div>
+          <div><label>Fällig am</label><input id="txDue" class="inp md" type="date"></div>
+          <div><label>Betrag €</label><input id="txAmount" class="inp sm" type="text" placeholder="5775,00"></div>
+          <button id="txAdd" class="btn btn-primary">Hinzufügen</button>
+        </div>
+        <div class="table-wrap"><table class="cf" id="taxTable"></table></div>
+      </div>
+    </section>
+
+    <!-- ── Eingangsrechnungen ── -->
+    <section data-panel="ap" class="hidden">
+      <div class="card">
+        <div class="card-head">
+          <div><h2>Eingangsrechnungen & geplante Zahlungen</h2><div class="sub" id="apSource"></div></div>
+          <button id="apSync" class="btn btn-secondary btn-sm">Aus LexOffice übernehmen</button>
+        </div>
+        <div class="form-grid">
+          <div><label>Art</label>
+            <select id="apKind" class="inp md">
+              <option value="supplier">Lieferant (Ausgang)</option>
+              <option value="adspend_amazon">Ad-Spend an Amazon</option>
+              <option value="other_income">Sonstiger Eingang</option>
+            </select>
+          </div>
+          <div><label>Lieferant / Quelle</label><input id="apSupplier" class="inp md" type="text"></div>
+          <div><label>Betrag €</label><input id="apAmount" class="inp sm" type="text"></div>
+          <div><label>Fällig am</label><input id="apDue" class="inp md" type="date"></div>
+          <button id="apAdd" class="btn btn-primary">Hinzufügen</button>
+        </div>
+        <div class="table-wrap"><table class="cf" id="apTable"></table></div>
+      </div>
+    </section>
+
+    <!-- ── Konten ── -->
+    <section data-panel="accounts" class="hidden">
+      <div class="card">
+        <div class="card-head"><div><h2>Konten & Anfangssaldo</h2><div class="sub">Beginnt die erste CSV nicht bei null: Saldo vor der ersten importierten Buchung eintragen</div></div></div>
+        <div class="table-wrap"><table class="cf" id="accountsTable"></table></div>
+        <div class="note">
+          Der Kontostand oben ist die Summe der <strong>Bankkonten</strong>. Die Kreditkarte wird getrennt geführt:
+          ihre Einzelposten sind bereits über die Sammelabbuchung im Bankkonto bezahlt und würden sonst doppelt zählen.
+          Offene Kartenumsätze stehen in der Vorschau als kommende Abbuchung.
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-head"><div><h2>Ad-Spend-Erkennung</h2><div class="sub">Muster für Abbuchungen an Amazon bzw. Weiterberechnungen an Kunden – kommagetrennt</div></div></div>
+        <div class="form-grid" style="align-items:flex-start">
+          <div style="flex:1;min-width:260px"><label>Abbuchung an Amazon (Buchungstext)</label>
+            <input id="adOutPatterns" class="inp" type="text" style="width:100%"></div>
+          <div style="flex:1;min-width:260px"><label>Weiterberechnung an Kunden (Rechnungstext)</label>
+            <input id="adInPatterns" class="inp" type="text" style="width:100%"></div>
+          <button id="adSave" class="btn btn-primary">Speichern</button>
+        </div>
+        <div class="note">Ad-Spend läuft in eigenen Zeilen und wird nie mit den eigenen Marketingkosten vermischt.</div>
+      </div>
+    </section>
+  </div>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="js/db.js?v=20260827"></script>
+<script src="js/auth.js"></script>
+<script src="js/utils.js"></script>
+<script src="js/cost-engine.js"></script>
+<script src="js/cashflow-engine.js"></script>
+<script src="js/cashflow.js?v=1"></script>
+  <script defer src="https://adsmasters.github.io/hub/backlink.js"></script>
+  <script src="js/nav.js"></script>
+</body>
+</html>

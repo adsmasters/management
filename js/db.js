@@ -568,5 +568,123 @@
       },
     },
 
+    // ── Cashflow ────────────────────────────────────────────────────────────
+    cashflow: {
+      accounts: {
+        list: () =>
+          q(s => s.from('bank_accounts').select('*').order('kind').order('name')),
+        update: (id, fields) =>
+          q(s => s.from('bank_accounts')
+            .update(Object.assign({ updated_at: new Date().toISOString() }, fields))
+            .eq('id', id).select().single()),
+        ensure: (source, name, kind) =>
+          q(s => s.from('bank_accounts')
+            .upsert({ source, name, kind: kind || 'bank' }, { onConflict: 'source', ignoreDuplicates: true })
+            .select()),
+      },
+
+      imports: {
+        list: () =>
+          q(s => s.from('bank_imports').select('*').order('created_at', { ascending: false })),
+        create: (source, filename, fileHash, periodFrom, periodTo, periodLabel) =>
+          q(s => s.from('bank_imports')
+            .insert({ source, filename: filename || null, file_hash: fileHash || null,
+                      period_from: periodFrom || null, period_to: periodTo || null,
+                      period_label: periodLabel || null })
+            .select().single()),
+        update: (id, fields) =>
+          q(s => s.from('bank_imports').update(fields).eq('id', id).select().single()),
+        delete: (id) =>
+          q(s => s.from('bank_imports').delete().eq('id', id)),   // cascade → Buchungen
+        findByHash: (fileHash) =>
+          q(s => s.from('bank_imports').select('*').eq('file_hash', fileHash)),
+      },
+
+      transactions: {
+        // Supabase liefert max ~1000 Zeilen/Request → paginieren, sonst fehlen
+        // die ältesten Buchungen und der Kontostand stimmt nicht.
+        all: async () => {
+          const PAGE = 1000; let out = [], from = 0; const client = sb();
+          // eslint-disable-next-line no-constant-condition
+          while (true) {
+            const res = await client.from('bank_transactions')
+              .select('*')
+              .order('tx_date', { ascending: false })
+              .order('id', { ascending: false })
+              .range(from, from + PAGE - 1);
+            if (res.error) throw res.error;
+            const chunk = res.data || [];
+            out = out.concat(chunk);
+            if (chunk.length < PAGE) break;
+            from += PAGE;
+          }
+          return out;
+        },
+        // Duplikate (dedup_key) werden ignoriert; liefert die neu angelegten Zeilen.
+        insertMany: (rows) =>
+          q(s => s.from('bank_transactions')
+            .upsert(rows, { onConflict: 'dedup_key', ignoreDuplicates: true })
+            .select()),
+        update: (id, fields) =>
+          q(s => s.from('bank_transactions')
+            .update(Object.assign({ updated_at: new Date().toISOString() }, fields))
+            .eq('id', id).select().single()),
+        bulkUpsert: (rows) =>
+          q(s => s.from('bank_transactions').upsert(rows, { onConflict: 'id' }).select('id')),
+      },
+
+      fixedCosts: {
+        list: () =>
+          q(s => s.from('fixed_costs').select('*').order('sort').order('label')),
+        create: (fields) =>
+          q(s => s.from('fixed_costs').insert(fields).select().single()),
+        update: (id, fields) =>
+          q(s => s.from('fixed_costs')
+            .update(Object.assign({ updated_at: new Date().toISOString() }, fields))
+            .eq('id', id).select().single()),
+        delete: (id) =>
+          q(s => s.from('fixed_costs').delete().eq('id', id)),
+      },
+
+      taxDates: {
+        list: () =>
+          q(s => s.from('tax_dates').select('*').order('due_date')),
+        create: (fields) =>
+          q(s => s.from('tax_dates').insert(fields).select().single()),
+        update: (id, fields) =>
+          q(s => s.from('tax_dates')
+            .update(Object.assign({ updated_at: new Date().toISOString() }, fields))
+            .eq('id', id).select().single()),
+        delete: (id) =>
+          q(s => s.from('tax_dates').delete().eq('id', id)),
+      },
+
+      apInvoices: {
+        list: () =>
+          q(s => s.from('ap_invoices').select('*').order('due_date')),
+        create: (fields) =>
+          q(s => s.from('ap_invoices').insert(fields).select().single()),
+        update: (id, fields) =>
+          q(s => s.from('ap_invoices')
+            .update(Object.assign({ updated_at: new Date().toISOString() }, fields))
+            .eq('id', id).select().single()),
+        delete: (id) =>
+          q(s => s.from('ap_invoices').delete().eq('id', id)),
+        // Aus Lexoffice übernommene Eingangsrechnungen: nie doppelt anlegen.
+        upsertFromLexoffice: (rows) =>
+          q(s => s.from('ap_invoices')
+            .upsert(rows, { onConflict: 'lexoffice_id', ignoreDuplicates: true }).select()),
+      },
+
+      settings: {
+        list: () =>
+          q(s => s.from('cashflow_settings').select('*')),
+        set: (key, value) =>
+          q(s => s.from('cashflow_settings')
+            .upsert({ key, value, updated_at: new Date().toISOString() }, { onConflict: 'key' })
+            .select().single()),
+      },
+    },
+
   };
 })();
