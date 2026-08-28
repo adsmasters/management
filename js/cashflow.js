@@ -15,6 +15,8 @@
     settings: {}, rules: { categoryRules: [], vatRules: [], excludeRules: [] },
     invoices: [], purchases: [], purchaseError: null, invoiceStamp: null,
     revenueRows: [], clientNames: [],
+    costTxs: null,          // Kostenanalyse-Buchungen, erst bei Bedarf geladen
+    fcSuggestions: [],
   };
   var charts = {};
   var openWeeks = {}, openMonths = {};
@@ -87,7 +89,39 @@
   function adSpendIn() { return setting('adspend', {}).in || C.DEFAULT_ADSPEND_INVOICE_KEYWORDS; }
   function ustCfg() {
     var d = setting('ustva', {});
-    return { extension: d.extension !== false, rate: d.rate != null ? d.rate : 0.19, auto: d.auto !== false };
+    return {
+      extension: d.extension !== false,
+      // 'effective' = Satz aus der eigenen Zahlungshistorie (enthält die Vorsteuer
+      // bereits), 'model' = Umsatz × Satz − Vorsteuer.
+      mode: d.mode || 'model',
+      rate: d.rate != null ? d.rate : 0.19,
+      auto: d.auto !== false,
+      samples: d.samples || [],
+      derivedAt: d.derivedAt || null,
+    };
+  }
+
+  // Kostenanalyse-Buchungen nachladen (1.900+ Zeilen) – nur wenn gebraucht.
+  function ensureCostTxs() {
+    if (state.costTxs) return Promise.resolve(state.costTxs);
+    return window.db.cost.transactions.all().then(function (rows) {
+      state.costTxs = (rows || []).map(function (r) {
+        return Object.assign({}, r, {
+          amount_gross: Number(r.amount_gross) || 0,
+          amount_net: r.amount_net != null ? Number(r.amount_net) : Number(r.amount_gross) || 0,
+        });
+      });
+      return state.costTxs;
+    });
+  }
+
+  function revenueByPeriod() {
+    var out = {};
+    state.revenueRows.forEach(function (r) {
+      var k = r.year + '-' + pad2(r.month);
+      out[k] = C.round2((out[k] || 0) + (Number(r.total_amount) || 0));
+    });
+    return out;
   }
   function enrichOpts() {
     return {
@@ -251,7 +285,9 @@
       if (due < fromIso || due > toIso) continue;
       if (manual[due]) continue;
       var netRev = netRevenueForMonth(yy, mm);
-      var vorsteuer = inputVatForMonth(yy, mm);
+      // Erfahrungswert: der abgeleitete Satz IST schon die Netto-Zahlung
+      // (Vorsteuer steckt drin) → nicht zusätzlich abziehen.
+      var vorsteuer = cfg.mode === 'effective' ? 0 : inputVatForMonth(yy, mm);
       var amount = C.estimateUstva({ netRevenue: netRev, vatRate: cfg.rate, inputVat: vorsteuer });
       out.push({
         auto: true, kind: 'ustva', due_date: due, amount: amount,
@@ -620,23 +656,35 @@
     var cfg = ustCfg();
     el('ustExt').value = cfg.extension ? '1' : '0';
     el('ustAuto').value = cfg.auto ? '1' : '0';
+    el('ustMode').value = cfg.mode;
     el('ustRate').value = String(Math.round(cfg.rate * 1000) / 10).replace('.', ',');
+    renderUstHistory(cfg);
 
     var start = C.mondayOf(todayIso());
     var lastDay = C.addDays(start, 13 * 7 - 1);
     var auto = autoUstvaRows(start, lastDay);
-    el('ustNote').innerHTML = cfg.auto
-      ? 'Schätzung = Umsatzsteuer auf den Netto-Umsatz des Voranmeldungszeitraums minus Vorsteuer aus den importierten Buchungen '
-        + '(MwSt-Regeln der Kostenanalyse). Durchlaufposten wie Media-Budget sind im Umsatz nicht enthalten – bei hohem Ad-Spend-Volumen '
-        + 'den Betrag unten manuell setzen.'
-      : 'Automatische Schätzung ist aus – nur manuell erfasste Termine zählen.';
+    if (!cfg.auto) {
+      el('ustNote').innerHTML = 'Automatische Schätzung ist aus – nur manuell erfasste Termine zählen.';
+    } else if (cfg.mode === 'effective') {
+      el('ustNote').innerHTML = 'Schätzung = Netto-Umsatz des Zeitraums × <strong>'
+        + esc(String(Math.round(cfg.rate * 1000) / 10).replace('.', ',')) + ' %</strong> – abgeleitet aus '
+        + cfg.samples.length + ' tatsächlichen Finanzamt-Zahlungen'
+        + (cfg.derivedAt ? ' (Stand ' + fmtDate(cfg.derivedAt.slice(0, 10)) + ')' : '')
+        + '. Die Vorsteuer steckt in diesem Satz bereits drin und wird nicht noch einmal abgezogen.';
+    } else {
+      el('ustNote').innerHTML = 'Schätzung = Netto-Umsatz × Satz − Vorsteuer aus den importierten Buchungen. '
+        + '<strong>Achtung:</strong> mit 19 % überschätzt das die Zahlung, sobald ein Teil des Umsatzes Reverse-Charge ist '
+        + '(EU/UK ohne deutsche USt). Über „Satz aus Zahlungen ableiten" wird der Erfahrungswert aus deinen echten '
+        + 'Finanzamt-Lastschriften berechnet.';
+    }
 
     var manualUst = state.taxDates.filter(function (t) { return t.kind === 'ustva'; });
     var rows = auto.map(function (a) {
       var hint = a.netRevenue ? '' : ' <span class="muted">(Umsatz für diesen Monat noch nicht erfasst)</span>';
       return '<tr><td>' + esc(a.label) + hint + '</td><td>' + fmtDate(a.due_date) + '</td>' +
         '<td class="num">' + fmt(a.netRevenue) + '</td>' +
-        '<td class="num">' + fmt(a.inputVat) + '</td>' +
+        '<td class="num' + (a.inputVat ? '' : ' muted') + '">' +
+          (cfg.mode === 'effective' ? '<span class="muted">im Satz enthalten</span>' : fmt(a.inputVat)) + '</td>' +
         '<td class="num out">' + fmt(-a.amount) + '</td>' +
         '<td><button class="btn btn-ghost btn-sm" data-fix-ust="' + a.due_date + '" data-amount="' + a.amount + '" data-label="' + esc(a.label.replace(' (geschätzt)', '')) + '">Betrag festschreiben</button></td></tr>';
     }).join('') + manualUst.map(function (t) {
@@ -683,6 +731,117 @@
         window.db.cashflow.taxDates.delete(b.dataset.delTx).then(reload).catch(function (e) { alert(e.message); });
       });
     });
+  }
+
+  // Tatsächlich gezahlte Umsatzsteuer als Referenz neben der Schätzung.
+  function renderUstHistory(cfg) {
+    var t = el('ustHistoryTable');
+    if (!cfg.samples.length) {
+      t.innerHTML = '<thead><tr><th>Zahlungshistorie</th></tr></thead><tbody><tr><td class="muted">'
+        + 'Noch nicht abgeleitet – Button „Satz aus Zahlungen ableiten" nutzt die Finanzamt-Lastschriften aus der Kostenanalyse.'
+        + '</td></tr></tbody>';
+      return;
+    }
+    var rows = cfg.samples.slice(-12).map(function (x) {
+      return '<tr><td>' + esc(x.period) + '</td>' +
+        '<td class="num out">' + fmt(-x.vat) + '</td>' +
+        '<td class="num">' + fmt(x.revenue) + '</td>' +
+        '<td class="num">' + (x.rate * 100).toFixed(1).replace('.', ',') + ' %</td></tr>';
+    }).join('');
+    t.innerHTML = '<thead><tr><th>Voranmeldungszeitraum</th><th>Tatsächlich gezahlt</th><th>Netto-Umsatz</th><th>Satz</th></tr></thead>'
+      + '<tbody>' + rows + '</tbody>';
+  }
+
+  function deriveVatRate() {
+    var btn = el('ustDerive');
+    btn.disabled = true; btn.textContent = 'Rechnet…';
+    return ensureCostTxs().then(function (txs) {
+      var res = C.effectiveVatRate(txs, revenueByPeriod());
+      if (res.rate == null) {
+        alert('Keine Finanzamt-Zahlungen mit passendem Umsatzmonat gefunden – Satz bleibt unverändert.');
+        return null;
+      }
+      return window.db.cashflow.settings.set('ustva', {
+        extension: ustCfg().extension, auto: ustCfg().auto,
+        mode: 'effective', rate: C.round2(res.rate * 10000) / 10000,
+        samples: res.samples, derivedAt: new Date().toISOString(),
+      });
+    }).then(function () {
+      btn.disabled = false; btn.textContent = 'Satz aus Zahlungen ableiten';
+      return reload();
+    }).catch(function (e) {
+      btn.disabled = false; btn.textContent = 'Satz aus Zahlungen ableiten';
+      alert(e.message);
+    });
+  }
+
+  // ── Fixkosten-Vorschlag aus der Kostenanalyse ─────────────────────────────
+  function renderFcSuggestions() {
+    var existing = {};
+    state.fixedCosts.forEach(function (f) { existing[E.norm(f.label)] = 1; });
+    var fresh = state.fcSuggestions.filter(function (x) { return !existing[E.norm(x.label)]; });
+    var known = state.fcSuggestions.length - fresh.length;
+
+    el('fcSuggestNote').innerHTML = 'Aus den Buchungen der Kostenanalyse: <strong>' + fresh.length + '</strong> wiederkehrende '
+      + 'Zahlungen der letzten 6 Monate' + (known ? ' (' + known + ' stehen schon im Plan)' : '') + '. '
+      + 'Betrag und Zahltag sind der <strong>Median</strong> der Monate, nicht der letzte Wert – Ausreißer verzerren so nichts. '
+      + 'Steuern fehlen bewusst: die laufen über den Reiter Steuertermine, sonst zählt die Umsatzsteuer doppelt.';
+
+    if (!fresh.length) {
+      el('fcSuggestTable').innerHTML = '<tbody><tr><td class="muted">Nichts Neues gefunden.</td></tr></tbody>';
+      return;
+    }
+    el('fcSuggestTable').innerHTML =
+      '<thead><tr><th><input type="checkbox" id="fcSuggestAll" checked></th><th>Bezeichnung</th><th>Kategorie</th>'
+      + '<th>Betrag (Median)</th><th>Zahltag</th><th>Zeile</th><th>Monate</th><th>Streuung</th></tr></thead><tbody>' +
+      fresh.map(function (x, i) {
+        var unsicher = x.spread >= 3;
+        return '<tr' + (unsicher ? ' title="Betrag schwankt stark – bitte prüfen"' : '') + '>' +
+          '<td><input type="checkbox" class="fc-sug" data-i="' + i + '"' + (unsicher ? '' : ' checked') + '></td>' +
+          '<td>' + esc(x.label) + '</td>' +
+          '<td class="muted">' + esc(x.category || '—') + '</td>' +
+          '<td class="num">' + fmt(x.amount) + '</td>' +
+          '<td class="num">' + x.pay_day + '.</td>' +
+          '<td>' + esc((BUCKET_OPTIONS.filter(function (b) { return b[0] === x.bucket; })[0] || ['', x.bucket])[1]) + '</td>' +
+          '<td class="num">' + x.monthsSeen + '/' + x.monthsChecked + '</td>' +
+          '<td class="num' + (unsicher ? ' out' : ' muted') + '">' + x.spread.toFixed(1).replace('.', ',') + '×</td></tr>';
+      }).join('') + '</tbody>';
+    state.fcFresh = fresh;
+
+    el('fcSuggestAll').addEventListener('change', function (e) {
+      Array.prototype.forEach.call(document.querySelectorAll('.fc-sug'), function (cb) { cb.checked = e.target.checked; });
+    });
+  }
+
+  function loadFcSuggestions() {
+    var btn = el('fcSuggest');
+    btn.disabled = true; btn.textContent = 'Lädt…';
+    return ensureCostTxs().then(function (txs) {
+      state.fcSuggestions = C.suggestFixedCosts(txs, { today: todayIso(), months: 6 });
+      btn.disabled = false; btn.textContent = 'Aus Kostenanalyse vorschlagen';
+      el('fcSuggestPanel').classList.remove('hidden');
+      renderFcSuggestions();
+    }).catch(function (e) {
+      btn.disabled = false; btn.textContent = 'Aus Kostenanalyse vorschlagen';
+      alert(e.message);
+    });
+  }
+
+  function applyFcSuggestions() {
+    var picked = Array.prototype.filter.call(document.querySelectorAll('.fc-sug'), function (cb) { return cb.checked; })
+      .map(function (cb) { return state.fcFresh[+cb.dataset.i]; });
+    if (!picked.length) { alert('Nichts ausgewählt.'); return; }
+    var base = state.fixedCosts.length;
+    Promise.all(picked.map(function (x, i) {
+      return window.db.cashflow.fixedCosts.create({
+        label: x.label, amount: x.amount, pay_day: x.pay_day, rhythm: 'monthly',
+        bucket: x.bucket, sort: (base + i + 1) * 10,
+        note: 'aus Kostenanalyse, Median ' + x.monthsSeen + '/' + x.monthsChecked + ' Monate',
+      });
+    })).then(function () {
+      el('fcSuggestPanel').classList.add('hidden');
+      return reload();
+    }).catch(function (e) { alert(e.message); });
   }
 
   // ── Eingangsrechnungen ────────────────────────────────────────────────────
@@ -858,13 +1017,22 @@
     // UStVA-Einstellungen
     function saveUst() {
       var rate = num(el('ustRate').value);
+      var cur = ustCfg();
       window.db.cashflow.settings.set('ustva', {
         extension: el('ustExt').value === '1',
         auto: el('ustAuto').value === '1',
+        mode: el('ustMode').value,
         rate: rate > 1 ? rate / 100 : rate,
+        samples: cur.samples, derivedAt: cur.derivedAt,
       }).then(reload).catch(function (e) { alert(e.message); });
     }
-    ['ustExt', 'ustAuto', 'ustRate'].forEach(function (id) { el(id).addEventListener('change', saveUst); });
+    ['ustExt', 'ustAuto', 'ustRate', 'ustMode'].forEach(function (id) { el(id).addEventListener('change', saveUst); });
+    el('ustDerive').addEventListener('click', deriveVatRate);
+
+    // Fixkosten-Vorschlag
+    el('fcSuggest').addEventListener('click', loadFcSuggestions);
+    el('fcSuggestApply').addEventListener('click', applyFcSuggestions);
+    el('fcSuggestClose').addEventListener('click', function () { el('fcSuggestPanel').classList.add('hidden'); });
 
     // Eingangsrechnungen
     el('apAdd').addEventListener('click', function () {

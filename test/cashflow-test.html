@@ -171,7 +171,18 @@
     <!-- ── Fixkosten ── -->
     <section data-panel="fixed" class="hidden">
       <div class="card">
-        <div class="card-head"><div><h2>Fixkosten-Plan</h2><div class="sub">Basis der geplanten Ausgaben in der Vorschau</div></div></div>
+        <div class="card-head">
+          <div><h2>Fixkosten-Plan</h2><div class="sub">Basis der geplanten Ausgaben in der Vorschau</div></div>
+          <button id="fcSuggest" class="btn btn-secondary btn-sm">Aus Kostenanalyse vorschlagen</button>
+        </div>
+        <div id="fcSuggestPanel" class="hidden" style="border-bottom:1px solid var(--border)">
+          <div class="note" id="fcSuggestNote" style="padding:14px 20px 8px"></div>
+          <div class="table-wrap"><table class="cf" id="fcSuggestTable"></table></div>
+          <div class="form-grid" style="padding-top:0">
+            <button id="fcSuggestApply" class="btn btn-primary">Ausgewählte übernehmen</button>
+            <button id="fcSuggestClose" class="btn btn-ghost">Abbrechen</button>
+          </div>
+        </div>
         <div class="form-grid">
           <div><label>Bezeichnung</label><input id="fcLabel" class="inp md" type="text" placeholder="z.B. Miete"></div>
           <div><label>Betrag €</label><input id="fcAmount" class="inp sm" type="text" placeholder="1999,20"></div>
@@ -210,12 +221,20 @@
           <div><label>Dauerfristverlängerung</label>
             <select id="ustExt" class="inp md"><option value="1">ja</option><option value="0">nein</option></select>
           </div>
-          <div><label>Steuersatz</label><input id="ustRate" class="inp sm" type="text" value="19"></div>
+          <div><label>Schätzung nach</label>
+            <select id="ustMode" class="inp" style="width:230px">
+              <option value="effective">Erfahrungswert (Zahlungshistorie)</option>
+              <option value="model">Modell: Umsatz × Satz − Vorsteuer</option>
+            </select>
+          </div>
+          <div><label>Satz auf Netto-Umsatz</label><input id="ustRate" class="inp sm" type="text" value="19"></div>
           <div><label>Automatische Schätzung</label>
             <select id="ustAuto" class="inp md"><option value="1">an</option><option value="0">aus</option></select>
           </div>
+          <button id="ustDerive" class="btn btn-secondary">Satz aus Zahlungen ableiten</button>
         </div>
         <div class="note" id="ustNote"></div>
+        <div class="table-wrap"><table class="cf" id="ustHistoryTable"></table></div>
         <div class="table-wrap"><table class="cf" id="ustTable"></table></div>
       </div>
       <div class="card">
@@ -288,10 +307,10 @@
 </main>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-<script src="cashflow-test-db.js?v=1"></script>
-<script src="../js/utils.js?v=1"></script>
-<script src="../js/cost-engine.js?v=1"></script>
-<script src="../js/cashflow-engine.js?v=1"></script>
-<script src="../js/cashflow.js?v=1"></script>
+<script src="cashflow-test-db.js?v=1787896030645"></script>
+<script src="../js/utils.js?v=1787896030645"></script>
+<script src="../js/cost-engine.js?v=1787896030645"></script>
+<script src="../js/cashflow-engine.js?v=1787896030645"></script>
+<script src="../js/cashflow.js?v=1787896030645"></script>
 </body>
 </html>

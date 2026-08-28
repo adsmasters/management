@@ -262,3 +262,28 @@ Amex-Einzelposten außen vor. Die Kategorie-Aufschlüsselung macht es umgekehrt
 
 Tests: `node test/cashflow-engine.test.js` (30 Tests, u.a. gegen die echten
 CSV-Fixtures). Oberfläche gegen Fixture-DB: `test/cashflow-test.html`.
+
+### 17a. Cashflow: Übernahme aus der Kostenanalyse (28.08.2026)
+
+Kein Schema-Update nötig – zwei Funktionen, die vorhandene Daten nutzen:
+
+**Fixkosten-Vorschlag** (`suggestFixedCosts` in `js/cashflow-engine.js`): findet in
+`cost_transactions` wiederkehrende Zahlungen der letzten 6 Monate (Lieferant per
+`vendorName`, wie die Regel-Vorschläge der Kostenanalyse), nimmt **Median**-Betrag
+und -Zahltag. Steuern-Kategorien bleiben außen vor, sonst zählt die Umsatzsteuer
+doppelt zur UStVA-Schätzung. Finanzamt-Sammellastschriften werden über
+`isBundledTaxPayment` aufgeteilt und nur mit dem Lohnsteuer-Anteil vorgeschlagen.
+
+**Effektiver USt-Satz** (`effectiveVatRate`): das Modell „Netto-Umsatz × 19 % −
+Vorsteuer" überschätzt die Zahlung deutlich, weil ein Teil des Umsatzes
+Reverse-Charge ist. Stattdessen wird aus den echten Finanzamt-Lastschriften je
+Voranmeldungszeitraum `USt-Zahlung ÷ Netto-Umsatz` gerechnet (Median). Für die
+Adsmasters-Historie: **14,4 %** statt 19 %. Modus liegt in `cashflow_settings`
+unter `ustva.mode` (`effective` | `model`); im Erfahrungswert-Modus wird die
+Vorsteuer NICHT noch einmal abgezogen, sie steckt im Satz.
+
+Achtung bei `median()`: bewusst ohne Rundung, weil es auch auf Quoten läuft
+(2-Stellen-Rundung machte aus 16,3 % glatte 16 %). Geldbeträge am Aufrufort runden.
+
+Testseite: `node test/build-cashflow-test.js` erzeugt `test/cashflow-test.html`
+aus der echten `cashflow.html` – die Testseite kann so nicht mehr veralten.

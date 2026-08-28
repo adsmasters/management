@@ -65,6 +65,32 @@
         { match_type: 'contains', pattern: 'Telekom', vat_rate: 0.19 },
       ]); } },
       excludeRules: { list: function () { return ok([]); } },
+      transactions: {
+        // Sechs Monate wiederkehrende Buchungen im Format von cost_transactions
+        all: function () {
+          var out = [], now = new Date();
+          function ym(back) { var d = new Date(now.getFullYear(), now.getMonth() - back, 1); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); }
+          function row(m, day, payee, gross, cat, extra) {
+            return Object.assign({ tx_date: m + '-' + String(day).padStart(2, '0'), payee: payee,
+              description: payee + ' | Verwendungszweck', amount_gross: gross, amount_net: gross,
+              category: cat, excluded: false }, extra || {});
+          }
+          for (var b = 1; b <= 6; b++) {
+            var m = ym(b);
+            out.push(row(m, 26, 'Christian Doennewald', 2608, 'Employee'));
+            out.push(row(m, 27, 'Techniker Krankenkasse', 5238, 'Employee'));
+            out.push(row(m, 29, 'D/P Communications & Media GmbH', 1999.2, 'Büro'));
+            out.push(row(m, 4, 'OPTMYZR COPENHAGEN', 599, 'Software'));
+            out.push(row(m, 10, 'Landeshauptstadt Duesseldorf', 5775, 'Steuern'));
+            out.push(row(m, 6, 'PAYPAL *DOLIVE.YOURLIFE ' + (4029357733 + b), 7543, 'Freelancer/Externe'));
+            // Finanzamt-Sammellastschrift: brutto USt + Lohnsteuer, netto = Lohnsteuer
+            out.push(row(m, 15, 'STEUERVERWALTUNG NRW', 14914.02, 'Employee', {
+              description: 'STEUERVERWALTUNG NRW | Umsatzsteuer ' + ['Jan.','Feb.','Mrz.','Apr.','Mai','Jun.'][b-1] + ' 26 10.106,41 Lohnsteuer Mrz. 26 4.807,61',
+              amount_net: 4807.61 }));
+          }
+          return ok(out);
+        },
+      },
     },
     cashflow: {
       accounts: {

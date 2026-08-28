@@ -415,6 +415,172 @@
     return round2(Math.max(0, netRevenue * rate - inputVat));
   }
 
+  // ── Fixkosten-Vorschlag aus der Kostenanalyse ────────────────────────────
+  // Nimmt die vorhandenen cost_transactions und findet wiederkehrende Zahlungen:
+  // Lieferant (gleiche Logik wie die Regel-Vorschläge der Kostenanalyse),
+  // Median-Betrag je Monat und Median-Zahltag. Damit muss der Fixkosten-Plan
+  // nicht abgetippt werden.
+  var BUCKET_BY_CATEGORY = {
+    'Employee': 'salary',
+    'Freelancer/Externe': 'supplier',
+    'Büro': 'supplier',
+    'Software': 'supplier',
+    'Equipment': 'other_out',
+    'Marketing': 'other_out',
+    'Recruitment': 'other_out',
+    'Reisekosten': 'other_out',
+    'Restaurant': 'other_out',
+    'Hotel': 'other_out',
+    'Team-Event': 'other_out',
+    'PayPal': 'other_out',
+    'Andere': 'other_out',
+  };
+  // Steuern gehören in den Reiter Steuertermine (sonst doppelt zur UStVA-Schätzung).
+  var SKIP_CATEGORIES = { 'Steuern': 1, 'Umsatzsteuer': 1 };
+
+  // Lieferantenname ohne angehängte Transaktions-IDs – identisch zur
+  // Pattern-Heuristik in kostenanalyse.js.
+  function vendorName(text) {
+    var s = String(text || '').split('|')[0].trim();
+    var toks = s.split(/\s+/), out = [];
+    for (var i = 0; i < toks.length; i++) {
+      var t = toks[i];
+      var digitCount = (t.match(/\d/g) || []).length;
+      if ((/^\d+$/.test(t) && t.length >= 4) || digitCount >= 5) break;
+      out.push(t);
+    }
+    return out.join(' ').replace(/[\s.,;:_\-]+$/, '').trim() || s;
+  }
+
+  // Bewusst OHNE Rundung: der Median wird auch auf Quoten angewendet
+  // (effektiver USt-Satz). Geldbeträge werden am Aufrufort gerundet.
+  function median(arr) {
+    if (!arr.length) return 0;
+    var s = arr.slice().sort(function (a, b) { return a - b; });
+    var mid = Math.floor(s.length / 2);
+    return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2;
+  }
+
+  // costTxs: Zeilen aus cost_transactions (amount_gross positiv = Kosten).
+  // opts: { months: 6, minMonths: 4, today: 'YYYY-MM-DD', minAmount: 50 }
+  function suggestFixedCosts(costTxs, opts) {
+    opts = opts || {};
+    var months = opts.months || 6;
+    var minMonths = opts.minMonths || Math.max(2, Math.ceil(months * 2 / 3));
+    var minAmount = opts.minAmount != null ? opts.minAmount : 50;
+    var today = opts.today;
+    var fromIso = null;
+    if (today) {
+      var y = +today.slice(0, 4), m = +today.slice(5, 7) - months;
+      while (m < 1) { m += 12; y--; }
+      fromIso = isoOf(y, m, 1);
+    }
+
+    var groups = {};
+    (costTxs || []).forEach(function (t) {
+      if (t.excluded) return;
+      var gross = Number(t.amount_gross) || 0;
+      if (gross <= 0) return;
+      if (fromIso && t.tx_date < fromIso) return;
+
+      var bundled = E.isBundledTaxPayment(t);
+      var isLohnsteuer = /lohnsteuer/i.test(t.description || '');
+      var category = t.category, amount = gross, label = null;
+      if (bundled) {
+        // Sammellastschrift ans Finanzamt: nur der Lohnsteuer-Anteil ist
+        // planbare Personalzahlung, der USt-Anteil steckt in der UStVA-Zeile.
+        amount = Number(t.amount_net) || 0;
+        category = 'Employee';
+        label = 'Lohnsteuer (Finanzamt)';
+      } else if (isLohnsteuer) {
+        // Reine Lohnsteuer-Lastschrift: gehört in dieselbe Gruppe, sonst
+        // zerfällt der Posten je nach Monat in zwei Zeilen.
+        category = 'Employee';
+        label = 'Lohnsteuer (Finanzamt)';
+      } else if (SKIP_CATEGORIES[category]) {
+        return;
+      }
+      if (amount <= 0) return;
+
+      var name = label || vendorName(t.payee || t.description);
+      var key = norm(name);
+      var g = groups[key] || (groups[key] = { label: name, category: category, byMonth: {}, days: [] });
+      var mk = t.tx_date.slice(0, 7);
+      g.byMonth[mk] = round2((g.byMonth[mk] || 0) + amount);
+      g.days.push(+t.tx_date.slice(8, 10));
+      if (!g.category) g.category = category;
+    });
+
+    return Object.keys(groups).map(function (k) {
+      var g = groups[k];
+      var keys = Object.keys(g.byMonth).sort();
+      var vals = keys.map(function (m) { return g.byMonth[m]; });
+      var amount = round2(median(vals));
+      return {
+        label: g.label,
+        category: g.category || null,
+        bucket: BUCKET_BY_CATEGORY[g.category] || 'other_out',
+        amount: amount,
+        pay_day: Math.round(median(g.days)) || 1,
+        rhythm: 'monthly',
+        monthsSeen: keys.length,
+        monthsChecked: months,
+        spread: vals.length ? round2(Math.max.apply(null, vals) / Math.max(0.01, Math.min.apply(null, vals))) : 1,
+        lastMonth: keys[keys.length - 1] || null,
+      };
+    }).filter(function (x) {
+      return x.monthsSeen >= minMonths && x.amount >= minAmount;
+    }).sort(function (a, b) { return b.amount - a.amount; });
+  }
+
+  // ── Umsatzsteuer: effektiver Satz aus der eigenen Zahlungshistorie ────────
+  // Das Modell "Netto-Umsatz × 19 % − Vorsteuer" überschätzt die Zahlung, wenn
+  // ein Teil des Umsatzes Reverse-Charge ist (EU/UK ohne deutsche USt).
+  // Deshalb den Satz aus den tatsächlichen Finanzamt-Zahlungen ableiten:
+  // je Voranmeldungszeitraum USt-Zahlung / Netto-Umsatz, davon der Median.
+  var MONTH_ABBR = { jan: 1, feb: 2, mrz: 3, mar: 3, apr: 4, mai: 5, jun: 6, jul: 7, aug: 8, sep: 9, okt: 10, nov: 11, dez: 12 };
+
+  // "… Umsatzsteuer Jan. 26 10.106,41 Lohnsteuer Mrz. 26 4.807,61" → '2026-01'
+  function ustPeriod(description) {
+    var m = String(description || '').match(/umsatzsteuer\s+([a-zäöü]{3})[a-zäöü]*\.?\s*(\d{2,4})/i);
+    if (!m) return null;
+    var mm = MONTH_ABBR[m[1].toLowerCase()];
+    if (!mm) return null;
+    var yy = +m[2];
+    if (yy < 100) yy += 2000;
+    return yy + '-' + pad2(mm);
+  }
+
+  // Tatsächlich gezahlte Umsatzsteuer je Zeitraum aus den Finanzamt-Buchungen.
+  // Bei Sammellastschriften ist amount_net der Lohnsteuer-Anteil → USt = brutto − netto.
+  function actualVatPayments(costTxs) {
+    var out = [];
+    (costTxs || []).forEach(function (t) {
+      if (t.excluded) return;
+      if (!/umsatzsteuer/i.test(t.description || '')) return;
+      var gross = Number(t.amount_gross) || 0;
+      var net = Number(t.amount_net != null ? t.amount_net : gross);
+      var vat = net < gross ? round2(gross - net) : gross;
+      if (vat <= 0) return;
+      out.push({ tx_date: t.tx_date, amount: vat, period: ustPeriod(t.description), paidTotal: gross });
+    });
+    return out.sort(function (a, b) { return a.tx_date < b.tx_date ? -1 : 1; });
+  }
+
+  // revenueByPeriod: { 'YYYY-MM': netto } → { rate, samples:[{period,vat,revenue,rate}] }
+  function effectiveVatRate(costTxs, revenueByPeriod) {
+    var samples = [];
+    actualVatPayments(costTxs).forEach(function (p) {
+      var rev = p.period ? Number(revenueByPeriod[p.period]) : 0;
+      if (!rev || rev <= 0) return;
+      samples.push({ period: p.period, vat: p.amount, revenue: round2(rev), rate: p.amount / rev });
+    });
+    return {
+      rate: samples.length ? median(samples.map(function (s) { return s.rate; })) : null,
+      samples: samples,
+    };
+  }
+
   // ── 13-Wochen-Vorschau ───────────────────────────────────────────────────
   // Erwartete Struktur der Eingaben:
   //   startBalance   Kontostand heute (Bankkonten)
@@ -540,6 +706,12 @@
     fixedCostDates: fixedCostDates,
     ustvaDueDate: ustvaDueDate,
     estimateUstva: estimateUstva,
+    suggestFixedCosts: suggestFixedCosts,
+    vendorName: vendorName,
+    median: median,
+    ustPeriod: ustPeriod,
+    actualVatPayments: actualVatPayments,
+    effectiveVatRate: effectiveVatRate,
     buildForecast: buildForecast,
     lowestPoint: lowestPoint,
     mondayOf: mondayOf, addDays: addDays, isoOf: isoOf, monthsBetween: monthsBetween,

@@ -308,4 +308,132 @@ test('Vorschau: tiefster Punkt wird gefunden', () => {
   assert.ok(low && forecast.every(w => w.endBalance >= low.endBalance));
 });
 
+// ── Fixkosten-Vorschlag aus der Kostenanalyse ───────────────────────────────
+// Buchungen im Format von cost_transactions (amount_gross positiv = Kosten).
+function costTx(date, payee, gross, category, opts) {
+  return Object.assign({
+    tx_date: date, payee: payee, description: payee + ' | Verwendungszweck',
+    amount_gross: gross, amount_net: gross, category: category, excluded: false,
+  }, opts || {});
+}
+const HISTORY = [];
+['2026-03', '2026-04', '2026-05', '2026-06', '2026-07', '2026-08'].forEach((m, i) => {
+  HISTORY.push(costTx(m + '-26', 'Christian Doennewald', 2608, 'Employee'));
+  HISTORY.push(costTx(m + '-29', 'D/P Communications & Media GmbH', 1999.2, 'Büro'));
+  HISTORY.push(costTx(m + '-04', 'OPTMYZR COPENHAGEN', 599 + i, 'Software'));
+  HISTORY.push(costTx(m + '-11', 'REWE SAGT DANKE ' + (100000 + i), 42 + i, 'Restaurant'));   // unregelmäßig, klein
+  HISTORY.push(costTx(m + '-10', 'Landeshauptstadt Duesseldorf', 5775, 'Steuern'));
+});
+// Sammellastschrift Finanzamt: brutto USt+LSt, netto = Lohnsteuer-Anteil
+['2026-04', '2026-05', '2026-06', '2026-07'].forEach((m) => {
+  HISTORY.push(costTx(m + '-15', 'STEUERVERWALTUNG NRW', 14914.02, 'Employee', {
+    description: 'STEUERVERWALTUNG NRW | Stnr 103/5710/2946 Umsatzsteuer Jan. 26 10.106,41 Lohnsteuer Mrz. 26 4.807,61',
+    amount_net: 4807.61,
+  }));
+});
+// reine Lohnsteuer-Lastschrift in einem Monat
+HISTORY.push(costTx('2026-03-13', 'STEUERVERWALTUNG NRW', 4807.61, 'Employee', {
+  description: 'STEUERVERWALTUNG NRW | Stnr 103/5710/2946 Lohnsteuer Feb. 26 4.807,61',
+}));
+
+const suggestions = C.suggestFixedCosts(HISTORY, { today: '2026-08-28', months: 6 });
+const byLabel = (l) => suggestions.filter((x) => x.label === l)[0];
+
+test('Fixkosten-Vorschlag: wiederkehrende Zahlungen mit Median-Betrag und -Zahltag', () => {
+  const gehalt = byLabel('Christian Doennewald');
+  assert.ok(gehalt, 'wiederkehrendes Gehalt muss vorgeschlagen werden');
+  assert.strictEqual(gehalt.amount, 2608);
+  assert.strictEqual(gehalt.pay_day, 26);
+  assert.strictEqual(gehalt.rhythm, 'monthly');
+  assert.strictEqual(gehalt.bucket, 'salary');
+  assert.strictEqual(gehalt.monthsSeen, 6);
+  const miete = byLabel('D/P Communications & Media GmbH');
+  assert.strictEqual(miete.bucket, 'supplier');
+  assert.strictEqual(miete.amount, 1999.2);
+});
+
+test('Fixkosten-Vorschlag: Median statt Durchschnitt (Ausreißer ziehen nicht)', () => {
+  const rows = ['2026-03', '2026-04', '2026-05', '2026-06', '2026-07', '2026-08']
+    .map((m, i) => costTx(m + '-05', 'Alfahosting GmbH', i === 5 ? 9000 : 120, 'Software'));
+  const s = C.suggestFixedCosts(rows, { today: '2026-08-28', months: 6 });
+  assert.strictEqual(byLabelIn(s, 'Alfahosting GmbH').amount, 120);
+});
+function byLabelIn(list, l) { return list.filter((x) => x.label === l)[0]; }
+
+test('Fixkosten-Vorschlag: Steuern bleiben draußen (kommen aus den Steuerterminen)', () => {
+  assert.strictEqual(byLabel('Landeshauptstadt Duesseldorf'), undefined);
+  assert.ok(suggestions.every((x) => x.category !== 'Steuern' && x.category !== 'Umsatzsteuer'));
+});
+
+test('Fixkosten-Vorschlag: Finanzamt-Sammellastschrift nur mit Lohnsteuer-Anteil', () => {
+  const lst = byLabel('Lohnsteuer (Finanzamt)');
+  assert.ok(lst, 'Lohnsteuer muss als Personalzahlung vorgeschlagen werden');
+  assert.strictEqual(lst.amount, 4807.61, 'nicht der Bruttobetrag der Lastschrift');
+  assert.strictEqual(lst.bucket, 'salary');
+  assert.strictEqual(lst.monthsSeen, 5, 'reine und gebündelte Lohnsteuer in einer Gruppe');
+  assert.strictEqual(byLabel('STEUERVERWALTUNG NRW'), undefined, 'nicht zusätzlich als eigener Lieferant');
+});
+
+test('Fixkosten-Vorschlag: seltene Kleinbeträge fliegen raus', () => {
+  assert.strictEqual(suggestions.filter((x) => /REWE/i.test(x.label)).length, 0);
+  assert.ok(suggestions.every((x) => x.amount >= 50));
+});
+
+test('Fixkosten-Vorschlag: Transaktions-IDs werden vom Lieferantennamen abgeschnitten', () => {
+  // Satzzeichen am Ende fallen weg – gleiches Verhalten wie suggestPattern in kostenanalyse.js
+  assert.strictEqual(C.vendorName('PAYPAL *FLASCHENP. 17642964006'), 'PAYPAL *FLASCHENP');
+  assert.strictEqual(C.vendorName('Telekom Deutschland GmbH | Festnetz'), 'Telekom Deutschland GmbH');
+});
+
+// ── Umsatzsteuer aus der Zahlungshistorie ───────────────────────────────────
+test('UStVA: Voranmeldungszeitraum aus dem Buchungstext', () => {
+  assert.strictEqual(C.ustPeriod('Umsatzsteuer Jan. 26 10.106,41 Lohnsteuer Mrz. 26 4.807,61'), '2026-01');
+  assert.strictEqual(C.ustPeriod('Umsatzsteuer Mrz. 26 6.513,21'), '2026-03');
+  assert.strictEqual(C.ustPeriod('Koerperschaftst. 1.Vj.26 4.687,00'), null);
+});
+
+test('UStVA: tatsächliche Zahlungen – Sammellastschrift wird aufgeteilt', () => {
+  const zahlungen = C.actualVatPayments([
+    costTx('2026-04-15', 'STEUERVERWALTUNG NRW', 14914.02, 'Employee', {
+      description: 'Umsatzsteuer Jan. 26 10.106,41 Lohnsteuer Mrz. 26 4.807,61', amount_net: 4807.61 }),
+    costTx('2026-05-18', 'STEUERVERWALTUNG NRW', 11738.33, 'Umsatzsteuer', {
+      description: 'Umsatzsteuer Feb. 26 11.738,33' }),
+    costTx('2026-06-10', 'STEUERVERWALTUNG NRW', 6791, 'Steuern', {
+      description: 'Koerperschaftst. 2.Vj.26 6.437,00' }),
+  ]);
+  assert.strictEqual(zahlungen.length, 2, 'Körperschaftsteuer ist keine Umsatzsteuer');
+  assert.strictEqual(zahlungen[0].amount, 10106.41, 'nur der USt-Anteil, nicht die ganze Lastschrift');
+  assert.strictEqual(zahlungen[0].period, '2026-01');
+  assert.strictEqual(zahlungen[1].amount, 11738.33);
+});
+
+test('median: rundet Quoten nicht kaputt, Beträge bleiben auf Cent', () => {
+  // gerade Anzahl → Mittel der beiden mittleren Werte, ohne 2-Stellen-Rundung
+  assert.strictEqual(C.median([0.163, 0.163, 0.163, 0.163]), 0.163);
+  assert.strictEqual(C.median([0.12, 0.16]), 0.14);
+  assert.strictEqual(C.median([100, 200, 300]), 200);
+});
+
+test('UStVA: effektiver Satz aus Zahlung ÷ Netto-Umsatz', () => {
+  const txs = [
+    costTx('2026-04-15', 'FA', 10000, 'Umsatzsteuer', { description: 'Umsatzsteuer Jan. 26 10.000,00' }),
+    costTx('2026-05-15', 'FA', 14000, 'Umsatzsteuer', { description: 'Umsatzsteuer Feb. 26 14.000,00' }),
+    costTx('2026-06-15', 'FA', 12000, 'Umsatzsteuer', { description: 'Umsatzsteuer Mrz. 26 12.000,00' }),
+  ];
+  const r = C.effectiveVatRate(txs, { '2026-01': 100000, '2026-02': 100000, '2026-03': 100000 });
+  assert.strictEqual(r.samples.length, 3);
+  assert.strictEqual(C.round2(r.rate * 100), 12);       // Median 12 %, nicht die vollen 19 %
+  // ohne passenden Umsatz keine Stichprobe → kein Satz
+  assert.strictEqual(C.effectiveVatRate(txs, {}).rate, null);
+
+  // gerade Stichprobenzahl: Satz darf nicht auf 2 Nachkommastellen gerundet
+  // werden – 16,3 % wären sonst 16 % und die Schätzung läge dauerhaft daneben.
+  const zwei = [
+    costTx('2026-04-15', 'FA', 10106.41, 'Umsatzsteuer', { description: 'Umsatzsteuer Jan. 26 10.106,41' }),
+    costTx('2026-05-15', 'FA', 10106.41, 'Umsatzsteuer', { description: 'Umsatzsteuer Feb. 26 10.106,41' }),
+  ];
+  const r2 = C.effectiveVatRate(zwei, { '2026-01': 62000, '2026-02': 62000 });
+  assert.ok(Math.abs(r2.rate - 0.1630066) < 1e-6, 'erwartet ~16,3 %, bekam ' + r2.rate);
+});
+
 console.log('\n' + passed + ' Tests bestanden.\n');
