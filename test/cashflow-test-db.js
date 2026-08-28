@@ -4,6 +4,9 @@
   'use strict';
   window.auth = { init: function () {}, getSession: function () { return null; } };
 
+  // ?leer=1 startet mit leerem Fixkosten-Plan (Zustand direkt nach dem Anlegen)
+  var LEER = /[?&]leer=1/.test(location.search);
+
   var store = {
     bank_accounts: [
       { id: 'acc-ksk', source: 'kreissparkasse', name: 'Kreissparkasse Geschäftskonto', kind: 'bank', opening_balance: 50000, opening_date: null, settlement_day: null },
@@ -26,6 +29,7 @@
     cashflow_settings: [],
     revenue: [],
   };
+  if (LEER) store.fixed_costs.forEach(function (f) { f.amount = 0; });
   var seq = 0;
   function id() { return 'gen-' + (++seq); }
   function iso(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }

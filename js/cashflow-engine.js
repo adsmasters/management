@@ -367,7 +367,10 @@
   }
   function daysInMonth(year, month) { return new Date(Date.UTC(year, month, 0)).getUTCDate(); }
   function isoOf(year, month, day) {
-    return year + '-' + pad2(month) + '-' + Math.min(day, daysInMonth(year, month));
+    // pad2 auf den Tag ist Pflicht: Datumsvergleiche laufen über String-Vergleich
+    // und toDate() erwartet YYYY-MM-DD. Ein '2026-09-4' fiel früher stillschweigend
+    // aus der Vorschau (Zahltage 1–9 fehlten komplett).
+    return year + '-' + pad2(month) + '-' + pad2(Math.min(day, daysInMonth(year, month)));
   }
   function monthsBetween(fromIso, toIso_) {
     var a = toDate(fromIso), b = toDate(toIso_), out = [];
@@ -596,32 +599,58 @@
   //   taxDates       [{ label, due_date, amount, kind }]
   //   cardSettlement { amount, date }                            offene Kartenumsätze
   var BUCKETS = ['clientPayments', 'adSpendRefunds', 'otherIn', 'salaries', 'suppliers', 'adSpendAmazon', 'taxes', 'otherOut'];
+  var MONTH_NAMES = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni',
+                     'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
 
-  function emptyWeek(startIso, idx) {
-    var w = { index: idx, from: startIso, to: addDays(startIso, 6), startBalance: 0, endBalance: 0, items: [] };
-    BUCKETS.forEach(function (b) { w[b] = 0; });
-    return w;
+  function emptyPeriod(from, to, idx, label) {
+    var p = { index: idx, from: from, to: to, label: label, startBalance: 0, endBalance: 0, items: [] };
+    BUCKETS.forEach(function (b) { p[b] = 0; });
+    return p;
+  }
+
+  // Zeitraster der Vorschau. 'week' = 13 Wochen ab Montag dieser Woche,
+  // 'month' = laufender Monat (ab heute) plus die folgenden Kalendermonate.
+  function periodsFor(today, granularity, count) {
+    var list = [];
+    if (granularity === 'month') {
+      var y = +today.slice(0, 4), m = +today.slice(5, 7);
+      for (var i = 0; i < count; i++) {
+        var yy = y, mm = m + i;
+        while (mm > 12) { mm -= 12; yy++; }
+        var from = i === 0 ? today : isoOf(yy, mm, 1);
+        var to = isoOf(yy, mm, daysInMonth(yy, mm));
+        list.push(emptyPeriod(from, to, i, MONTH_NAMES[mm - 1] + ' ' + yy + (i === 0 ? ' (ab heute)' : '')));
+      }
+      return list;
+    }
+    var start = mondayOf(today);
+    for (var w = 0; w < count; w++) {
+      var f = addDays(start, w * 7);
+      list.push(emptyPeriod(f, addDays(f, 6), w, null));
+    }
+    return list;
   }
 
   function buildForecast(opts) {
     opts = opts || {};
-    var weeks = opts.weeks || 13;
     var today = opts.today;
-    var start = mondayOf(today);
-    var list = [];
-    for (var i = 0; i < weeks; i++) list.push(emptyWeek(addDays(start, i * 7), i));
+    var granularity = opts.granularity === 'month' ? 'month' : 'week';
+    var count = opts.periods || opts.weeks || (granularity === 'month' ? 6 : 13);
+    var list = periodsFor(today, granularity, count);
     var lastDay = list[list.length - 1].to;
 
-    function weekFor(iso) {
+    function periodFor(iso) {
       if (!iso) return null;
-      // Alles was heute oder früher fällig ist (auch Überfälliges) landet in Woche 1.
+      // Alles was heute oder früher fällig ist (auch Überfälliges) landet im ersten Zeitraum.
       var d = iso < today ? today : iso;
       if (d > lastDay) return null;
-      var idx = Math.floor((toDate(d) - toDate(start)) / 604800000);
-      return list[Math.max(0, Math.min(weeks - 1, idx))];
+      for (var i = 0; i < list.length; i++) {
+        if (d >= list[i].from && d <= list[i].to) return list[i];
+      }
+      return list[0];
     }
     function add(iso, bucket, amount, label) {
-      var w = weekFor(iso);
+      var w = periodFor(iso);
       if (!w || !amount) return;
       w[bucket] = round2(w[bucket] + amount);
       w.items.push({ date: iso, bucket: bucket, amount: round2(amount), label: label });
@@ -654,7 +683,7 @@
       var amt = Number(fc.amount) || 0;
       if (!amt) return;
       var bucket = bucketMap[fc.bucket] || 'otherOut';
-      fixedCostDates(fc, start, lastDay).forEach(function (iso) {
+      fixedCostDates(fc, list[0].from, lastDay).forEach(function (iso) {
         // Die nächste Kartenabrechnung steht mit dem echten offenen Saldo drin –
         // der wiederkehrende Planwert würde sie sonst doppelt buchen.
         if (fc.bucket === 'card_settlement' && cs0 && cs0.amount && iso === cs0.date) return;
@@ -715,6 +744,7 @@
     monthlyActuals: monthlyActuals,
     monthlyCategories: monthlyCategories,
     fixedCostDates: fixedCostDates,
+    periodsFor: periodsFor,
     ustvaDueDate: ustvaDueDate,
     estimateUstva: estimateUstva,
     suggestFixedCosts: suggestFixedCosts,

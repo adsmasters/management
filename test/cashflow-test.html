@@ -77,7 +77,7 @@
   <div class="page-header" style="flex-wrap:wrap;gap:12px">
     <div>
       <h1>Cashflow</h1>
-      <div class="sub">Kontoumsätze aus CSV · 13-Wochen-Vorschau aus Rechnungen, Fixkosten und Steuerterminen</div>
+      <div class="sub">Kontoumsätze aus CSV · Vorschau aus Rechnungen, Fixkosten und Steuerterminen</div>
     </div>
     <div class="toolbar">
       <button id="reloadInvoices" class="btn btn-primary">↻ Rechnungen aus LexOffice</button>
@@ -92,7 +92,7 @@
       <div class="kpi-card" id="kBalCard"><div class="kpi-label">Kontostand heute</div><div class="kpi-value" id="kBalance">—</div><div class="kpi-sub" id="kBalanceSub"></div></div>
       <div class="kpi-card good"><div class="kpi-label">Eingänge letzte 30 Tage</div><div class="kpi-value" id="kIn">—</div><div class="kpi-sub" id="kInSub"></div></div>
       <div class="kpi-card"><div class="kpi-label">Ausgänge letzte 30 Tage</div><div class="kpi-value" id="kOut">—</div><div class="kpi-sub" id="kOutSub"></div></div>
-      <div class="kpi-card" id="kLowCard"><div class="kpi-label">Tiefster Punkt (13 Wochen)</div><div class="kpi-value" id="kLow">—</div><div class="kpi-sub" id="kLowSub"></div></div>
+      <div class="kpi-card" id="kLowCard"><div class="kpi-label" id="kLowLabel">Tiefster Punkt</div><div class="kpi-value" id="kLow">—</div><div class="kpi-sub" id="kLowSub"></div></div>
     </div>
 
     <div class="cf-tabs">
@@ -106,18 +106,34 @@
 
     <!-- ── Übersicht ── -->
     <section data-panel="overview">
+      <div id="planEmpty" class="hidden" style="margin-bottom:20px">
+        <div class="alert alert-warn" style="display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap">
+          <div>
+            <strong>Die Vorschau kennt noch keine laufenden Kosten.</strong><br>
+            Gehälter, Miete und Abos fehlen – deshalb steigt der Saldo nur.
+            Ein Klick liest die wiederkehrenden Zahlungen aus deinen importierten Buchungen.
+          </div>
+          <button id="planEmptyFix" class="btn btn-primary">Kosten aus Buchungen übernehmen</button>
+        </div>
+      </div>
+
       <div class="card">
         <div class="card-head">
           <div>
-            <h2>13-Wochen-Vorschau</h2>
+            <h2 id="forecastTitle">Vorschau</h2>
             <div class="sub" id="forecastSub"></div>
           </div>
-          <div class="sub">Zeile anklicken zeigt die einzelnen Posten der Woche</div>
+          <div style="display:flex;align-items:center;gap:10px">
+            <select id="forecastGrain" class="inp">
+              <option value="month">monatlich · 6 Monate</option>
+              <option value="week">wöchentlich · 13 Wochen</option>
+            </select>
+          </div>
         </div>
         <div class="table-wrap" style="overflow-x:auto">
           <table class="cf" id="forecastTable">
             <thead><tr>
-              <th>Woche</th><th>Startsaldo</th><th>Kunden&shy;zahlungen</th><th>Ad-Spend-Erstattungen</th>
+              <th id="forecastPeriodHead">Monat</th><th>Startsaldo</th><th>Kunden&shy;zahlungen</th><th>Ad-Spend-Erstattungen</th>
               <th>Sonstige Eingänge</th><th>Gehälter</th><th>Lieferanten</th><th>Ad-Spend an Amazon</th>
               <th>Steuern</th><th>Sonstige Ausgaben</th><th>Endsaldo</th>
             </tr></thead>
@@ -308,10 +324,10 @@
 </main>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-<script src="cashflow-test-db.js?v=1787896550638"></script>
-<script src="../js/utils.js?v=1787896550638"></script>
-<script src="../js/cost-engine.js?v=1787896550638"></script>
-<script src="../js/cashflow-engine.js?v=1787896550638"></script>
-<script src="../js/cashflow.js?v=1787896550638"></script>
+<script src="cashflow-test-db.js?v=1787897123553"></script>
+<script src="../js/utils.js?v=1787897123553"></script>
+<script src="../js/cost-engine.js?v=1787897123553"></script>
+<script src="../js/cashflow-engine.js?v=1787897123553"></script>
+<script src="../js/cashflow.js?v=1787897123553"></script>
 </body>
 </html>

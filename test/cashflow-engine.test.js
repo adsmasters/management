@@ -209,6 +209,19 @@ test('Flow-Typ: Amazon-Ad-Spend nicht mit eigenen Marketingkosten vermischt', ()
 });
 
 // ── Fixkosten-Termine ───────────────────────────────────────────────────────
+test('Fixkosten: Zahltage 1–9 ergeben gültige Daten und fallen nicht raus', () => {
+  // Regression: isoOf lieferte '2026-09-4' → Datumsvergleich und toDate() brachen,
+  // der Posten verschwand kommentarlos aus der Vorschau.
+  const dates = C.fixedCostDates({ pay_day: 4, rhythm: 'monthly' }, '2026-08-24', '2026-10-31');
+  assert.deepStrictEqual(dates, ['2026-09-04', '2026-10-04']);
+  assert.ok(dates.every((d) => /^\d{4}-\d{2}-\d{2}$/.test(d)));
+  const w = C.buildForecast({
+    today: '2026-08-27', startBalance: 0, invoices: [], apInvoices: [], taxDates: [],
+    fixedCosts: [{ label: 'Optmyzr', amount: 599, pay_day: 4, rhythm: 'monthly', bucket: 'supplier' }],
+  });
+  assert.strictEqual(w.filter((x) => x.from === '2026-08-31')[0].suppliers, -599, 'Zahltag 4 muss ankommen');
+});
+
 test('Fixkosten: monatlich / quartalsweise / jährlich', () => {
   const m = C.fixedCostDates({ pay_day: 27, rhythm: 'monthly' }, '2026-08-24', '2026-11-22');
   assert.deepStrictEqual(m, ['2026-08-27', '2026-09-27', '2026-10-27', '2026-11-27'].filter(d => d <= '2026-11-22'));
@@ -458,6 +471,72 @@ test('Vorschau: geplante Kartenabrechnung kollidiert nicht mit dem offenen Saldo
   assert.strictEqual(august.otherOut, -4200, 'erste Abrechnung mit echtem offenem Saldo, nicht zusätzlich geplant');
   const september = w.filter((x) => x.from === '2026-09-28')[0];
   assert.strictEqual(september.otherOut, -3500, 'spätere Monate laufen über den Planwert');
+});
+
+// ── Monatsraster ────────────────────────────────────────────────────────────
+const monatlich = C.buildForecast({
+  today: '2026-08-27',
+  granularity: 'month',
+  periods: 6,
+  startBalance: 141499.98,
+  invoices: [
+    { contact: 'Kunde A', dueDate: '2026-08-31', amount: 8250 },
+    { contact: 'Kunde B', dueDate: '2026-09-30', amount: 2975 },
+    { contact: 'Alt', dueDate: '2026-06-01', amount: 1000 },          // überfällig
+    { contact: 'Zu spät', dueDate: '2027-05-01', amount: 50000 },     // außerhalb
+  ],
+  apInvoices: [],
+  fixedCosts: [
+    { label: 'Gehälter', amount: 34000, pay_day: 26, rhythm: 'monthly', bucket: 'salary' },
+    { label: 'Miete', amount: 1999.2, pay_day: 30, rhythm: 'monthly', bucket: 'supplier' },
+    { label: 'Buchführung', amount: 1250, pay_day: 15, rhythm: 'quarterly', start_month: 2, bucket: 'supplier' },
+  ],
+  taxDates: [{ label: 'UStVA Juli', due_date: '2026-09-10', amount: 10106 }],
+  cardSettlement: { amount: 1162.6, date: '2026-09-21' },
+});
+
+test('Monatsraster: laufender Monat ab heute, danach volle Kalendermonate', () => {
+  assert.strictEqual(monatlich.length, 6);
+  assert.strictEqual(monatlich[0].from, '2026-08-27');
+  assert.strictEqual(monatlich[0].to, '2026-08-31');
+  assert.strictEqual(monatlich[0].label, 'August 2026 (ab heute)');
+  assert.strictEqual(monatlich[1].from, '2026-09-01');
+  assert.strictEqual(monatlich[1].to, '2026-09-30');
+  assert.strictEqual(monatlich[1].label, 'September 2026');
+  assert.strictEqual(monatlich[5].label, 'Januar 2027');
+});
+
+test('Monatsraster: jeder Posten landet im richtigen Monat', () => {
+  assert.strictEqual(monatlich[0].clientPayments, 8250 + 1000, 'Überfälliges zählt sofort');
+  assert.strictEqual(monatlich[1].clientPayments, 2975);
+  // Zahltag 26 liegt VOR dem Stichtag 27.08. – dieses Gehalt ist schon geflossen
+  // und steckt im Kontostand. Offene Rechnungen dagegen zählen weiter (siehe oben):
+  // unbezahlt bleibt unbezahlt, eine getätigte Zahlung nicht doppelt planen.
+  assert.strictEqual(monatlich[0].salaries, 0);
+  assert.strictEqual(monatlich[1].salaries, -34000);
+  assert.strictEqual(monatlich[1].taxes, -10106);
+  assert.strictEqual(monatlich[1].otherOut, -1162.6);
+  assert.ok(!monatlich.flatMap((p) => p.items).some((i) => i.label === 'Zu spät'));
+});
+
+test('Monatsraster: Quartals-Fixkosten nur im Quartalsmonat', () => {
+  const buchfuehrung = monatlich.map((p) => p.items.filter((i) => i.label === 'Buchführung').length);
+  assert.deepStrictEqual(buchfuehrung, [0, 0, 0, 1, 0, 0], 'nur November (Anker Februar → Feb/Mai/Aug/Nov)');
+});
+
+test('Monatsraster: Salden schreiben sich fort wie im Wochenraster', () => {
+  assert.strictEqual(monatlich[0].startBalance, 141499.98);
+  monatlich.forEach((p, i) => {
+    assert.strictEqual(p.endBalance, C.round2(p.startBalance + p.net));
+    if (i > 0) assert.strictEqual(p.startBalance, monatlich[i - 1].endBalance);
+  });
+});
+
+test('Wochenraster bleibt unverändert der Standard', () => {
+  const w = C.buildForecast({ today: '2026-08-27', startBalance: 0, invoices: [], apInvoices: [], fixedCosts: [], taxDates: [] });
+  assert.strictEqual(w.length, 13);
+  assert.strictEqual(w[0].from, '2026-08-24');
+  assert.strictEqual(w[0].label, null);
 });
 
 console.log('\n' + passed + ' Tests bestanden.\n');

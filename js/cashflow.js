@@ -20,6 +20,12 @@
   };
   var charts = {};
   var openWeeks = {}, openMonths = {};
+  // Standard ist die Monatsansicht – Wochen machen bei einem Puffer von über
+  // 100.000 € nur nervös. Auswahl bleibt im Browser gespeichert.
+  var GRAIN_KEY = 'cashflowGrain';
+  function grain() { return localStorage.getItem(GRAIN_KEY) === 'week' ? 'week' : 'month'; }
+  function grainCount() { return grain() === 'week' ? 13 : 6; }
+  function grainLabel() { return grain() === 'week' ? '13 Wochen' : '6 Monate'; }
 
   // ── Helfer ────────────────────────────────────────────────────────────────
   var eur = new Intl.NumberFormat('de-DE', { style: 'currency', currency: 'EUR' });
@@ -326,14 +332,21 @@
     return out;
   }
 
+  // Erster und letzter Tag des Vorschau-Zeitraums (für Steuertermine etc.)
+  function forecastSpan() {
+    var list = C.periodsFor(todayIso(), grain(), grainCount());
+    return { from: list[0].from, to: list[list.length - 1].to };
+  }
+
   function forecast() {
     var b = balances();
-    var start = C.mondayOf(todayIso());
-    var lastDay = C.addDays(start, 13 * 7 - 1);
+    var span = forecastSpan();
+    var start = span.from, lastDay = span.to;
     var cardOpen = b.cardOpen ? b.cardOpen.amount : 0;
     return C.buildForecast({
       today: todayIso(),
-      weeks: 13,
+      granularity: grain(),
+      periods: grainCount(),
       startBalance: b.bank,
       // Brutto einplanen – so kommt das Geld aufs Konto. Im Detail steht
       // zusätzlich der Netto-Betrag, mit dem die Rechnungsseite arbeitet.
@@ -389,10 +402,11 @@
     el('kOut').textContent = fmt(l.outflow);
     el('kOutSub').textContent = l.nOut + ' Buchungen seit ' + fmtDate(l.from);
 
+    el('kLowLabel').textContent = 'Tiefster Punkt (' + grainLabel() + ')';
     var low = C.lowestPoint(weeks);
     if (low) {
       el('kLow').textContent = fmt(low.endBalance);
-      el('kLowSub').textContent = 'Woche ' + fmtDate(low.from) + '–' + fmtDateShort(low.to);
+      el('kLowSub').textContent = low.label || ('Woche ' + fmtDate(low.from) + '–' + fmtDateShort(low.to));
       el('kLowCard').className = 'kpi-card' + (low.endBalance < 0 ? ' danger' : low.endBalance < 10000 ? ' warn' : '');
     }
   }
@@ -414,14 +428,20 @@
 
   function renderForecast(weeks) {
     var b = balances();
+    el('forecastGrain').value = grain();
+    el('forecastTitle').textContent = grain() === 'week' ? '13-Wochen-Vorschau' : '6-Monats-Vorschau';
+    el('forecastPeriodHead').textContent = grain() === 'week' ? 'Woche' : 'Monat';
+    var aktiv = state.fixedCosts.filter(function (f) { return f.active !== false && Number(f.amount) > 0; });
+    el('planEmpty').classList.toggle('hidden', aktiv.length > 0);
     el('forecastSub').textContent = 'Start: ' + fmt(b.bank) + ' · '
       + state.invoices.length + ' offene Rechnungen · '
-      + state.fixedCosts.filter(function (f) { return f.active !== false; }).length + ' aktive Fixkosten';
+      + aktiv.length + ' aktive Fixkosten';
 
     var rows = weeks.map(function (w) {
       var cls = w.endBalance < 0 ? ' neg' : '';
+      var periodLabel = w.label || (fmtDate(w.from) + ' – ' + fmtDateShort(w.to));
       var main = '<tr class="week-row' + cls + '" data-week="' + w.index + '">' +
-        '<td>' + fmtDate(w.from) + ' – ' + fmtDateShort(w.to) + '</td>' +
+        '<td>' + esc(periodLabel) + '</td>' +
         '<td class="num">' + fmt(w.startBalance) + '</td>' +
         COLS.map(function (c) { return cell(w[c[0]]); }).join('') +
         '<td class="num end">' + fmt(w.endBalance) + '</td></tr>';
@@ -448,7 +468,8 @@
     var neg = weeks.filter(function (w) { return w.endBalance < 0; });
     var cardOpen = balances().cardOpen;
     var notes = [];
-    if (neg.length) notes.push('⚠️ ' + neg.length + ' Woche(n) mit negativem Endsaldo – erste am ' + fmtDate(neg[0].from) + '.');
+    if (neg.length) notes.push('⚠️ ' + neg.length + ' ' + (grain() === 'week' ? 'Woche(n)' : 'Monat(e)')
+      + ' mit negativem Endsaldo – erste(r) am ' + fmtDate(neg[0].from) + '.');
     if (cardOpen && cardOpen.amount < 0) notes.push('Offene Kartenumsätze ' + fmt(Math.abs(cardOpen.amount)) + ' sind als Sammelabbuchung am ' + fmtDate(nextSettlementDate()) + ' eingeplant (Zeile „Sonstige Ausgaben").');
     if (!state.invoices.length) notes.push('Noch keine Rechnungen aus LexOffice geladen – die Eingangsseite der Vorschau ist dadurch leer.');
     notes.push('Kundenzahlungen stehen brutto (inkl. USt) – so kommen sie aufs Konto. Die Seite „Offene Rechnungen" zeigt dieselben Rechnungen netto; im Wochendetail steht der Netto-Betrag dahinter.');
@@ -460,7 +481,9 @@
   function drawForecastChart(weeks) {
     if (typeof Chart === 'undefined') return;      // Chart.js nicht geladen → Tabelle reicht
     var ctx = el('forecastChart').getContext('2d');
-    var labels = weeks.map(function (w) { return fmtDateShort(w.from); });
+    var labels = weeks.map(function (w) {
+      return w.label ? w.label.replace(' (ab heute)', '').replace(/ \d{4}$/, '') : fmtDateShort(w.from);
+    });
     var data = weeks.map(function (w) { return C.round2(w.endBalance); });
     var cfg = {
       type: 'line',
@@ -694,9 +717,8 @@
     el('ustRate').value = String(Math.round(cfg.rate * 1000) / 10).replace('.', ',');
     renderUstHistory(cfg);
 
-    var start = C.mondayOf(todayIso());
-    var lastDay = C.addDays(start, 13 * 7 - 1);
-    var auto = autoUstvaRows(start, lastDay);
+    var span = forecastSpan();
+    var auto = autoUstvaRows(span.from, span.to);
     if (!cfg.auto) {
       el('ustNote').innerHTML = 'Automatische Schätzung ist aus – nur manuell erfasste Termine zählen.';
     } else if (cfg.mode === 'effective') {
@@ -1011,6 +1033,17 @@
     });
 
     el('reloadInvoices').addEventListener('click', function () { fetchInvoices(); });
+
+    el('forecastGrain').addEventListener('change', function () {
+      localStorage.setItem(GRAIN_KEY, el('forecastGrain').value);
+      openWeeks = {};
+      render();
+    });
+
+    el('planEmptyFix').addEventListener('click', function () {
+      showTab('fixed');
+      loadFcSuggestions();
+    });
 
     var drop = el('drop'), input = el('csvFile');
     drop.addEventListener('click', function () { input.click(); });
