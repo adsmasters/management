@@ -92,11 +92,12 @@
       <div class="kpi-card" id="kBalCard"><div class="kpi-label">Kontostand heute</div><div class="kpi-value" id="kBalance">—</div><div class="kpi-sub" id="kBalanceSub"></div></div>
       <div class="kpi-card good"><div class="kpi-label">Eingänge letzte 30 Tage</div><div class="kpi-value" id="kIn">—</div><div class="kpi-sub" id="kInSub"></div></div>
       <div class="kpi-card"><div class="kpi-label">Ausgänge letzte 30 Tage</div><div class="kpi-value" id="kOut">—</div><div class="kpi-sub" id="kOutSub"></div></div>
-      <div class="kpi-card" id="kLowCard"><div class="kpi-label" id="kLowLabel">Tiefster Punkt</div><div class="kpi-value" id="kLow">—</div><div class="kpi-sub" id="kLowSub"></div></div>
+      <div class="kpi-card" id="kTrendCard"><div class="kpi-label" id="kTrendLabel">Entwicklung</div><div class="kpi-value" id="kTrend">—</div><div class="kpi-sub" id="kTrendSub"></div></div>
     </div>
 
     <div class="cf-tabs">
-      <button class="cf-tab active" data-tab="overview">📊 Übersicht</button>
+      <button class="cf-tab active" data-tab="verlauf">📊 Verlauf</button>
+      <button class="cf-tab" data-tab="forecast">Vorschau</button>
       <button class="cf-tab" data-tab="import">Import <span class="count" id="cImports">0</span></button>
       <button class="cf-tab" data-tab="fixed">Fixkosten <span class="count" id="cFixed">0</span></button>
       <button class="cf-tab" data-tab="taxes">Steuertermine <span class="count" id="cTaxes">0</span></button>
@@ -104,8 +105,33 @@
       <button class="cf-tab" data-tab="accounts">Konten</button>
     </div>
 
-    <!-- ── Übersicht ── -->
-    <section data-panel="overview">
+    <!-- ── Verlauf (Ist) ── -->
+    <section data-panel="verlauf">
+      <div class="card">
+        <div class="card-head">
+          <div><h2>Kontostand im Verlauf</h2><div class="sub" id="verlaufSub"></div></div>
+        </div>
+        <div class="chart-wrap" style="height:300px"><canvas id="verlaufChart"></canvas></div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <div><h2>Ein- und Ausgänge je Monat</h2><div class="sub" id="actualsSub">Aus den importierten Kontoumsätzen</div></div>
+        </div>
+        <div class="table-wrap" style="overflow-x:auto">
+          <table class="cf" id="actualsTable">
+            <thead><tr><th>Monat</th><th>Eingänge</th><th>Ausgänge</th><th>Veränderung</th><th>Endsaldo</th></tr></thead>
+            <tbody id="actualsBody"></tbody>
+          </table>
+        </div>
+        <div class="note">Monatszeile anklicken: Ausgaben nach Kategorie (Regeln der Kostenanalyse; Kartenposten einzeln, Sammelabbuchung ausgeklammert).</div>
+      </div>
+
+      <div id="saldoHint" class="hidden note" style="padding-top:0"></div>
+    </section>
+
+    <!-- ── Vorschau ── -->
+    <section data-panel="forecast" class="hidden">
       <div id="planEmpty" class="hidden" style="margin-bottom:20px">
         <div class="alert alert-warn" style="display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap">
           <div>
@@ -144,18 +170,6 @@
         <div class="note" id="forecastNote"></div>
       </div>
 
-      <div class="card">
-        <div class="card-head">
-          <div><h2>Ist-Cashflow je Monat</h2><div class="sub" id="actualsSub">Aus den importierten Kontoumsätzen</div></div>
-        </div>
-        <div class="table-wrap" style="overflow-x:auto">
-          <table class="cf" id="actualsTable">
-            <thead><tr><th>Monat</th><th>Eingänge</th><th>Ausgänge</th><th>Veränderung</th><th>Endsaldo</th></tr></thead>
-            <tbody id="actualsBody"></tbody>
-          </table>
-        </div>
-        <div class="note">Monatszeile anklicken: Ausgaben nach Kategorie (Regeln der Kostenanalyse; Kartenposten einzeln, Sammelabbuchung ausgeklammert).</div>
-      </div>
     </section>
 
     <!-- ── Import ── -->

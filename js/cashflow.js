@@ -19,6 +19,7 @@
     fcSuggestions: [],
   };
   var charts = {};
+  var lastData = { verlauf: null, forecast: null };   // für das Neuzeichnen beim Reiterwechsel
   var openWeeks = {}, openMonths = {};
   // Standard ist die Monatsansicht – Wochen machen bei einem Puffer von über
   // 100.000 € nur nervös. Auswahl bleibt im Browser gespeichert.
@@ -365,18 +366,20 @@
 
   // ── Rendern ───────────────────────────────────────────────────────────────
   function render() {
+    // Erst sichtbar schalten, dann zeichnen: ein Chart, das in einem
+    // display:none-Container entsteht, misst 0 px und staucht seine Achsen.
+    el('loading').classList.add('hidden');
+    el('content').classList.remove('hidden');
     var weeks = forecast();
     renderKpis(weeks);
-    renderForecast(weeks);
     renderActuals();
+    renderForecast(weeks);
     renderImports();
     renderFixed();
     renderTaxes();
     renderAp();
     renderAccounts();
     renderStamp();
-    el('loading').classList.add('hidden');
-    el('content').classList.remove('hidden');
   }
 
   function renderStamp() {
@@ -402,12 +405,22 @@
     el('kOut').textContent = fmt(l.outflow);
     el('kOutSub').textContent = l.nOut + ' Buchungen seit ' + fmtDate(l.from);
 
-    el('kLowLabel').textContent = 'Tiefster Punkt (' + grainLabel() + ')';
-    var low = C.lowestPoint(weeks);
-    if (low) {
-      el('kLow').textContent = fmt(low.endBalance);
-      el('kLowSub').textContent = low.label || ('Woche ' + fmtDate(low.from) + '–' + fmtDateShort(low.to));
-      el('kLowCard').className = 'kpi-card' + (low.endBalance < 0 ? ' danger' : low.endBalance < 10000 ? ' warn' : '');
+    // Vierte Kachel: Rückblick. Wie hat sich der Kontostand seit der ersten
+    // importierten Buchung entwickelt – das ist die Frage, die der Verlauf beantwortet.
+    var months = C.monthlyActuals(state.txs, state.accounts);
+    if (months.length) {
+      var ersterMonat = months[0], letzter = months[months.length - 1];
+      var startSaldo = C.round2(ersterMonat.endBalance - ersterMonat.delta);
+      var diff = C.round2(letzter.endBalance - startSaldo);
+      el('kTrendLabel').textContent = 'Entwicklung seit ' + monthLabel(ersterMonat.year, ersterMonat.month);
+      el('kTrend').textContent = (diff > 0 ? '+' : '') + fmt(diff);
+      el('kTrendSub').textContent = 'von ' + fmt(startSaldo) + ' auf ' + fmt(letzter.endBalance)
+        + ' · ' + months.length + ' Monate';
+      el('kTrendCard').className = 'kpi-card' + (diff >= 0 ? ' good' : ' warn');
+    } else {
+      el('kTrendLabel').textContent = 'Entwicklung';
+      el('kTrend').textContent = '—';
+      el('kTrendSub').textContent = 'Noch keine Kontoumsätze importiert';
     }
   }
 
@@ -479,7 +492,9 @@
   }
 
   function drawForecastChart(weeks) {
+    lastData.forecast = weeks;
     if (typeof Chart === 'undefined') return;      // Chart.js nicht geladen → Tabelle reicht
+    if (!el('forecastChart').clientWidth) return;
     var ctx = el('forecastChart').getContext('2d');
     var labels = weeks.map(function (w) {
       return w.label ? w.label.replace(' (ab heute)', '').replace(/ \d{4}$/, '') : fmtDateShort(w.from);
@@ -494,7 +509,7 @@
         backgroundColor: 'rgba(79,70,229,.08)',
       }] },
       options: {
-        responsive: true, maintainAspectRatio: false,
+        responsive: true, maintainAspectRatio: false, animation: false,
         plugins: {
           legend: { display: false },
           tooltip: { callbacks: { label: function (c) { return 'Endsaldo: ' + fmt(c.parsed.y); } } },
@@ -505,20 +520,36 @@
         },
       },
     };
-    if (charts.forecast) { charts.forecast.data = cfg.data; charts.forecast.update(); }
-    else charts.forecast = new Chart(ctx, cfg);
+    if (charts.forecast) charts.forecast.destroy();
+    charts.forecast = new Chart(ctx, cfg);
   }
 
   function renderActuals() {
-    var months = C.monthlyActuals(state.txs, state.accounts).slice().reverse();
+    var chrono = C.monthlyActuals(state.txs, state.accounts);
+    var months = chrono.slice().reverse();
     var cats = C.monthlyCategories(state.txs);
     if (!months.length) {
       el('actualsBody').innerHTML = '<tr><td colspan="5" class="muted">Noch keine Kontoumsätze importiert – im Reiter „Import" CSV-Dateien hochladen.</td></tr>';
+      el('verlaufSub').textContent = 'Noch keine Kontoumsätze importiert.';
       return;
     }
-    el('actualsSub').textContent = 'Aus ' + state.txs.length + ' importierten Buchungen · '
-      + monthLabel(months[months.length - 1].year, months[months.length - 1].month) + ' bis '
-      + monthLabel(months[0].year, months[0].month);
+    var von = monthLabel(chrono[0].year, chrono[0].month);
+    var bis = monthLabel(chrono[chrono.length - 1].year, chrono[chrono.length - 1].month);
+    el('verlaufSub').textContent = von + ' bis ' + bis + ' · ' + state.txs.length + ' Buchungen aus ' + state.imports.length + ' Importen';
+    el('actualsSub').textContent = 'Aus ' + state.txs.length + ' importierten Buchungen · ' + von + ' bis ' + bis;
+    drawVerlaufChart(chrono);
+
+    // Anfangssaldo-Hinweis: ohne ihn ist die Kurve nur um einen festen Betrag verschoben.
+    var ohneStart = state.accounts.some(function (a) {
+      return (a.kind || 'bank') !== 'credit_card' && !Number(a.opening_balance);
+    });
+    var hint = el('saldoHint');
+    if (ohneStart) {
+      hint.classList.remove('hidden');
+      hint.innerHTML = 'Der Kontostand rechnet ab der ersten importierten Buchung (' + esc(von) + '). '
+        + 'Hattest du davor schon Geld auf dem Konto, ist die ganze Kurve um diesen Betrag verschoben – '
+        + 'dann im Reiter <strong>Konten</strong> den Anfangssaldo eintragen.';
+    } else hint.classList.add('hidden');
 
     el('actualsBody').innerHTML = months.map(function (m) {
       var row = '<tr class="month-row" data-month="' + m.key + '">' +
@@ -546,6 +577,45 @@
       });
     });
   }
+
+  function drawVerlaufChart(chrono) {
+    lastData.verlauf = chrono;
+    if (typeof Chart === 'undefined') return;
+    // Im ausgeblendeten Reiter hat die Canvas keine Breite – dann erst beim
+    // Öffnen zeichnen (showTab holt es über lastData nach).
+    if (!el('verlaufChart').clientWidth) return;
+    var ctx = el('verlaufChart').getContext('2d');
+    var labels = chrono.map(function (m) { return MONTHS[m.month - 1].slice(0, 3) + ' ' + String(m.year).slice(2); });
+    var cfg = {
+      type: 'bar',
+      data: {
+        labels: labels,
+        datasets: [
+          { type: 'line', label: 'Kontostand', data: chrono.map(function (m) { return C.round2(m.endBalance); }),
+            borderColor: '#4f46e5', borderWidth: 2, pointRadius: 2, tension: .25, order: 0, yAxisID: 'y' },
+          { label: 'Eingänge', data: chrono.map(function (m) { return C.round2(m.inflow); }),
+            backgroundColor: 'rgba(16,185,129,.45)', borderRadius: 4, order: 1, yAxisID: 'y' },
+          { label: 'Ausgänge', data: chrono.map(function (m) { return C.round2(-m.outflow); }),
+            backgroundColor: 'rgba(239,68,68,.45)', borderRadius: 4, order: 1, yAxisID: 'y' },
+        ],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false, animation: false,
+        plugins: {
+          legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 11 } } },
+          tooltip: { callbacks: { label: function (c) { return c.dataset.label + ': ' + fmt(c.parsed.y); } } },
+        },
+        scales: {
+          y: { ticks: { callback: function (v) { return fmt0(v); } },
+               grid: { color: function (c) { return c.tick.value === 0 ? '#94a3b8' : 'rgba(0,0,0,.06)'; } } },
+          x: { grid: { display: false } },
+        },
+      },
+    };
+    if (charts.verlauf) charts.verlauf.destroy();
+    charts.verlauf = new Chart(ctx, cfg);
+  }
+
 
   // ── Import ────────────────────────────────────────────────────────────────
   function renderImports() {
@@ -1020,7 +1090,9 @@
     Array.prototype.forEach.call(document.querySelectorAll('[data-panel]'), function (p) {
       p.classList.toggle('hidden', p.dataset.panel !== name);
     });
-    if (name === 'overview' && charts.forecast) charts.forecast.resize();
+    // Jetzt ist die Canvas sichtbar und hat eine Breite – Chart (neu) zeichnen.
+    if (name === 'verlauf' && lastData.verlauf) drawVerlaufChart(lastData.verlauf);
+    if (name === 'forecast' && lastData.forecast) drawForecastChart(lastData.forecast);
   }
 
   // ── Neu laden ─────────────────────────────────────────────────────────────
