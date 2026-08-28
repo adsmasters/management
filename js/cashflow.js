@@ -24,6 +24,8 @@
   // Standard ist die Monatsansicht – Wochen machen bei einem Puffer von über
   // 100.000 € nur nervös. Auswahl bleibt im Browser gespeichert.
   var GRAIN_KEY = 'cashflowGrain';
+  var RANGE_KEY = 'cashflowRange';
+  var range = null;          // { from:'YYYY-MM', to:'YYYY-MM' } – null = alles
   function grain() { return localStorage.getItem(GRAIN_KEY) === 'week' ? 'week' : 'month'; }
   function grainCount() { return grain() === 'week' ? 13 : 6; }
   function grainLabel() { return grain() === 'week' ? '13 Wochen' : '6 Monate'; }
@@ -405,20 +407,19 @@
     el('kOut').textContent = fmt(l.outflow);
     el('kOutSub').textContent = l.nOut + ' Buchungen seit ' + fmtDate(l.from);
 
-    // Vierte Kachel: Rückblick. Wie hat sich der Kontostand seit der ersten
-    // importierten Buchung entwickelt – das ist die Frage, die der Verlauf beantwortet.
-    var months = C.monthlyActuals(state.txs, state.accounts);
+    // Vierte Kachel: die Frage, um die es geht – in wie vielen Monaten ist mehr
+    // abgeflossen als reingekommen.
+    var months = applyRange(C.monthlyActuals(state.txs, state.accounts));
     if (months.length) {
-      var ersterMonat = months[0], letzter = months[months.length - 1];
-      var startSaldo = C.round2(ersterMonat.endBalance - ersterMonat.delta);
-      var diff = C.round2(letzter.endBalance - startSaldo);
-      el('kTrendLabel').textContent = 'Entwicklung seit ' + monthLabel(ersterMonat.year, ersterMonat.month);
-      el('kTrend').textContent = (diff > 0 ? '+' : '') + fmt(diff);
-      el('kTrendSub').textContent = 'von ' + fmt(startSaldo) + ' auf ' + fmt(letzter.endBalance)
-        + ' · ' + months.length + ' Monate';
-      el('kTrendCard').className = 'kpi-card' + (diff >= 0 ? ' good' : ' warn');
+      var minus = months.filter(function (m) { return m.delta < 0; });
+      var schnitt = C.round2(months.reduce(function (a, m) { return a + m.delta; }, 0) / months.length);
+      el('kTrendLabel').textContent = 'Monate mit Minus';
+      el('kTrend').textContent = minus.length + ' von ' + months.length;
+      el('kTrendSub').textContent = 'Schnitt ' + (schnitt >= 0 ? '+' : '') + fmt(schnitt) + ' pro Monat'
+        + (minus.length ? ' · zuletzt ' + monthLabel(minus[minus.length - 1].year, minus[minus.length - 1].month) : '');
+      el('kTrendCard').className = 'kpi-card' + (schnitt >= 0 ? ' good' : ' warn');
     } else {
-      el('kTrendLabel').textContent = 'Entwicklung';
+      el('kTrendLabel').textContent = 'Monate mit Minus';
       el('kTrend').textContent = '—';
       el('kTrendSub').textContent = 'Noch keine Kontoumsätze importiert';
     }
@@ -494,8 +495,7 @@
   function drawForecastChart(weeks) {
     lastData.forecast = weeks;
     if (typeof Chart === 'undefined') return;      // Chart.js nicht geladen → Tabelle reicht
-    if (!el('forecastChart').clientWidth) return;
-    var ctx = el('forecastChart').getContext('2d');
+    var ctx = resetCanvas('forecastChart');
     var labels = weeks.map(function (w) {
       return w.label ? w.label.replace(' (ab heute)', '').replace(/ \d{4}$/, '') : fmtDateShort(w.from);
     });
@@ -525,7 +525,9 @@
   }
 
   function renderActuals() {
-    var chrono = C.monthlyActuals(state.txs, state.accounts);
+    var alle = C.monthlyActuals(state.txs, state.accounts);
+    var chrono = applyRange(alle);
+    if (!chrono.length) chrono = alle;
     var months = chrono.slice().reverse();
     var cats = C.monthlyCategories(state.txs);
     if (!months.length) {
@@ -533,10 +535,18 @@
       el('verlaufSub').textContent = 'Noch keine Kontoumsätze importiert.';
       return;
     }
+    renderRangeControls(alle);
     var von = monthLabel(chrono[0].year, chrono[0].month);
     var bis = monthLabel(chrono[chrono.length - 1].year, chrono[chrono.length - 1].month);
-    el('verlaufSub').textContent = von + ' bis ' + bis + ' · ' + state.txs.length + ' Buchungen aus ' + state.imports.length + ' Importen';
-    el('actualsSub').textContent = 'Aus ' + state.txs.length + ' importierten Buchungen · ' + von + ' bis ' + bis;
+    var eingang = C.round2(chrono.reduce(function (a, m) { return a + m.inflow; }, 0));
+    var ausgang = C.round2(chrono.reduce(function (a, m) { return a + m.outflow; }, 0));
+    var saldo = C.round2(eingang - ausgang);
+    el('verlaufSub').innerHTML = esc(von + ' bis ' + bis) + ' · ' + chrono.length + ' Monate · '
+      + 'Eingänge ' + fmt(eingang) + ' − Ausgänge ' + fmt(ausgang) + ' = <strong>'
+      + (saldo >= 0 ? '+' : '') + fmt(saldo) + '</strong>'
+      + (chrono.length < alle.length ? ' <span class="muted">(gefilterter Zeitraum)</span>' : '');
+    el('actualsSub').textContent = chrono.length + ' Monate im gewählten Zeitraum · '
+      + state.txs.length + ' importierte Buchungen insgesamt';
     drawVerlaufChart(chrono);
 
     // Anfangssaldo-Hinweis: ohne ihn ist die Kurve nur um einen festen Betrag verschoben.
@@ -544,17 +554,10 @@
       return (a.kind || 'bank') !== 'credit_card' && !Number(a.opening_balance);
     });
     var hint = el('saldoHint');
-    var heute = C.balances(state.txs, state.accounts).bank;
-    if (ohneStart) {
-      hint.innerHTML = 'Die Linie ist der Kontostand am Monatsende (Vormonat + Eingänge − Ausgänge) und '
-        + 'startet in ' + esc(von) + ' bei 0 €, weil kein Anfangssaldo hinterlegt ist. '
-        + '<strong>Stimmt ' + fmt(heute) + ' mit deinem echten Kontostand überein?</strong> '
-        + 'Wenn ja, passt die Kurve. Wenn nein, die Differenz im Reiter <strong>Konten</strong> als '
-        + 'Anfangssaldo eintragen – die monatlichen Veränderungen bleiben davon unberührt.';
-    } else {
-      hint.innerHTML = 'Die Linie ist der Kontostand am Monatsende: Anfangssaldo plus alle Buchungen bis dahin '
-        + '(gleiche Zahl wie die Spalte „Endsaldo" unten).';
-    }
+    hint.innerHTML = 'Grün = im Monat kam mehr rein als raus, Rot = mehr abgeflossen. '
+      + 'Die Balken zeigen die Differenz; Eingänge und Ausgänge einzeln stehen in der Tabelle darunter.'
+      + (ohneStart ? ' Die Spalte „Endsaldo" rechnet ab der ersten importierten Buchung bei 0 € los – '
+          + 'für den echten Kontostand den Anfangssaldo im Reiter <strong>Konten</strong> eintragen.' : '');
 
     el('actualsBody').innerHTML = months.map(function (m) {
       var row = '<tr class="month-row" data-month="' + m.key + '">' +
@@ -583,36 +586,89 @@
     });
   }
 
+  // Chart.js schreibt die berechnete Größe als Inline-Style auf die Canvas.
+  // Entsteht ein Chart, während sein Reiter ausgeblendet ist, steht dort
+  // width:0px – und bleibt dort, weil die Canvas dann nie wieder wächst.
+  // Vor jedem Neuaufbau deshalb die Größenangaben entfernen.
+  function resetCanvas(id) {
+    var cv = el(id);
+    cv.removeAttribute('style');
+    cv.removeAttribute('width');
+    cv.removeAttribute('height');
+    return cv.getContext('2d');
+  }
+
+  // ── Zeitraum ──────────────────────────────────────────────────────────────
+  function loadRange() {
+    if (range) return range;
+    try { range = JSON.parse(localStorage.getItem(RANGE_KEY) || 'null'); } catch (e) { range = null; }
+    return range;
+  }
+  function saveRange(r) {
+    range = r;
+    try { r ? localStorage.setItem(RANGE_KEY, JSON.stringify(r)) : localStorage.removeItem(RANGE_KEY); } catch (e) {}
+  }
+  function applyRange(chrono) {
+    var r = loadRange();
+    if (!r || !chrono.length) return chrono;
+    return chrono.filter(function (m) { return m.key >= r.from && m.key <= r.to; });
+  }
+  // Schnellauswahl: Anzahl Monate ab dem letzten vorhandenen Monat zurück.
+  function setRangeMonths(n, chrono) {
+    if (!chrono.length) return;
+    if (n === 'all') { saveRange(null); return; }
+    var letzter = chrono[chrono.length - 1];
+    if (n === 'ytd') { saveRange({ from: letzter.year + '-01', to: letzter.key }); return; }
+    var idx = Math.max(0, chrono.length - n);
+    saveRange({ from: chrono[idx].key, to: letzter.key });
+  }
+  function renderRangeControls(chrono) {
+    var r = loadRange();
+    var opts = function (sel) {
+      return chrono.map(function (m) {
+        return '<option value="' + m.key + '"' + (m.key === sel ? ' selected' : '') + '>'
+          + monthLabel(m.year, m.month) + '</option>';
+      }).join('');
+    };
+    var von = r ? r.from : chrono[0].key;
+    var bis = r ? r.to : chrono[chrono.length - 1].key;
+    el('rangeFrom').innerHTML = opts(von);
+    el('rangeTo').innerHTML = opts(bis);
+  }
+
   function drawVerlaufChart(chrono) {
     lastData.verlauf = chrono;
     if (typeof Chart === 'undefined') return;
-    // Im ausgeblendeten Reiter hat die Canvas keine Breite – dann erst beim
-    // Öffnen zeichnen (showTab holt es über lastData nach).
-    if (!el('verlaufChart').clientWidth) return;
-    var ctx = el('verlaufChart').getContext('2d');
+    var ctx = resetCanvas('verlaufChart');
     var labels = chrono.map(function (m) { return MONTHS[m.month - 1].slice(0, 3) + ' ' + String(m.year).slice(2); });
+    // Bewusst KEIN kumulierter Kontostand: der haengt am Anfangssaldo und
+    // startet sonst willkuerlich bei 0. Die Frage ist "kam mehr rein als raus".
+    var werte = chrono.map(function (m) { return C.round2(m.delta); });
     var cfg = {
       type: 'bar',
       data: {
         labels: labels,
-        datasets: [
-          { type: 'line', label: 'Kontostand', data: chrono.map(function (m) { return C.round2(m.endBalance); }),
-            borderColor: '#4f46e5', borderWidth: 2, pointRadius: 2, tension: .25, order: 0, yAxisID: 'y' },
-          { label: 'Eingänge', data: chrono.map(function (m) { return C.round2(m.inflow); }),
-            backgroundColor: 'rgba(16,185,129,.45)', borderRadius: 4, order: 1, yAxisID: 'y' },
-          { label: 'Ausgänge', data: chrono.map(function (m) { return C.round2(-m.outflow); }),
-            backgroundColor: 'rgba(239,68,68,.45)', borderRadius: 4, order: 1, yAxisID: 'y' },
-        ],
+        datasets: [{
+          label: 'Veränderung',
+          data: werte,
+          backgroundColor: werte.map(function (v) { return v >= 0 ? 'rgba(16,185,129,.75)' : 'rgba(239,68,68,.75)'; }),
+          borderRadius: 4,
+        }],
       },
       options: {
         responsive: true, maintainAspectRatio: false, animation: false,
         plugins: {
-          legend: { position: 'bottom', labels: { boxWidth: 10, font: { size: 11 } } },
-          tooltip: { callbacks: { label: function (c) { return c.dataset.label + ': ' + fmt(c.parsed.y); } } },
+          legend: { display: false },
+          tooltip: { callbacks: { label: function (c) {
+            var m = chrono[c.dataIndex];
+            return [(c.parsed.y >= 0 ? 'Plus: ' : 'Minus: ') + fmt(c.parsed.y),
+                    'Eingänge: ' + fmt(m.inflow), 'Ausgänge: ' + fmt(-m.outflow)];
+          } } },
         },
         scales: {
           y: { ticks: { callback: function (v) { return fmt0(v); } },
-               grid: { color: function (c) { return c.tick.value === 0 ? '#94a3b8' : 'rgba(0,0,0,.06)'; } } },
+               grid: { color: function (c) { return c.tick.value === 0 ? '#475569' : 'rgba(0,0,0,.06)'; },
+                       lineWidth: function (c) { return c.tick.value === 0 ? 1.5 : 1; } } },
           x: { grid: { display: false } },
         },
       },
@@ -620,7 +676,6 @@
     if (charts.verlauf) charts.verlauf.destroy();
     charts.verlauf = new Chart(ctx, cfg);
   }
-
 
   // ── Import ────────────────────────────────────────────────────────────────
   function renderImports() {
@@ -1110,6 +1165,22 @@
     });
 
     el('reloadInvoices').addEventListener('click', function () { fetchInvoices(); });
+
+    Array.prototype.forEach.call(document.querySelectorAll('[data-range]'), function (b) {
+      b.addEventListener('click', function () {
+        var v = b.dataset.range;
+        setRangeMonths(v === 'all' || v === 'ytd' ? v : parseInt(v, 10), C.monthlyActuals(state.txs, state.accounts));
+        render();
+      });
+    });
+    ['rangeFrom', 'rangeTo'].forEach(function (id) {
+      el(id).addEventListener('change', function () {
+        var f = el('rangeFrom').value, t = el('rangeTo').value;
+        if (f > t) { if (id === 'rangeFrom') t = f; else f = t; }
+        saveRange({ from: f, to: t });
+        render();
+      });
+    });
 
     el('forecastGrain').addEventListener('change', function () {
       localStorage.setItem(GRAIN_KEY, el('forecastGrain').value);

@@ -109,7 +109,17 @@
     <section data-panel="verlauf">
       <div class="card">
         <div class="card-head">
-          <div><h2>Kontostand im Verlauf</h2><div class="sub" id="verlaufSub"></div></div>
+          <div><h2>Veränderung je Monat</h2><div class="sub" id="verlaufSub"></div></div>
+          <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+            <button class="btn btn-ghost btn-sm" data-range="3">Quartal</button>
+            <button class="btn btn-ghost btn-sm" data-range="6">6 Monate</button>
+            <button class="btn btn-ghost btn-sm" data-range="12">12 Monate</button>
+            <button class="btn btn-ghost btn-sm" data-range="ytd">laufendes Jahr</button>
+            <button class="btn btn-ghost btn-sm" data-range="all">Alles</button>
+            <select id="rangeFrom" class="inp" style="font-size:12px"></select>
+            <span class="muted" style="font-size:12px">bis</span>
+            <select id="rangeTo" class="inp" style="font-size:12px"></select>
+          </div>
         </div>
         <div class="chart-wrap" style="height:300px"><canvas id="verlaufChart"></canvas></div>
         <div class="note" id="saldoHint"></div>
@@ -338,10 +348,10 @@
 </main>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-<script src="cashflow-test-db.js?v=1787897889830"></script>
-<script src="../js/utils.js?v=1787897889830"></script>
-<script src="../js/cost-engine.js?v=1787897889830"></script>
-<script src="../js/cashflow-engine.js?v=1787897889830"></script>
-<script src="../js/cashflow.js?v=1787897889830"></script>
+<script src="cashflow-test-db.js?v=1787898155201"></script>
+<script src="../js/utils.js?v=1787898155201"></script>
+<script src="../js/cost-engine.js?v=1787898155201"></script>
+<script src="../js/cashflow-engine.js?v=1787898155201"></script>
+<script src="../js/cashflow.js?v=1787898155201"></script>
 </body>
 </html>
