@@ -81,7 +81,7 @@ test('AMEX: quotierte Beschreibung mit Komma bleibt intakt', () => {
 // ── Regeln: Kategorie / MwSt / Ausschluss ────────────────────────────────────
 const rules = {
   categoryRules: [
-    { match_type: 'contains', pattern: 'INDEED',  category: 'Marketing' },
+    { match_type: 'contains', pattern: 'INDEED',  category: 'Recruitment' },
     { match_type: 'contains', pattern: 'UPWORK',  category: 'Freelancer/Externe' },
     { match_type: 'contains', pattern: 'Telekom', category: 'Büro' },
   ],
@@ -177,12 +177,13 @@ test('enrich: Finanzamt-Bündel zählt nur Lohnsteuer als Kosten', () => {
   assert.strictEqual(pure.amount_net, 7427.60);
 });
 
-test('suggestCategory: Reisekosten/Software/Marketing erkannt', () => {
+test('suggestCategory: Reisekosten/Software/Recruitment erkannt', () => {
   assert.strictEqual(E.suggestCategory('WWW.DEUTSCHEBAHN.COM (N BERLIN'), 'Reisekosten');
   assert.strictEqual(E.suggestCategory('Eurowings GmbH Dortmund'), 'Reisekosten');
   assert.strictEqual(E.suggestCategory('HILTON BERLIN KU_DAMM BERLIN'), 'Reisekosten');
   assert.strictEqual(E.suggestCategory('OPENAI *CHATGPT SUBSCR SAN FRANCISCO'), 'Software');
-  assert.strictEqual(E.suggestCategory('INDEED IRELAND OPERATIO DUBLIN'), 'Marketing');
+  assert.strictEqual(E.suggestCategory('INDEED IRELAND OPERATIO DUBLIN'), 'Recruitment');
+  assert.strictEqual(E.suggestCategory('JOIN.COM PFAFFIKON SZ'), 'Recruitment');
   assert.strictEqual(E.suggestCategory('UPWORK DUBLIN'), 'Freelancer/Externe');
   assert.strictEqual(E.suggestCategory('PAYPAL *FLASCHENP. 17642964006'), null);   // unbekannt
 });
