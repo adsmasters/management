@@ -252,19 +252,6 @@
     return out;
   }
 
-  function last30() {
-    var bank = bankSources();
-    var from = C.addDays(todayIso(), -30);
-    var inflow = 0, outflow = 0, nIn = 0, nOut = 0;
-    state.txs.forEach(function (t) {
-      if (!bank[t.source]) return;
-      if (t.tx_date < from || t.tx_date > todayIso()) return;
-      var a = Number(t.amount) || 0;
-      if (a >= 0) { inflow += a; nIn++; } else { outflow += Math.abs(a); nOut++; }
-    });
-    return { inflow: C.round2(inflow), outflow: C.round2(outflow), nIn: nIn, nOut: nOut, from: from };
-  }
-
   // Nächste Sammelabbuchung der Kreditkarte: konfigurierter Abrechnungstag,
   // sonst der Tag der letzten erkannten Sammelabbuchung, sonst der 1.
   function nextSettlementDate() {
@@ -373,7 +360,7 @@
     el('loading').classList.add('hidden');
     el('content').classList.remove('hidden');
     var weeks = forecast();
-    renderKpis(weeks);
+    renderKpis();
     renderActuals();
     renderForecast(weeks);
     renderImports();
@@ -390,39 +377,39 @@
       : 'Rechnungen noch nicht geladen';
   }
 
-  function renderKpis(weeks) {
-    var b = balances();
-    el('kBalance').textContent = fmt(b.bank);
-    el('kBalCard').className = 'kpi-card' + (b.bank < 0 ? ' danger' : '');
-    var parts = b.accounts.filter(function (a) { return a.kind !== 'credit_card'; })
-      .map(function (a) { return esc(a.name) + ': ' + fmt(a.balance); });
-    var cardOpen = b.cardOpen ? b.cardOpen.amount : 0;
-    if (cardOpen) parts.push('offene Kartenumsätze: ' + fmt(cardOpen));
-    if (!state.txs.length) parts = ['Noch keine Kontoumsätze importiert'];
-    el('kBalanceSub').innerHTML = parts.join(' · ');
-
-    var l = last30();
-    el('kIn').textContent = fmt(l.inflow);
-    el('kInSub').textContent = l.nIn + ' Buchungen seit ' + fmtDate(l.from);
-    el('kOut').textContent = fmt(l.outflow);
-    el('kOutSub').textContent = l.nOut + ' Buchungen seit ' + fmtDate(l.from);
-
-    // Vierte Kachel: die Frage, um die es geht – in wie vielen Monaten ist mehr
-    // abgeflossen als reingekommen.
+  // Die Kacheln beantworten die Frage des gewaehlten Zeitraums: was kam rein,
+  // was ging raus, was blieb. Ein "Kontostand heute" stand hier frueher auch –
+  // ohne gepflegten Anfangssaldo ist das aber nicht der echte Kontostand,
+  // deshalb steht der Saldo nur noch im Reiter Konten.
+  function renderKpis() {
     var months = applyRange(C.monthlyActuals(state.txs, state.accounts));
-    if (months.length) {
-      var minus = months.filter(function (m) { return m.delta < 0; });
-      var schnitt = C.round2(months.reduce(function (a, m) { return a + m.delta; }, 0) / months.length);
-      el('kTrendLabel').textContent = 'Monate mit Minus';
-      el('kTrend').textContent = minus.length + ' von ' + months.length;
-      el('kTrendSub').textContent = 'Schnitt ' + (schnitt >= 0 ? '+' : '') + fmt(schnitt) + ' pro Monat'
-        + (minus.length ? ' · zuletzt ' + monthLabel(minus[minus.length - 1].year, minus[minus.length - 1].month) : '');
-      el('kTrendCard').className = 'kpi-card' + (schnitt >= 0 ? ' good' : ' warn');
-    } else {
-      el('kTrendLabel').textContent = 'Monate mit Minus';
-      el('kTrend').textContent = '—';
+    if (!months.length) {
+      ['kIn', 'kOut', 'kFlow', 'kTrend'].forEach(function (id) { el(id).textContent = '—'; });
+      el('kInSub').textContent = el('kOutSub').textContent = el('kFlowSub').textContent = '';
       el('kTrendSub').textContent = 'Noch keine Kontoumsätze importiert';
+      return;
     }
+    var von = monthLabel(months[0].year, months[0].month);
+    var bis = monthLabel(months[months.length - 1].year, months[months.length - 1].month);
+    var zeitraum = months.length === 1 ? von : von + ' – ' + bis;
+    var ein = C.round2(months.reduce(function (a, m) { return a + m.inflow; }, 0));
+    var aus = C.round2(months.reduce(function (a, m) { return a + m.outflow; }, 0));
+    var flow = C.round2(ein - aus);
+
+    el('kIn').textContent = fmt(ein);
+    el('kInSub').textContent = zeitraum;
+    el('kOut').textContent = fmt(-aus);
+    el('kOutSub').textContent = zeitraum;
+    el('kFlow').textContent = (flow > 0 ? '+' : '') + fmt(flow);
+    el('kFlowSub').textContent = zeitraum + ' · ' + months.length + ' Monate';
+    el('kFlowCard').className = 'kpi-card' + (flow >= 0 ? ' good' : ' danger');
+
+    var minus = months.filter(function (m) { return m.delta < 0; });
+    var schnitt = C.round2(flow / months.length);
+    el('kTrend').textContent = minus.length + ' von ' + months.length;
+    el('kTrendSub').textContent = 'Schnitt ' + (schnitt >= 0 ? '+' : '') + fmt(schnitt) + ' pro Monat'
+      + (minus.length ? ' · zuletzt ' + monthLabel(minus[minus.length - 1].year, minus[minus.length - 1].month) : '');
+    el('kTrendCard').className = 'kpi-card' + (schnitt >= 0 ? ' good' : ' warn');
   }
 
   var COLS = [
@@ -538,12 +525,7 @@
     renderRangeControls(alle);
     var von = monthLabel(chrono[0].year, chrono[0].month);
     var bis = monthLabel(chrono[chrono.length - 1].year, chrono[chrono.length - 1].month);
-    var eingang = C.round2(chrono.reduce(function (a, m) { return a + m.inflow; }, 0));
-    var ausgang = C.round2(chrono.reduce(function (a, m) { return a + m.outflow; }, 0));
-    var saldo = C.round2(eingang - ausgang);
-    el('verlaufSub').innerHTML = esc(von + ' bis ' + bis) + ' · ' + chrono.length + ' Monate · '
-      + 'Eingänge ' + fmt(eingang) + ' − Ausgänge ' + fmt(ausgang) + ' = <strong>'
-      + (saldo >= 0 ? '+' : '') + fmt(saldo) + '</strong>'
+    el('verlaufSub').innerHTML = esc(von + ' bis ' + bis) + ' · ' + chrono.length + ' Monate'
       + (chrono.length < alle.length ? ' <span class="muted">(gefilterter Zeitraum)</span>' : '');
     el('actualsSub').textContent = chrono.length + ' Monate im gewählten Zeitraum · '
       + state.txs.length + ' importierte Buchungen insgesamt';
@@ -653,6 +635,9 @@
           data: werte,
           backgroundColor: werte.map(function (v) { return v >= 0 ? 'rgba(16,185,129,.75)' : 'rgba(239,68,68,.75)'; }),
           borderRadius: 4,
+          // Ein Monat mit -480 € neben Balken von 100.000 € waere sonst
+          // unsichtbar und saehe aus, als fehlten die Daten.
+          minBarLength: 3,
         }],
       },
       options: {
@@ -673,8 +658,39 @@
         },
       },
     };
+    cfg.plugins = [balkenBeschriftung];
     if (charts.verlauf) charts.verlauf.destroy();
     charts.verlauf = new Chart(ctx, cfg);
+  }
+
+  // Schreibt den Betrag an jeden Balken – sonst sind kleine Monate nicht ablesbar.
+  var balkenBeschriftung = {
+    id: 'balkenBeschriftung',
+    afterDatasetsDraw: function (chart) {
+      var ctx = chart.ctx;
+      var meta = chart.getDatasetMeta(0);
+      var daten = chart.data.datasets[0].data;
+      ctx.save();
+      ctx.font = '600 10px -apple-system, system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      meta.data.forEach(function (bar, i) {
+        var v = daten[i];
+        if (v == null) return;
+        var oben = v >= 0;
+        ctx.fillStyle = oben ? '#047857' : '#b91c1c';
+        ctx.textBaseline = oben ? 'bottom' : 'top';
+        ctx.fillText(kurzBetrag(v), bar.x, oben ? bar.y - 3 : bar.y + 3);
+      });
+      ctx.restore();
+    },
+  };
+
+  // 102.171 € → "+102,2k", -480 € → "-480"
+  function kurzBetrag(v) {
+    var vz = v > 0 ? '+' : v < 0 ? '−' : '';
+    var a = Math.abs(v);
+    if (a >= 1000) return vz + (a / 1000).toFixed(1).replace('.', ',') + 'k';
+    return vz + Math.round(a);
   }
 
   // ── Import ────────────────────────────────────────────────────────────────
