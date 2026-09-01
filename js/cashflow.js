@@ -185,14 +185,19 @@
       window.db.revenue.allRows().catch(function () { return []; }),
     ]).then(function (r) {
       state.accounts = r[0] || [];
-      state.txs = r[1] || [];
+      state.rules = { categoryRules: r[7] || [], vatRules: r[8] || [], excludeRules: r[9] || [] };
+      // Kategorie wird beim Import gespeichert. Regeln, die es damals noch nicht
+      // gab (z.B. 'Geldanlage'), greifen sonst nie – deshalb für Buchungen ohne
+      // Kategorie einmal frisch bestimmen.
+      state.txs = (r[1] || []).map(function (t) {
+        return t.category ? t : Object.assign({}, t, { category: C.categoryOf(t, state.rules) });
+      });
       state.imports = r[2] || [];
       state.fixedCosts = r[3] || [];
       state.taxDates = r[4] || [];
       state.apInvoices = r[5] || [];
       state.settings = {};
       (r[6] || []).forEach(function (s) { state.settings[s.key] = s.value; });
-      state.rules = { categoryRules: r[7] || [], vatRules: r[8] || [], excludeRules: r[9] || [] };
       state.revenueRows = r[10] || [];
       state.clientNames = [...new Set(state.revenueRows.map(function (x) { return x.contact_name; }).filter(Boolean))];
       loadCachedInvoices();
@@ -244,6 +249,7 @@
 
   // ── Ableitungen ───────────────────────────────────────────────────────────
   function balances() { return C.balances(state.txs, state.accounts); }
+  function depot() { return C.depotValue(state.txs, setting('depot', {})); }
 
   function bankSources() {
     var out = {};
@@ -368,7 +374,38 @@
     renderTaxes();
     renderAp();
     renderAccounts();
+    renderDepot();
     renderStamp();
+  }
+
+  // Vermögen = Bankkonten + Depot. Bewusst ohne Kreditkarte: die offenen
+  // Kartenumsätze sind eine Verbindlichkeit und stehen in der Vorschau.
+  function renderDepot() {
+    var d = depot();
+    var b = balances();
+    el('depotOpening').value = d.opening_value ? String(d.opening_value.toFixed(2)).replace('.', ',') : '';
+    el('depotDate').value = d.opening_date || '';
+    el('depotNote').innerHTML = d.count
+      ? 'Seit ' + (d.opening_date ? fmtDate(d.opening_date) : 'Beginn der Importe') + ' sind <strong>'
+        + esc(fmt(d.deposits)) + '</strong> in ' + d.count + ' Zahlung(en) ins Depot geflossen · '
+        + 'Depotwert <strong>' + esc(fmt(d.value)) + '</strong>. '
+        + 'Das ist der Einstandswert – Kursgewinne stecken nicht drin. Für den echten Wert den Depotstand '
+        + 'als Stichtagswert eintragen, ab da rechnet die Automatik weiter.'
+      : 'Noch keine Buchung in der Kategorie <strong>Geldanlage</strong>. Die Kategorie kommt aus den Regeln der '
+        + '<a href="kostenanalyse.html">Kostenanalyse</a> (z.B. „Sparplan ETF", „flatex").';
+
+    // Ohne gepflegten Anfangssaldo ist der Kontostand nicht echt – dann wäre
+    // auch das Vermögen nur eine Differenz seit dem ersten Import.
+    var ohneStart = state.accounts.some(function (a) {
+      return (a.kind || 'bank') !== 'credit_card' && !Number(a.opening_balance);
+    });
+    if (ohneStart) {
+      el('kAssets').textContent = '—';
+      el('kAssetsSub').textContent = 'Anfangssaldo im Reiter Konten eintragen';
+      return;
+    }
+    el('kAssets').textContent = fmt0(b.bank + d.value);
+    el('kAssetsSub').textContent = 'Konto ' + fmt0(b.bank) + ' · Depot ' + fmt0(d.value);
   }
 
   function renderStamp() {
@@ -1292,6 +1329,14 @@
       }).catch(function (e) { alert(e.message); });
     });
     el('apSync').addEventListener('click', syncPurchases);
+
+    // Depot-Stichtagswert
+    el('depotSave').addEventListener('click', function () {
+      window.db.cashflow.settings.set('depot', {
+        opening_value: num(el('depotOpening').value),
+        opening_date: el('depotDate').value || null,
+      }).then(reload).catch(function (e) { alert(e.message); });
+    });
 
     // Ad-Spend-Muster
     el('adSave').addEventListener('click', function () {

@@ -296,6 +296,28 @@ test('Vorschau: Ad-Spend läuft getrennt von den eigenen Kosten', () => {
   assert.strictEqual(wRefund.clientPayments, 0);
 });
 
+// ── Depot: Stand aus Stichtagswert + Sparplan-Einzahlungen ──────────────────
+test('depotValue: Einzahlungen ab Stichtag, Rueckbuchung mindert', () => {
+  const txs = [
+    { tx_date: '2026-07-12', amount: -20000, category: 'Geldanlage' },   // vor dem Stichtag
+    { tx_date: '2026-08-13', amount: -25000, category: 'Geldanlage' },
+    { tx_date: '2026-09-12', amount: -22000, category: 'Geldanlage' },
+    { tx_date: '2026-09-20', amount: 5000, category: 'Geldanlage' },     // Rueckbuchung aufs Konto
+    { tx_date: '2026-09-01', amount: -3000, category: 'Software' },      // keine Geldanlage
+  ];
+  const d = C.depotValue(txs, { opening_value: 100000, opening_date: '2026-08-01' });
+  assert.strictEqual(d.deposits, 42000, '25.000 + 22.000 - 5.000');
+  assert.strictEqual(d.value, 142000);
+  assert.strictEqual(d.count, 3, 'die Juli-Zahlung liegt vor dem Stichtag');
+  assert.strictEqual(d.first, '2026-08-13');
+});
+
+test('depotValue: ohne Stichtag zaehlen alle Einzahlungen', () => {
+  const d = C.depotValue([{ tx_date: '2026-08-13', amount: -25000, category: 'Geldanlage' }], {});
+  assert.strictEqual(d.value, 25000);
+  assert.strictEqual(C.depotValue([], {}).value, 0);
+});
+
 // ── Geldanlage: Umbuchung aufs Depot ────────────────────────────────────────
 test('Vorschau: ETF-Sparplan zieht Geld ab, aber in eigener Zeile', () => {
   const w = forecast.find(x => x.from === '2026-09-07');   // 12.09. liegt in dieser Woche

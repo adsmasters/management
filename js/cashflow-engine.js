@@ -301,6 +301,36 @@
     return { amount: open, since: lastSettle };
   }
 
+  // ── Depot / Geldanlage ───────────────────────────────────────────────────
+  // Das Depot hat keine eigenen Kontoauszüge. Sein Stand ist deshalb der
+  // zuletzt von Hand gepflegte Wert plus alles, was seitdem per Sparplan
+  // dorthin geflossen ist (Kategorie 'Geldanlage'). Eine Rückbuchung ins
+  // Geschäftskonto (positiver Betrag) mindert ihn wieder.
+  // WICHTIG: Kursentwicklung steckt hier NICHT drin – das ist der Einstands-
+  // wert, nicht der Marktwert. Wer den echten Depotwert will, trägt ihn als
+  // Stichtagswert ein; ab da rechnet die Automatik weiter.
+  var SAVINGS_CATEGORY = 'Geldanlage';
+
+  function depotValue(txs, depot) {
+    depot = depot || {};
+    var start = Number(depot.opening_value) || 0;
+    var from = depot.opening_date || null;
+    var deposits = 0, count = 0, first = null, last = null;
+    (txs || []).forEach(function (t) {
+      if (t.category !== SAVINGS_CATEGORY) return;
+      if (from && t.tx_date < from) return;
+      deposits += -(Number(t.amount) || 0);      // Abfluss vom Konto = Einzahlung ins Depot
+      count++;
+      if (!first || t.tx_date < first) first = t.tx_date;
+      if (!last || t.tx_date > last) last = t.tx_date;
+    });
+    deposits = round2(deposits);
+    return {
+      value: round2(start + deposits), opening_value: start, opening_date: from,
+      deposits: deposits, count: count, first: first, last: last,
+    };
+  }
+
   // ── Ist-Cashflow je Monat ────────────────────────────────────────────────
   // Basis sind die BANK-Buchungen (Karte würde doppelt zählen: die Karte wird
   // per Sammelabbuchung vom Bankkonto bezahlt). Die Kartenposten dienen der
@@ -745,6 +775,8 @@
     enrich: enrich,
     enrichAll: enrichAll,
     balances: balances,
+    depotValue: depotValue,
+    SAVINGS_CATEGORY: SAVINGS_CATEGORY,
     cardOpenBalance: cardOpenBalance,
     monthlyActuals: monthlyActuals,
     monthlyCategories: monthlyCategories,

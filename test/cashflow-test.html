@@ -93,6 +93,7 @@
       <div class="kpi-card"><div class="kpi-label">Ausgänge</div><div class="kpi-value" id="kOut">—</div><div class="kpi-sub" id="kOutSub"></div></div>
       <div class="kpi-card" id="kFlowCard"><div class="kpi-label">Cashflow im Zeitraum</div><div class="kpi-value" id="kFlow">—</div><div class="kpi-sub" id="kFlowSub"></div></div>
       <div class="kpi-card" id="kTrendCard"><div class="kpi-label" id="kTrendLabel">Monate mit Minus</div><div class="kpi-value" id="kTrend">—</div><div class="kpi-sub" id="kTrendSub"></div></div>
+      <div class="kpi-card" id="kAssetsCard"><div class="kpi-label">Vermögen inkl. Depot</div><div class="kpi-value" id="kAssets">—</div><div class="kpi-sub" id="kAssetsSub"></div></div>
     </div>
 
     <div class="cf-tabs">
@@ -334,6 +335,18 @@
         </div>
       </div>
       <div class="card">
+        <div class="card-head"><div><h2>Depot / Geldanlage</h2><div class="sub">ETF-Sparplan: Umbuchung aufs eigene Depot – kein Aufwand, aber weg vom Konto</div></div></div>
+        <div class="form-grid" style="align-items:flex-start">
+          <div><label>Depotwert am Stichtag</label>
+            <input id="depotOpening" class="inp md" type="text" placeholder="0,00"></div>
+          <div><label>Stichtag</label>
+            <input id="depotDate" class="inp md" type="date"></div>
+          <button id="depotSave" class="btn btn-primary">Speichern</button>
+        </div>
+        <div class="note" id="depotNote"></div>
+      </div>
+
+      <div class="card">
         <div class="card-head"><div><h2>Ad-Spend-Erkennung</h2><div class="sub">Muster für Abbuchungen an Amazon bzw. Weiterberechnungen an Kunden – kommagetrennt</div></div></div>
         <div class="form-grid" style="align-items:flex-start">
           <div style="flex:1;min-width:260px"><label>Abbuchung an Amazon (Buchungstext)</label>
@@ -349,10 +362,10 @@
 </main>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-<script src="cashflow-test-db.js?v=1788244046844"></script>
-<script src="../js/utils.js?v=1788244046844"></script>
-<script src="../js/cost-engine.js?v=1788244046844"></script>
-<script src="../js/cashflow-engine.js?v=1788244046844"></script>
-<script src="../js/cashflow.js?v=1788244046844"></script>
+<script src="cashflow-test-db.js?v=1788245662802"></script>
+<script src="../js/utils.js?v=1788245662802"></script>
+<script src="../js/cost-engine.js?v=1788245662802"></script>
+<script src="../js/cashflow-engine.js?v=1788245662802"></script>
+<script src="../js/cashflow.js?v=1788245662802"></script>
 </body>
 </html>
