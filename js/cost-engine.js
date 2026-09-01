@@ -261,19 +261,25 @@
       && extractLohnsteuer(tx.description) != null;
   }
 
+  // Kategorien ohne Vorsteuer: Steuerzahlungen ans Finanzamt und Umbuchungen
+  // aufs eigene Depot (ETF-Sparplan) enthalten definitionsgemäß keine MwSt –
+  // auch wenn eine grobe Regel wie "GmbH" greifen würde.
+  var NO_VAT_CATEGORIES = { 'Geldanlage': 1, 'Steuern': 1, 'Umsatzsteuer': 1 };
+
   // Eine Transaktion vollständig anreichern (Kategorie + MwSt + Ausschluss).
   function enrich(tx, rules) {
     var cat = categorize(tx, rules.categoryRules || []);
     var vat = applyVat(tx, rules.vatRules || []);
     var exc = applyExclude(tx, rules.excludeRules || []);
-    var net = vat.amount_net;
+    var net = vat.amount_net, rate = vat.vat_rate, vatAmount = vat.vat_amount;
+    if (NO_VAT_CATEGORIES[cat]) { rate = 0; vatAmount = 0; net = tx.amount_gross; }
     if (isBundledTaxPayment(tx)) {                   // immer als Lohnsteuer behandeln (egal welche Regel zuerst griff)
       cat = 'Employee';
       net = extractLohnsteuer(tx.description);
     }
     return Object.assign({}, tx, {
       category: cat,
-      vat_rate: vat.vat_rate, vat_amount: vat.vat_amount, amount_net: net,
+      vat_rate: rate, vat_amount: vatAmount, amount_net: net,
       excluded: exc.excluded, exclude_reason: exc.exclude_reason,
     });
   }

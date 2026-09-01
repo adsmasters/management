@@ -266,6 +266,7 @@ const forecast = C.buildForecast({
     { label: 'Gehälter', amount: 30000, pay_day: 27, rhythm: 'monthly', bucket: 'salary' },
     { label: 'Miete', amount: 1999.2, pay_day: 30, rhythm: 'monthly', bucket: 'supplier' },
     { label: 'Inaktiv', amount: 5000, pay_day: 5, rhythm: 'monthly', bucket: 'supplier', active: false },
+    { label: 'ETF-Sparplan (flatex)', amount: 25000, pay_day: 12, rhythm: 'monthly', bucket: 'savings' },
   ],
   taxDates: [{ label: 'UStVA Juli', due_date: '2026-09-10', amount: 8000, kind: 'ustva' }],
   cardSettlement: { amount: 3500, date: '2026-09-30' },
@@ -293,6 +294,28 @@ test('Vorschau: Ad-Spend läuft getrennt von den eigenen Kosten', () => {
   const wRefund = forecast.find(x => x.from === '2026-09-07');
   assert.strictEqual(wRefund.adSpendRefunds, 19708.57);
   assert.strictEqual(wRefund.clientPayments, 0);
+});
+
+// ── Geldanlage: Umbuchung aufs Depot ────────────────────────────────────────
+test('Vorschau: ETF-Sparplan zieht Geld ab, aber in eigener Zeile', () => {
+  const w = forecast.find(x => x.from === '2026-09-07');   // 12.09. liegt in dieser Woche
+  assert.strictEqual(w.savings, -25000, 'Sparplan mindert den Saldo');
+  assert.strictEqual(w.otherOut, 0, 'Sparplan darf nicht unter Sonstige Ausgaben laufen');
+  assert.strictEqual(w.suppliers, 0);
+  const spar = forecast.flatMap(x => x.items).filter(i => i.bucket === 'savings');
+  assert.ok(spar.length >= 1 && spar.every(i => /Sparplan/.test(i.label)));
+});
+
+test('Fixkosten-Vorschlag: Kategorie Geldanlage landet im Bucket savings', () => {
+  const txs = ['2026-05', '2026-06', '2026-07', '2026-08'].map((m) => ({
+    tx_date: m + '-12', description: 'Adsmasters GmbH | SVWZ+Sparplan ETF | ONLINE-UEBERWEISUNG',
+    payee: 'Adsmasters GmbH', amount_gross: 25000, amount_net: 25000, category: 'Geldanlage', excluded: false,
+  }));
+  const s = C.suggestFixedCosts(txs, { today: '2026-09-01', months: 6 });
+  const etf = s.find((x) => /Adsmasters/.test(x.label));
+  assert.ok(etf, 'Sparplan muss vorgeschlagen werden');
+  assert.strictEqual(etf.bucket, 'savings');
+  assert.strictEqual(etf.amount, 25000);
 });
 
 test('Vorschau: überfällige Rechnungen landen in Woche 1, ferne Termine fallen raus', () => {

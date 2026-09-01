@@ -183,6 +183,29 @@ test('enrich: Finanzamt-Bündel zählt nur Lohnsteuer als Kosten', () => {
   assert.strictEqual(pure.amount_net, 7427.60);
 });
 
+// ── Geldanlage: Umbuchung aufs eigene Depot ─────────────────────────────────
+test('enrich: Geldanlage bleibt ohne MwSt, auch wenn eine grobe Regel greift', () => {
+  var rules = {
+    categoryRules: [{ match_type: 'contains', pattern: 'Sparplan ETF', category: 'Geldanlage' }],
+    vatRules: [{ match_type: 'contains', pattern: 'GmbH', vat_rate: 0.19 }],
+    excludeRules: [],
+  };
+  var t = E.enrich({ description: 'Adsmasters GmbH | SVWZ+Sparplan ETF | ONLINE-UEBERWEISUNG',
+    amount_gross: 25000, tx_date: '2026-08-13' }, rules);
+  assert.strictEqual(t.category, 'Geldanlage');
+  assert.strictEqual(t.vat_rate, 0, 'Umbuchung aufs Depot enthaelt keine Vorsteuer');
+  assert.strictEqual(t.amount_net, 25000);
+});
+
+test('summarize: Geldanlage zaehlt nicht in den Gewinn', () => {
+  var s = E.summarize([
+    { year: 2026, month: 8, category: 'Software', amount_net: 100, excluded: false },
+    { year: 2026, month: 8, category: 'Geldanlage', amount_net: 25000, excluded: false },
+  ], { Geldanlage: false })['2026-08'];
+  assert.strictEqual(s.costNet, 100, 'nur echte Kosten');
+  assert.strictEqual(s.memoNet, 25000, 'Sparplan nur als Memo');
+});
+
 test('suggestCategory: Reisekosten/Software/Recruitment erkannt', () => {
   assert.strictEqual(E.suggestCategory('WWW.DEUTSCHEBAHN.COM (N BERLIN'), 'Reisekosten');
   assert.strictEqual(E.suggestCategory('Eurowings GmbH Dortmund'), 'Reisekosten');

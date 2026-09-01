@@ -36,10 +36,16 @@ const eur = n => new Intl.NumberFormat('de-DE', { style: 'currency', currency: '
   }
   console.log('\n' + changed + ' Buchungen aktualisiert.');
 
-  // Monatsübersicht Kosten neu
-  const off = new Set(['Steuern', 'Umsatzsteuer']);
+  // Monatsübersicht Kosten neu – Memo-Kategorien (Steuern, Geldanlage …) kommen
+  // aus den Einstellungen, sonst weicht die Summe von der Kostenanalyse ab.
+  const settings = await get('/cost_category_settings?select=category,include_in_profit');
+  const off = new Set(settings.filter(s => s.include_in_profit === false).map(s => s.category));
   const bym = {};
-  const fresh = await get('/cost_transactions?select=year,month,category,amount_net,excluded&limit=2000');
+  let fresh = [], off2 = 0;   // paginieren: PostgREST liefert max. 1000 Zeilen je Request
+  while (true) {
+    const c = await get('/cost_transactions?select=year,month,category,amount_net,excluded&limit=1000&offset=' + off2);
+    fresh = fresh.concat(c); if (c.length < 1000) break; off2 += 1000;
+  }
   fresh.forEach(t => { if (t.excluded || off.has(t.category)) return; const k = t.year + '-' + String(t.month).padStart(2, '0'); bym[k] = (bym[k] || 0) + (+t.amount_net || 0); });
   console.log('\nNetto-Kosten je Monat (nach Korrektur):');
   Object.keys(bym).sort().forEach(k => console.log('  ' + k + '  ' + eur(bym[k])));

@@ -415,11 +415,12 @@
   var COLS = [
     ['clientPayments', 'in'], ['adSpendRefunds', 'in'], ['otherIn', 'in'],
     ['salaries', 'out'], ['suppliers', 'out'], ['adSpendAmazon', 'out'], ['taxes', 'out'], ['otherOut', 'out'],
+    ['savings', 'out'],
   ];
   var BUCKET_LABELS = {
     clientPayments: 'Kundenzahlungen', adSpendRefunds: 'Ad-Spend-Erstattung', otherIn: 'Sonstiger Eingang',
     salaries: 'Gehälter', suppliers: 'Lieferanten', adSpendAmazon: 'Ad-Spend an Amazon',
-    taxes: 'Steuern', otherOut: 'Sonstige Ausgabe',
+    taxes: 'Steuern', otherOut: 'Sonstige Ausgabe', savings: 'Geldanlage',
   };
 
   function cell(v) {
@@ -454,7 +455,7 @@
               '<span class="' + (i.amount > 0 ? 'in' : 'out') + '">' + fmt(i.amount) + '</span></div>';
           }).join('')
         : '<div class="detail-line"><span class="lbl">Keine geplanten Zahlungen in dieser Woche.</span></div>';
-      return main + '<tr class="detail-row"><td colspan="11"><div class="detail-inner">' + items + '</div></td></tr>';
+      return main + '<tr class="detail-row"><td colspan="12"><div class="detail-inner">' + items + '</div></td></tr>';
     }).join('');
     el('forecastBody').innerHTML = rows;
 
@@ -473,6 +474,9 @@
       + ' mit negativem Endsaldo – erste(r) am ' + fmtDate(neg[0].from) + '.');
     if (cardOpen && cardOpen.amount < 0) notes.push('Offene Kartenumsätze ' + fmt(Math.abs(cardOpen.amount)) + ' sind als Sammelabbuchung am ' + fmtDate(nextSettlementDate()) + ' eingeplant (Zeile „Sonstige Ausgaben").');
     if (!state.invoices.length) notes.push('Noch keine Rechnungen aus LexOffice geladen – die Eingangsseite der Vorschau ist dadurch leer.');
+    var spar = weeks.reduce(function (s, w) { return s + (w.savings || 0); }, 0);
+    if (spar) notes.push('Geldanlage ' + fmt(Math.abs(spar)) + ' im Vorschauzeitraum: Umbuchung aufs eigene Depot. '
+      + 'Das Geld ist vom Konto weg (deshalb in der Vorschau), aber kein Aufwand – es liegt im Depot.');
     notes.push('Kundenzahlungen stehen brutto (inkl. USt) – so kommen sie aufs Konto. Die Seite „Offene Rechnungen" zeigt dieselben Rechnungen netto; im Wochendetail steht der Netto-Betrag dahinter.');
     el('forecastNote').innerHTML = notes.map(esc).join('<br>');
 
@@ -808,6 +812,7 @@
   var BUCKET_OPTIONS = [
     ['salary', 'Gehälter'], ['supplier', 'Lieferanten'], ['adspend_amazon', 'Ad-Spend an Amazon'],
     ['tax', 'Steuern'], ['other_out', 'Sonstige Ausgaben'], ['card_settlement', 'Kartenabrechnung'],
+    ['savings', 'Geldanlage (Sparplan)'],
   ];
 
   function renderFixed() {

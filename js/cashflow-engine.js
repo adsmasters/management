@@ -437,6 +437,7 @@
     'Team-Event': 'other_out',
     'PayPal': 'other_out',
     'Andere': 'other_out',
+    'Geldanlage': 'savings',
   };
   // Steuern gehören in den Reiter Steuertermine (sonst doppelt zur UStVA-Schätzung).
   var SKIP_CATEGORIES = { 'Steuern': 1, 'Umsatzsteuer': 1 };
@@ -598,7 +599,10 @@
   //   fixedCosts     [{ label, amount, pay_day, rhythm, start_month, bucket, active }]
   //   taxDates       [{ label, due_date, amount, kind }]
   //   cardSettlement { amount, date }                            offene Kartenumsätze
-  var BUCKETS = ['clientPayments', 'adSpendRefunds', 'otherIn', 'salaries', 'suppliers', 'adSpendAmazon', 'taxes', 'otherOut'];
+  // 'savings' = Umbuchung aufs eigene Depot (ETF-Sparplan). Verlaesst das
+  // Geschaeftskonto wie jede andere Zahlung – ist aber kein Aufwand, sondern
+  // liegt danach im Depot. Deshalb eigene Zeile statt 'otherOut'.
+  var BUCKETS = ['clientPayments', 'adSpendRefunds', 'otherIn', 'salaries', 'suppliers', 'adSpendAmazon', 'taxes', 'otherOut', 'savings'];
   var MONTH_NAMES = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni',
                      'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
 
@@ -676,7 +680,8 @@
 
     // Fixkosten
     var bucketMap = { salary: 'salaries', supplier: 'suppliers', adspend_amazon: 'adSpendAmazon',
-                      tax: 'taxes', other_out: 'otherOut', card_settlement: 'otherOut' };
+                      tax: 'taxes', other_out: 'otherOut', card_settlement: 'otherOut',
+                      savings: 'savings' };
     var cs0 = opts.cardSettlement;
     (opts.fixedCosts || []).forEach(function (fc) {
       if (fc.active === false) return;
