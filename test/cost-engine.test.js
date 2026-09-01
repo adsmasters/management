@@ -164,6 +164,12 @@ test('extractLohnsteuer: nur Lohnsteuer-Betrag aus Bündel', () => {
     4616.82);
   assert.strictEqual(E.extractLohnsteuer('Lohnsteuer Feb. 26 7.427,60'), 7427.60);
   assert.strictEqual(E.extractLohnsteuer('keine steuer hier'), null);
+  // Roh-SEPA-Verwendungszweck: Betrag klebt am nächsten Tag-Block (Export ab 08/2026)
+  assert.strictEqual(
+    E.extractLohnsteuer('STEUERVERWALTUNG NRW | EREF+10300057102946L260811-8009-04360347MREF+NW065675471982'
+      + 'CRED+DE14NRW00000098851SVWZ+Stnr 103/5710/2946 Umsatzsteuer Juni 26 11.910,13 Lohnsteuer Juli 26 '
+      + '4.124,69ABWA+Landeshauptkasse des Landes Nordrhein-Westfalen | FOLGELASTSCHRIFT'),
+    4124.69);
 });
 
 test('enrich: Finanzamt-Bündel zählt nur Lohnsteuer als Kosten', () => {

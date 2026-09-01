@@ -231,15 +231,23 @@
 
   // Lohnsteuer-Beträge aus einem Finanzamt-Buchungstext extrahieren.
   // "... Umsatzsteuer Okt. 25 14.694,96 Lohnsteuer Nov. 25 4.557,73" → 4557.73
+  // Der Betrag darf am Folgetext kleben – manche Kontoauszug-Exporte liefern den
+  // Verwendungszweck als rohen SEPA-String: "... Lohnsteuer Juli 26 4.124,69ABWA+…".
+  function amountAtStart(tok) {
+    var m = String(tok).match(/^(\d[\d.]*,\d{2})(?!\d)/);   // dt. Betrag wie 4.557,73
+    return m ? parseGermanAmount(m[1]) : null;
+  }
   function extractLohnsteuer(desc) {
     var toks = String(desc || '').split(/\s+/);
     var sum = 0, found = false;
     for (var i = 0; i < toks.length; i++) {
-      if (!/lohnsteuer/i.test(toks[i])) continue;
-      for (var j = i + 1; j < Math.min(toks.length, i + 6); j++) {
-        var m = toks[j].match(/^(\d[\d.]*,\d{2})$/);   // dt. Betrag wie 4.557,73
-        if (m) { sum += parseGermanAmount(m[1]); found = true; break; }
-      }
+      var k = toks[i].search(/lohnsteuer/i);
+      if (k < 0) continue;
+      // Betrag im selben Token (ohne Leerzeichen angehängt) …
+      var v = amountAtStart(toks[i].slice(k + 10).replace(/^\D+/, ''));
+      // … sonst in den nächsten Tokens ("Lohnsteuer Juli 26 4.124,69").
+      for (var j = i + 1; v == null && j < Math.min(toks.length, i + 6); j++) v = amountAtStart(toks[j]);
+      if (v != null) { sum += v; found = true; }
     }
     return found ? Math.round(sum * 100) / 100 : null;
   }
