@@ -472,7 +472,11 @@
     el('forecastTitle').textContent = grain() === 'week' ? '13-Wochen-Vorschau' : '6-Monats-Vorschau';
     el('forecastPeriodHead').textContent = grain() === 'week' ? 'Woche' : 'Monat';
     var aktiv = state.fixedCosts.filter(function (f) { return f.active !== false && Number(f.amount) > 0; });
-    el('planEmpty').classList.toggle('hidden', aktiv.length > 0);
+    // Der Hinweis zaehlt nur die LAUFENDEN Kosten: eine einzelne Geldanlage-Zeile
+    // ersetzt keine Gehaelter/Miete – sonst verschwindet die Warnung zu frueh.
+    var laufend = aktiv.filter(function (f) { return f.bucket !== 'savings'; });
+    var leer = state.fixedCosts.filter(function (f) { return f.active !== false && !Number(f.amount); });
+    el('planEmpty').classList.toggle('hidden', laufend.length > 0 && !leer.length);
     el('forecastSub').textContent = 'Start: ' + fmt(b.bank) + ' · '
       + state.invoices.length + ' offene Rechnungen · '
       + aktiv.length + ' aktive Fixkosten';
