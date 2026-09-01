@@ -401,7 +401,8 @@
     });
     if (ohneStart) {
       el('kAssets').textContent = '—';
-      el('kAssetsSub').textContent = 'Anfangssaldo im Reiter Konten eintragen';
+      el('kAssetsSub').textContent = 'Depot ' + fmt0(d.value)
+        + ' · Kontostand fehlt: Anfangssaldo im Reiter Konten eintragen';
       return;
     }
     el('kAssets').textContent = fmt0(b.bank + d.value);
