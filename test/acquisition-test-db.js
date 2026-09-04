@@ -19,9 +19,9 @@
   ];
 
   var links = [
-    { id: 'l1', acquisition_cost_id: 'c-omr25', contact_name: 'Verapur Schlafsysteme GmbH' },
-    { id: 'l2', acquisition_cost_id: 'c-omr25', contact_name: 'IBO International GmbH' },
-    { id: 'l3', acquisition_cost_id: 'c-seo',   contact_name: 'Kreher Feinkost GmbH' },
+    { id: 'l1', acquisition_cost_id: 'c-omr25', contact_name: 'Verapur Schlafsysteme GmbH', tag: null },
+    { id: 'l2', acquisition_cost_id: 'c-omr25', contact_name: 'IBO International GmbH',     tag: 'Standgespräch' },
+    { id: 'l3', acquisition_cost_id: 'c-seo',   contact_name: 'Kreher Feinkost GmbH',       tag: 'ChatGPT' },
   ];
 
   // status='excluded' → gar kein Umsatz; 'cat:Software' → PPC-Tool-Kunde
@@ -77,9 +77,14 @@
     },
     acquisitionContactLinks: {
       listAll: function () { return ok(links); },
-      create: function (costId, contactName) {
-        var row = { id: id(), acquisition_cost_id: costId, contact_name: contactName };
+      create: function (costId, contactName, tag) {
+        var row = { id: id(), acquisition_cost_id: costId, contact_name: contactName, tag: tag || null };
         links.push(row); return ok(row);
+      },
+      setTag: function (costId, contactName, tag) {
+        var rows = links.filter(function (l) { return l.acquisition_cost_id === costId && l.contact_name === contactName; });
+        rows.forEach(function (l) { l.tag = tag || null; });
+        return ok(rows);
       },
       delete: function (costId, contactName) {
         links = links.filter(function (l) { return !(l.acquisition_cost_id === costId && l.contact_name === contactName); });

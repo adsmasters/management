@@ -50,6 +50,7 @@
     <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap">
       <button id="viewAll"  class="btn btn-primary btn-sm">Alle Einträge</button>
       <button id="viewType" class="btn btn-secondary btn-sm">Nach Typ</button>
+      <button id="viewTag"  class="btn btn-secondary btn-sm">Nach Unterkanal</button>
       <div style="width:1px;height:24px;background:var(--border);margin:0 4px"></div>
       <div style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-secondary)">
         <span>Zeitraum:</span>
@@ -120,6 +121,33 @@
       </div>
     </div>
 
+    <!-- Unterkanal-Vergleich -->
+    <div id="viewTagPanel" class="hidden">
+      <div class="card">
+        <div style="padding:14px 20px 0">
+          <div style="font-size:13px;color:var(--text-secondary)">
+            Unterkanäle innerhalb der Quellen – z.&nbsp;B. um einen gemeinsamen Kostenblock
+            („Google Organic &amp; KI") nachträglich aufzuschlüsseln. Der Unterkanal wird
+            beim Zuordnen eines Kunden gesetzt und ist jederzeit änderbar.
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th style="min-width:180px">Unterkanal</th>
+                <th class="right" style="min-width:90px">Kunden</th>
+                <th class="right" style="min-width:150px"><span id="umsatzColLabelTag">Umsatz (LTD)</span></th>
+                <th class="right" style="min-width:130px">Ø je Kunde</th>
+                <th style="min-width:220px">Quellen</th>
+              </tr>
+            </thead>
+            <tbody id="tagBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
   </div>
 
   <div id="emptyState" class="hidden">
@@ -131,6 +159,8 @@
   </div>
 
 </main>
+
+<datalist id="tagOptions"></datalist>
 
 <!-- Add / Edit Modal -->
 <div id="acqModal" class="modal-overlay hidden">
@@ -198,7 +228,9 @@
     </div>
     <div class="modal-body">
       <p style="color:var(--text-secondary);font-size:13px;margin-bottom:12px">
-        Wähle alle Kunden, die über diese Quelle gewonnen wurden. Die Auswahl wird direkt gespeichert.
+        Wähle alle Kunden, die über diese Quelle gewonnen wurden. Optional je Kunde ein
+        Unterkanal (z.&nbsp;B. „Google organisch" oder „ChatGPT"), um die Quelle später
+        feiner auswerten zu können. Die Auswahl wird direkt gespeichert.
       </p>
       <input type="text" id="assignSearch" placeholder="Kunden suchen…" autocomplete="off"
         style="width:100%;margin-bottom:12px;padding:8px 10px;border:1px solid var(--border);border-radius:var(--radius);font-size:14px;background:var(--surface)">
@@ -259,8 +291,8 @@
   </div>
 </div>
 
-<script src="acquisition-test-db.js?v=1788500770172"></script>
-<script src="../js/utils.js?v=1788500770172"></script>
-<script src="../js/acquisition.js?v=1788500770172"></script>
+<script src="acquisition-test-db.js?v=1788501448009"></script>
+<script src="../js/utils.js?v=1788501448009"></script>
+<script src="../js/acquisition.js?v=1788501448009"></script>
 </body>
 </html>

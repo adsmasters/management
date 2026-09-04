@@ -39,6 +39,17 @@ ALTER TABLE acquisition_contact_links ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Allow all on acquisition_contact_links" ON acquisition_contact_links FOR ALL USING (true) WITH CHECK (true);
 ```
 
+## 3b. Unterkanal-Tag an den Kunden-Zuordnungen
+
+Erlaubt es, einen gemeinsamen Kostenblock (z. B. „Google Organic & KI")
+nachträglich aufzuschlüsseln: pro zugeordnetem Kunden lässt sich festhalten,
+ob er über Google organisch oder über ChatGPT/Perplexity/… kam.
+Ausgeführt am 04.09.2026.
+
+```sql
+ALTER TABLE acquisition_contact_links ADD COLUMN IF NOT EXISTS tag text;
+```
+
 ## 4. Freelancer-Verrechnungssatz + Umsatz-Ausschlüsse (MA-Umsatz-Modell)
 
 ```sql

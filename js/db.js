@@ -387,10 +387,17 @@
         q(s => s.from('acquisition_contact_links').select('*').eq('acquisition_cost_id', costId)),
       listAll: () =>
         q(s => s.from('acquisition_contact_links').select('*')),
-      create: (costId, contactName) =>
+      // tag = Unterkanal innerhalb einer Quelle (z.B. 'ChatGPT' vs. 'Google organisch'),
+      // damit ein gemeinsamer Kostenblock nachträglich aufgeschlüsselt werden kann.
+      create: (costId, contactName, tag) =>
         q(s => s.from('acquisition_contact_links')
-          .insert({ acquisition_cost_id: costId, contact_name: contactName })
+          .insert({ acquisition_cost_id: costId, contact_name: contactName, tag: tag || null })
           .select().single()),
+      setTag: (costId, contactName, tag) =>
+        q(s => s.from('acquisition_contact_links')
+          .update({ tag: tag || null })
+          .eq('acquisition_cost_id', costId).eq('contact_name', contactName)
+          .select()),
       delete: (costId, contactName) =>
         q(s => s.from('acquisition_contact_links')
           .delete().eq('acquisition_cost_id', costId).eq('contact_name', contactName)),

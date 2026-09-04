@@ -54,8 +54,43 @@
   var unassignedAll  = [];   // dito, ohne Zeitraumfilter
   var allCosts       = [];   // alle Akquisitionseinträge (für Zuordnen-Dropdown)
   var unassignedDirty= false;// wurde im Modal etwas zugeordnet?
+  var tagSet         = {};   // norm(contactName) → Unterkanal im offenen Zuordnen-Dialog
+  var savedTags      = {};   // norm(contactName) → in der DB gespeicherter Unterkanal
 
   var MONTHS_LABEL = ['Jan','Feb','Mär','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez'];
+
+  // Unterkanal = feinere Herkunft innerhalb einer Quelle. Ein Kostenblock wie
+  // „Google Organic & KI" lässt sich damit auswerten, ohne die Kosten künstlich
+  // aufzuteilen. Freitext – die Liste ist nur Vorschlag und wird um alle bereits
+  // vergebenen Werte ergänzt.
+  var TAG_SUGGESTIONS = ['Google organisch', 'ChatGPT', 'Perplexity', 'Claude', 'Gemini', 'Copilot', 'Sonstige KI'];
+
+  function knownTags() {
+    var seen = {}, out = [];
+    TAG_SUGGESTIONS.forEach(function (t) { seen[t.toLowerCase()] = 1; out.push(t); });
+    allLinks.forEach(function (l) {
+      var t = (l.tag || '').trim();
+      if (t && !seen[t.toLowerCase()]) { seen[t.toLowerCase()] = 1; out.push(t); }
+    });
+    return out.sort(function (a, b) { return a.localeCompare(b, 'de'); });
+  }
+
+  function refreshTagOptions() {
+    var dl = document.getElementById('tagOptions');
+    if (!dl) return;
+    dl.innerHTML = knownTags().map(function (t) { return '<option value="' + escHtml(t) + '">'; }).join('');
+  }
+
+  function makeTagInput(value, placeholder) {
+    var inp = document.createElement('input');
+    inp.type = 'text';
+    inp.setAttribute('list', 'tagOptions');
+    inp.value = value || '';
+    inp.placeholder = placeholder || 'Unterkanal';
+    inp.autocomplete = 'off';
+    inp.style.cssText = 'padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius);font-size:12px;background:var(--surface);color:var(--text);font-family:inherit';
+    return inp;
+  }
 
   var TYPE_LABELS = {
     'messe':           'Messe',
@@ -131,28 +166,25 @@
 
   // ── View toggle ──────────────────────────────────────────────────────
   var currentView = 'all';
-  var viewAllBtn   = document.getElementById('viewAll');
-  var viewTypeBtn  = document.getElementById('viewType');
-  var viewAllPanel = document.getElementById('viewAllPanel');
-  var viewTypePanel= document.getElementById('viewTypePanel');
+  var VIEWS = {
+    'all':  { btn: document.getElementById('viewAll'),  panel: document.getElementById('viewAllPanel')  },
+    'type': { btn: document.getElementById('viewType'), panel: document.getElementById('viewTypePanel') },
+    'tag':  { btn: document.getElementById('viewTag'),  panel: document.getElementById('viewTagPanel')  },
+  };
 
   function setView(v) {
     currentView = v;
-    if (v === 'all') {
-      viewAllPanel.classList.remove('hidden');
-      viewTypePanel.classList.add('hidden');
-      viewAllBtn.className  = 'btn btn-primary btn-sm';
-      viewTypeBtn.className = 'btn btn-secondary btn-sm';
-    } else {
-      viewAllPanel.classList.add('hidden');
-      viewTypePanel.classList.remove('hidden');
-      viewAllBtn.className  = 'btn btn-secondary btn-sm';
-      viewTypeBtn.className = 'btn btn-primary btn-sm';
-    }
+    Object.keys(VIEWS).forEach(function (k) {
+      var view = VIEWS[k];
+      if (!view.btn || !view.panel) return;
+      view.panel.classList.toggle('hidden', k !== v);
+      view.btn.className = 'btn btn-sm ' + (k === v ? 'btn-primary' : 'btn-secondary');
+    });
   }
 
-  viewAllBtn.addEventListener('click',  function() { setView('all'); });
-  viewTypeBtn.addEventListener('click', function() { setView('type'); });
+  Object.keys(VIEWS).forEach(function (k) {
+    if (VIEWS[k].btn) VIEWS[k].btn.addEventListener('click', function () { setView(k); });
+  });
 
   // ── Sort ─────────────────────────────────────────────────────────────
   var lastRenderArgs = null;
@@ -258,12 +290,18 @@
     // Build saved set from current DB links
     savedLinks = {};
     selectedSet = {};
+    savedTags = {};
+    tagSet = {};
     allLinks.forEach(function (l) {
       if (l.acquisition_cost_id === cost.id) {
-        savedLinks[norm(l.contact_name)]   = true;
-        selectedSet[norm(l.contact_name)]  = true;
+        var k = norm(l.contact_name);
+        savedLinks[k]  = true;
+        selectedSet[k] = true;
+        savedTags[k]   = (l.tag || '');
+        tagSet[k]      = (l.tag || '');
       }
     });
+    refreshTagOptions();
 
     assignModalSource.textContent = cost.source_name;
     assignSearch.value = '';
@@ -294,27 +332,42 @@
       if (f && contactName.toLowerCase().indexOf(f) === -1) return;
       var key     = norm(contactName);
       var checked = !!selectedSet[key];
-      var row = document.createElement('label');
-      row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:6px;cursor:pointer;background:var(--surface);border:1px solid var(--border);user-select:none';
+      // Zeile: Checkbox + Name als <label>, Tag-Feld daneben (nicht im Label,
+      // sonst würde ein Klick ins Feld die Checkbox umschalten).
+      var row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:6px 10px;border-radius:6px;background:var(--surface);border:1px solid var(--border)';
+
+      var label = document.createElement('label');
+      label.style.cssText = 'display:flex;align-items:center;gap:10px;cursor:pointer;user-select:none;flex:1;min-width:0';
       var cb = document.createElement('input');
       cb.type = 'checkbox';
       cb.checked = checked;
       cb.style.cssText = 'width:16px;height:16px;cursor:pointer;accent-color:var(--primary);flex-shrink:0';
+      var nameSpan = document.createElement('span');
+      nameSpan.style.cssText = 'font-size:14px;font-weight:500';
+      nameSpan.textContent = contactName;
+      label.appendChild(cb);
+      label.appendChild(nameSpan);
+      if (otherSources[key]) {
+        var hint = document.createElement('span');
+        hint.style.cssText = 'font-size:11px;color:var(--text-secondary);font-weight:400;white-space:nowrap';
+        hint.textContent = 'bereits: ' + otherSources[key].join(', ');
+        label.appendChild(hint);
+      }
+      row.appendChild(label);
+
+      var tagInput = makeTagInput(tagSet[key], 'Unterkanal');
+      tagInput.style.cssText += ';width:150px;flex-shrink:0';
+      tagInput.disabled = !checked;
+      tagInput.addEventListener('input', function () { tagSet[key] = tagInput.value.trim(); });
+      row.appendChild(tagInput);
+
       cb.addEventListener('change', function () {
         if (cb.checked) selectedSet[key] = true;
         else delete selectedSet[key];
+        tagInput.disabled = !cb.checked;
       });
-      var label = document.createElement('span');
-      label.style.cssText = 'font-size:14px;font-weight:500';
-      label.textContent = contactName;
-      row.appendChild(cb);
-      row.appendChild(label);
-      if (otherSources[key]) {
-        var hint = document.createElement('span');
-        hint.style.cssText = 'font-size:11px;color:var(--text-secondary);font-weight:400;margin-left:auto;text-align:right';
-        hint.textContent = 'bereits: ' + otherSources[key].join(', ');
-        row.appendChild(hint);
-      }
+
       assignClientList.appendChild(row);
     });
   }
@@ -331,10 +384,11 @@
 
     // Add newly checked
     Object.keys(selectedSet).forEach(function (normName) {
+      var original = allClients.find(function (c) { return norm(c) === normName; }) || normName;
       if (!savedLinks[normName]) {
-        // Find original casing
-        var original = allClients.find(function (c) { return norm(c) === normName; }) || normName;
-        updates.push(window.db.acquisitionContactLinks.create(costId, original));
+        updates.push(window.db.acquisitionContactLinks.create(costId, original, tagSet[normName]));
+      } else if ((tagSet[normName] || '') !== (savedTags[normName] || '')) {
+        updates.push(window.db.acquisitionContactLinks.setTag(costId, original, tagSet[normName]));
       }
     });
 
@@ -358,6 +412,7 @@
 
   // ── Detail Modal ──────────────────────────────────────────────────────
   function openDetailModal(cost, linkedContactNames) {
+    refreshTagOptions();
     detailModalTitle.textContent = cost.source_name + ' – Zugeordnete Kunden';
     detailModalBody.innerHTML = '<div style="padding:20px;color:var(--text-secondary);font-size:13px">Lade…</div>';
     detailModal.classList.remove('hidden');
@@ -394,10 +449,44 @@
           section.style.cssText = 'border-bottom:1px solid var(--border);padding:14px 20px';
 
           var header = document.createElement('div');
-          header.style.cssText = 'display:flex;justify-content:space-between;align-items:center;margin-bottom:' + (sortedMonths.length ? '8px' : '0');
-          header.innerHTML =
-            '<span style="font-weight:600;font-size:14px">' + escHtml(name) + '</span>' +
-            '<span class="contact-total" style="font-weight:700;font-size:14px;font-variant-numeric:tabular-nums">' + fmt(total) + '</span>';
+          header.style.cssText = 'display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:' + (sortedMonths.length ? '8px' : '0');
+          var nameEl = document.createElement('span');
+          nameEl.style.cssText = 'font-weight:600;font-size:14px;flex:1;min-width:0';
+          nameEl.textContent = name;
+          header.appendChild(nameEl);
+
+          // Unterkanal direkt hier änderbar – so lässt sich eine bestehende
+          // Zuordnung nachträglich verfeinern (Google organisch vs. ChatGPT …).
+          var link = allLinks.filter(function (l) {
+            return l.acquisition_cost_id === cost.id && norm(l.contact_name) === norm(name);
+          })[0];
+          var tagInput = makeTagInput(link ? link.tag : '', 'Unterkanal');
+          tagInput.style.cssText += ';width:150px;flex-shrink:0';
+          tagInput.title = 'Unterkanal – z.B. Google organisch oder ChatGPT';
+          tagInput.addEventListener('change', function () {
+            var val = tagInput.value.trim();
+            if (!link || (link.tag || '') === val) return;
+            tagInput.disabled = true;
+            window.db.acquisitionContactLinks.setTag(cost.id, link.contact_name, val)
+              .then(function () {
+                link.tag = val || null;
+                tagInput.disabled = false;
+                refreshTagOptions();
+                if (lastRenderArgs) render(lastRenderArgs[0], lastRenderArgs[1], lastRenderArgs[2]);
+              })
+              .catch(function (e) {
+                tagInput.disabled = false;
+                tagInput.value = link.tag || '';
+                showError('Unterkanal konnte nicht gespeichert werden: ' + e.message);
+              });
+          });
+          header.appendChild(tagInput);
+
+          var totalEl = document.createElement('span');
+          totalEl.className = 'contact-total';
+          totalEl.style.cssText = 'font-weight:700;font-size:14px;font-variant-numeric:tabular-nums';
+          totalEl.textContent = fmt(total);
+          header.appendChild(totalEl);
           section.appendChild(header);
 
           if (sortedMonths.length) {
@@ -757,6 +846,7 @@
   function openUnassignedModal(rows) {
     unassignedRows   = rows.slice();
     unassignedDirty  = false;
+    refreshTagOptions();
     unassignedSearch.value = '';
     unassignedHint.textContent = unassignedRows.length +
       ' Kunden mit Umsatz haben keine Quelle (Erstrechnung ab ' + UNASSIGNED_FROM_LABEL + ' – ältere Bestandskunden bleiben außen vor).' +
@@ -790,21 +880,25 @@
         '</td>' +
         '<td>' + ymLabel(u.firstYm) + '</td>' +
         '<td class="right" style="font-variant-numeric:tabular-nums">' + fmt(u.totalRev) + '</td>' +
-        '<td><div style="display:flex;gap:6px;align-items:center">' +
+        '<td><div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">' +
           '<select class="src-select" style="flex:1;min-width:130px;padding:5px 8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;background:var(--surface);color:var(--text)">' +
             '<option value="">– Quelle wählen –</option>' + sourceOptions +
           '</select>' +
           '<button class="btn btn-primary btn-sm assign-one" style="flex-shrink:0">Zuordnen</button>' +
+          '<span class="tag-slot" style="flex-basis:100%"></span>' +
         '</div></td>';
 
       var sel = tr.querySelector('.src-select');
       var btn = tr.querySelector('.assign-one');
+      var tagInput = makeTagInput('', 'Unterkanal (optional)');
+      tagInput.style.cssText += ';width:100%;box-sizing:border-box';
+      tr.querySelector('.tag-slot').appendChild(tagInput);
       btn.addEventListener('click', function () {
         var costId = sel.value;
         if (!costId) { sel.focus(); return; }
         btn.disabled = true;
         btn.textContent = '…';
-        window.db.acquisitionContactLinks.create(costId, u.name)
+        window.db.acquisitionContactLinks.create(costId, u.name, tagInput.value.trim())
           .then(function () {
             unassignedDirty = true;
             unassignedRows = unassignedRows.filter(function (r) { return r.name !== u.name; });
@@ -1005,8 +1099,92 @@
 
     allCosts = costs;
     renderUnassigned(revenues, links);
+    renderTagView(applyDateFilter(costs), links, revByContact);
 
     renderTypeView(applyDateFilter(costs), linksByCostNorm, linksByCostOriginal, revByContact);
+  }
+
+  // Auswertung nach Unterkanal: alle Zuordnungen (Kunde × Quelle) nach ihrem
+  // Tag gruppiert. So lässt sich ein gemeinsamer Kostenblock aufschlüsseln,
+  // ohne die Kosten selbst zu trennen – deshalb steht hier bewusst kein ROI.
+  function renderTagView(costs, links, revByContact) {
+    var tagBody = document.getElementById('tagBody');
+    if (!tagBody) return;
+
+    var lblC = document.getElementById('umsatzColLabelTag');
+    if (lblC) lblC.textContent = (filterFrom.value || filterTo.value) ? 'Umsatz (Zeitraum)' : 'Umsatz (LTD)';
+
+    var costById = {};
+    costs.forEach(function (c) { costById[c.id] = c; });
+
+    var NO_TAG = '__none__';
+    var byTag = {};
+    links.forEach(function (l) {
+      var cost = costById[l.acquisition_cost_id];
+      if (!cost) return;                       // Quelle liegt außerhalb des Zeitraums
+      var t = (l.tag || '').trim() || NO_TAG;
+      if (!byTag[t]) byTag[t] = { revenue: 0, clients: [], sources: {} };
+      byTag[t].revenue += (revByContact[norm(l.contact_name)] || 0);
+      byTag[t].clients.push({ name: l.contact_name, source: cost.source_name,
+                              revenue: revByContact[norm(l.contact_name)] || 0 });
+      byTag[t].sources[cost.source_name] = true;
+    });
+
+    var tags = Object.keys(byTag).sort(function (a, b) {
+      if (a === NO_TAG) return 1;
+      if (b === NO_TAG) return -1;
+      return byTag[b].revenue - byTag[a].revenue;
+    });
+
+    tagBody.innerHTML = '';
+    if (!tags.length) {
+      tagBody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-secondary);padding:24px">' +
+        'Noch keine Zuordnungen im gewählten Zeitraum.</td></tr>';
+      return;
+    }
+
+    tags.forEach(function (t) {
+      var d       = byTag[t];
+      var count   = d.clients.length;
+      var avg     = count ? d.revenue / count : 0;
+      var sources = Object.keys(d.sources).sort(function (a, b) { return a.localeCompare(b, 'de'); });
+      var isNone  = t === NO_TAG;
+
+      var tr = document.createElement('tr');
+      tr.style.cursor = 'pointer';
+      tr.innerHTML =
+        '<td style="font-weight:' + (isNone ? '400' : '600') + ';color:' + (isNone ? 'var(--text-secondary)' : 'var(--text)') + '">' +
+          '<span class="tag-caret" style="display:inline-block;width:12px;color:var(--text-secondary)">▸</span> ' +
+          (isNone ? 'Ohne Unterkanal' : escHtml(t)) +
+        '</td>' +
+        '<td class="right">' + count + '</td>' +
+        '<td class="right" style="font-variant-numeric:tabular-nums">' + fmt(d.revenue) + '</td>' +
+        '<td class="right" style="font-variant-numeric:tabular-nums;color:var(--text-secondary)">' + fmt(avg) + '</td>' +
+        '<td style="font-size:12px;color:var(--text-secondary)">' + escHtml(sources.join(', ')) + '</td>';
+
+      var detail = document.createElement('tr');
+      detail.className = 'hidden';
+      var cell = document.createElement('td');
+      cell.colSpan = 5;
+      cell.style.cssText = 'background:var(--bg);padding:10px 20px';
+      cell.innerHTML = d.clients.slice()
+        .sort(function (a, b) { return b.revenue - a.revenue; })
+        .map(function (c) {
+          return '<div style="display:flex;justify-content:space-between;gap:12px;padding:3px 0;font-size:13px">' +
+            '<span>' + escHtml(c.name) + ' <span style="color:var(--text-secondary);font-size:11px">· ' + escHtml(c.source) + '</span></span>' +
+            '<span style="font-variant-numeric:tabular-nums">' + fmt(c.revenue) + '</span>' +
+          '</div>';
+        }).join('');
+      detail.appendChild(cell);
+
+      tr.addEventListener('click', function () {
+        var open = !detail.classList.toggle('hidden');
+        tr.querySelector('.tag-caret').textContent = open ? '▾' : '▸';
+      });
+
+      tagBody.appendChild(tr);
+      tagBody.appendChild(detail);
+    });
   }
 
   function renderTypeView(costs, linksByCostNorm, linksByCostOriginal, revByContact) {
