@@ -48,6 +48,12 @@
   var savedLinks     = {};   // norm(contactName) → true — links already saved in DB for current cost
   var allClients     = [];   // sorted contact_name strings from revenue
   var allLinks       = [];   // all acquisition_contact_links rows
+  var allOverrides   = [];   // contact_overrides rows (excluded / cat:…)
+  var excludedSet    = {};   // norm(contactName) → 1 (kein Agenturkunde)
+  var unassigned     = [];   // Kunden mit Umsatz ohne Quelle (aktueller Filter)
+  var unassignedAll  = [];   // dito, ohne Zeitraumfilter
+  var allCosts       = [];   // alle Akquisitionseinträge (für Zuordnen-Dropdown)
+  var unassignedDirty= false;// wurde im Modal etwas zugeordnet?
 
   var MONTHS_LABEL = ['Jan','Feb','Mär','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez'];
 
@@ -624,8 +630,186 @@
   detailModal.addEventListener('click', function (e) { if (e.target === detailModal) closeDetailModal(); });
 
   document.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape') { closeModal(); closeDeleteModal(); closeAssignModal(); closeDetailModal(); }
+    if (e.key === 'Escape') { closeModal(); closeDeleteModal(); closeAssignModal(); closeDetailModal();
+      if (!unassignedModal.classList.contains('hidden')) closeUnassignedModal(); }
   });
+
+  // ── Nicht zugeordnete Kunden ─────────────────────────────────────────
+  // Kunden mit echtem Umsatz, die in KEINEM acquisition_contact_links-Eintrag
+  // stehen. Ausgeschlossen werden Kontakte, die auch sonst nicht als
+  // Agenturumsatz zählen: contact_overrides status='excluded' oder
+  // 'cat:Software' sowie automatisch erkannte Software-/PPC-Tool-Kunden
+  // (gleiche Logik wie in neukunden.js).
+  var PPC_CATEGORY = 'Software';
+
+  var unassignedBanner    = document.getElementById('unassignedBanner');
+  var unassignedModal     = document.getElementById('unassignedModal');
+  var unassignedBody      = document.getElementById('unassignedBody');
+  var unassignedSearch    = document.getElementById('unassignedSearch');
+  var unassignedHint      = document.getElementById('unassignedHint');
+  var unassignedModalClose= document.getElementById('unassignedModalClose');
+  var unassignedModalDone = document.getElementById('unassignedModalDone');
+
+  function buildExclusions(revenues) {
+    excludedSet = {};
+    allOverrides.forEach(function (o) {
+      if (o.status === 'excluded') excludedSet[norm(o.contact_name)] = 1;
+      else if (o.status && o.status.indexOf('cat:') === 0 && o.status.slice(4) === PPC_CATEGORY) excludedSet[norm(o.contact_name)] = 1;
+    });
+    var auto = window.detectSoftwareContacts ? window.detectSoftwareContacts(revenues) : {};
+    Object.keys(auto).forEach(function (k) { excludedSet[k] = 1; });
+  }
+
+  function ymLabel(v) { return MONTHS_LABEL[(v % 12)] + ' ' + Math.floor(v / 12); }
+
+  // → [{ name, firstYm, lastYm, totalRev }] sortiert nach Erstrechnung (neueste zuerst)
+  function computeUnassigned(revenues, links) {
+    var linked = {};
+    links.forEach(function (l) { linked[norm(l.contact_name)] = 1; });
+
+    var byContact = {};   // originalName → { firstYm, lastYm, totalRev }
+    revenues.forEach(function (r) {
+      var name = r.contact_name;
+      if (!name) return;
+      var amt = Number(r.total_amount) || 0;
+      if (!(amt > 0)) return;
+      var key = norm(name);
+      if (excludedSet[key] || linked[key]) return;
+      var v = r.year * 12 + (r.month - 1);
+      var e = byContact[name];
+      if (!e) { byContact[name] = { name: name, firstYm: v, lastYm: v, totalRev: amt }; return; }
+      if (v < e.firstYm) e.firstYm = v;
+      if (v > e.lastYm)  e.lastYm  = v;
+      e.totalRev += amt;
+    });
+
+    return Object.keys(byContact).map(function (k) { return byContact[k]; })
+      .sort(function (a, b) { return b.firstYm - a.firstYm || a.name.localeCompare(b.name, 'de'); });
+  }
+
+  function renderUnassigned(revenues, links) {
+    unassignedAll = computeUnassigned(revenues, links);
+    // Zeitraumfilter gilt hier für die ERSTRECHNUNG – der Kunde wurde in
+    // diesem Zeitraum gewonnen, also gehört er zu einer Quelle daraus.
+    var rangeActive = !!(filterFrom.value || filterTo.value);
+    unassigned = rangeActive
+      ? unassignedAll.filter(function (u) { return revenueMonthInRange(Math.floor(u.firstYm / 12), (u.firstYm % 12) + 1); })
+      : unassignedAll.slice();
+
+    if (unassigned.length === 0) {
+      var hiddenNote = (rangeActive && unassignedAll.length)
+        ? '<div class="alert alert-info" style="display:flex;align-items:center;gap:12px;justify-content:space-between;margin:0">' +
+            '<div>✅ Im gewählten Zeitraum ist jeder Kunde einer Quelle zugeordnet. ' +
+            '<span style="opacity:.8">Außerhalb des Zeitraums fehlen noch ' + unassignedAll.length + '.</span></div>' +
+            '<button class="btn btn-secondary btn-sm" id="unassignedOpenBtn" style="flex-shrink:0">Trotzdem anzeigen</button>' +
+          '</div>'
+        : '';
+      unassignedBanner.innerHTML = hiddenNote;
+      unassignedBanner.classList.toggle('hidden', !hiddenNote);
+    } else {
+      var rev = 0;
+      unassigned.forEach(function (u) { rev += u.totalRev; });
+      unassignedBanner.innerHTML =
+        '<div class="alert alert-warn" style="display:flex;align-items:center;gap:12px;justify-content:space-between;margin:0">' +
+          '<div>⚠️ <strong>' + unassigned.length + (unassigned.length === 1 ? ' Kunde' : ' Kunden') + '</strong> mit Umsatz ' +
+            (unassigned.length === 1 ? 'ist' : 'sind') + ' noch keiner Akquisitionsquelle zugeordnet' +
+            (rangeActive ? ' <span style="opacity:.8">(Erstrechnung im gewählten Zeitraum)</span>' : '') +
+            ' – ' + fmt(rev) + ' Umsatz ohne Kanal.</div>' +
+          '<button class="btn btn-secondary btn-sm" id="unassignedOpenBtn" style="flex-shrink:0">Jetzt zuordnen</button>' +
+        '</div>';
+      unassignedBanner.classList.remove('hidden');
+    }
+
+    var openBtn = document.getElementById('unassignedOpenBtn');
+    if (openBtn) openBtn.addEventListener('click', function () {
+      openUnassignedModal(unassigned.length ? unassigned : unassignedAll);
+    });
+  }
+
+  var unassignedRows = [];
+
+  function openUnassignedModal(rows) {
+    unassignedRows   = rows.slice();
+    unassignedDirty  = false;
+    unassignedSearch.value = '';
+    unassignedHint.textContent = unassignedRows.length +
+      ' Kunden mit Umsatz haben keine Quelle. Ordne sie einem Eintrag zu – die Zuordnung wird sofort gespeichert.';
+    renderUnassignedList('');
+    unassignedModal.classList.remove('hidden');
+    unassignedSearch.focus();
+  }
+
+  function closeUnassignedModal() {
+    unassignedModal.classList.add('hidden');
+    if (unassignedDirty) { unassignedDirty = false; loadData(); }
+  }
+
+  function renderUnassignedList(filter) {
+    var f = (filter || '').trim().toLowerCase();
+    var sourceOptions = allCosts.slice()
+      .sort(function (a, b) { return (a.source_name || '').localeCompare(b.source_name || '', 'de'); })
+      .map(function (c) { return '<option value="' + c.id + '">' + escHtml(c.source_name) + '</option>'; })
+      .join('');
+
+    unassignedBody.innerHTML = '';
+    var shown = 0;
+    unassignedRows.forEach(function (u) {
+      if (f && u.name.toLowerCase().indexOf(f) === -1) return;
+      shown++;
+      var tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td style="font-weight:500">' + escHtml(u.name) +
+          '<br><span style="font-size:11px;color:var(--text-secondary);font-weight:400">zuletzt ' + ymLabel(u.lastYm) + '</span>' +
+        '</td>' +
+        '<td>' + ymLabel(u.firstYm) + '</td>' +
+        '<td class="right" style="font-variant-numeric:tabular-nums">' + fmt(u.totalRev) + '</td>' +
+        '<td><div style="display:flex;gap:6px;align-items:center">' +
+          '<select class="src-select" style="flex:1;min-width:130px;padding:5px 8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;background:var(--surface);color:var(--text)">' +
+            '<option value="">– Quelle wählen –</option>' + sourceOptions +
+          '</select>' +
+          '<button class="btn btn-primary btn-sm assign-one" style="flex-shrink:0">Zuordnen</button>' +
+        '</div></td>';
+
+      var sel = tr.querySelector('.src-select');
+      var btn = tr.querySelector('.assign-one');
+      btn.addEventListener('click', function () {
+        var costId = sel.value;
+        if (!costId) { sel.focus(); return; }
+        btn.disabled = true;
+        btn.textContent = '…';
+        window.db.acquisitionContactLinks.create(costId, u.name)
+          .then(function () {
+            unassignedDirty = true;
+            unassignedRows = unassignedRows.filter(function (r) { return r.name !== u.name; });
+            unassigned     = unassigned.filter(function (r) { return r.name !== u.name; });
+            unassignedAll  = unassignedAll.filter(function (r) { return r.name !== u.name; });
+            unassignedHint.textContent = unassignedRows.length +
+              ' Kunden mit Umsatz haben keine Quelle. Ordne sie einem Eintrag zu – die Zuordnung wird sofort gespeichert.';
+            tr.remove();
+            if (!unassignedBody.children.length) {
+              unassignedBody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text-secondary);padding:20px">Alles zugeordnet ✅</td></tr>';
+            }
+          })
+          .catch(function (e) {
+            btn.disabled = false;
+            btn.textContent = 'Zuordnen';
+            showError('Zuordnung fehlgeschlagen: ' + e.message);
+          });
+      });
+
+      unassignedBody.appendChild(tr);
+    });
+
+    if (shown === 0) {
+      unassignedBody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text-secondary);padding:20px">' +
+        (unassignedRows.length ? 'Kein Treffer.' : 'Alles zugeordnet ✅') + '</td></tr>';
+    }
+  }
+
+  unassignedSearch.addEventListener('input', function () { renderUnassignedList(unassignedSearch.value); });
+  unassignedModalClose.addEventListener('click', closeUnassignedModal);
+  unassignedModalDone.addEventListener('click',  closeUnassignedModal);
+  unassignedModal.addEventListener('click', function (e) { if (e.target === unassignedModal) closeUnassignedModal(); });
 
   // ── Load data ─────────────────────────────────────────────────────────
   function loadData() {
@@ -638,11 +822,14 @@
       window.db.acquisitionCosts.list(),
       window.db.revenue.allRows(),
       window.db.acquisitionContactLinks.listAll(),
+      (window.db.contactOverrides ? window.db.contactOverrides.listAll() : Promise.resolve([])).catch(function () { return []; }),
     ])
     .then(function (results) {
       var costs    = results[0];
       var revenues = results[1];
       var links    = results[2];
+      allOverrides = results[3] || [];
+      buildExclusions(revenues);
 
       loadingEl.classList.add('hidden');
 
@@ -787,6 +974,9 @@
       tr.querySelector('.delete-btn').addEventListener('click',  function () { openDeleteModal(cost); });
       acqBody.appendChild(tr);
     });
+
+    allCosts = costs;
+    renderUnassigned(revenues, links);
 
     renderTypeView(applyDateFilter(costs), linksByCostNorm, linksByCostOriginal, revByContact);
   }
