@@ -61,6 +61,7 @@
     'messe':           'Messe',
     'online-marketing':'Online-Marketing',
     'seo':             'SEO',
+    'ki':              'KI-Suche',
     'kaltakquise':     'Kaltakquise',
     'empfehlung':      'Empfehlung',
     'sonstige':        'Sonstige',
@@ -275,6 +276,19 @@
 
   function renderAssignList(filter) {
     var f = filter.trim().toLowerCase();
+
+    // Kunden, die bereits an einer ANDEREN Quelle hängen – damit beim Umhängen
+    // (z. B. Google → KI) sichtbar ist, wo der Kunde gerade zugeordnet ist.
+    var costNameById = {};
+    allCosts.forEach(function (c) { costNameById[c.id] = c.source_name; });
+    var otherSources = {};
+    allLinks.forEach(function (l) {
+      if (!assigningCost || l.acquisition_cost_id === assigningCost.id) return;
+      var k = norm(l.contact_name);
+      if (!otherSources[k]) otherSources[k] = [];
+      otherSources[k].push(costNameById[l.acquisition_cost_id] || '—');
+    });
+
     assignClientList.innerHTML = '';
     allClients.forEach(function (contactName) {
       if (f && contactName.toLowerCase().indexOf(f) === -1) return;
@@ -295,6 +309,12 @@
       label.textContent = contactName;
       row.appendChild(cb);
       row.appendChild(label);
+      if (otherSources[key]) {
+        var hint = document.createElement('span');
+        hint.style.cssText = 'font-size:11px;color:var(--text-secondary);font-weight:400;margin-left:auto;text-align:right';
+        hint.textContent = 'bereits: ' + otherSources[key].join(', ');
+        row.appendChild(hint);
+      }
       assignClientList.appendChild(row);
     });
   }
@@ -642,6 +662,11 @@
   // (gleiche Logik wie in neukunden.js).
   var PPC_CATEGORY = 'Software';
 
+  // Altbestand ausblenden: Kunden, deren erste Rechnung vor diesem Monat liegt,
+  // wurden vor der Akquisitions-Erfassung gewonnen und sind hier nur Rauschen.
+  var UNASSIGNED_FROM_YM    = 2024 * 12 + 5;   // Juni 2024
+  var UNASSIGNED_FROM_LABEL = 'Juni 2024';
+
   var unassignedBanner    = document.getElementById('unassignedBanner');
   var unassignedModal     = document.getElementById('unassignedModal');
   var unassignedBody      = document.getElementById('unassignedBody');
@@ -684,6 +709,7 @@
     });
 
     return Object.keys(byContact).map(function (k) { return byContact[k]; })
+      .filter(function (u) { return u.firstYm >= UNASSIGNED_FROM_YM; })
       .sort(function (a, b) { return b.firstYm - a.firstYm || a.name.localeCompare(b.name, 'de'); });
   }
 
@@ -713,7 +739,7 @@
         '<div class="alert alert-warn" style="display:flex;align-items:center;gap:12px;justify-content:space-between;margin:0">' +
           '<div>⚠️ <strong>' + unassigned.length + (unassigned.length === 1 ? ' Kunde' : ' Kunden') + '</strong> mit Umsatz ' +
             (unassigned.length === 1 ? 'ist' : 'sind') + ' noch keiner Akquisitionsquelle zugeordnet' +
-            (rangeActive ? ' <span style="opacity:.8">(Erstrechnung im gewählten Zeitraum)</span>' : '') +
+            ' <span style="opacity:.8">(Erstrechnung ' + (rangeActive ? 'im gewählten Zeitraum' : 'ab ' + UNASSIGNED_FROM_LABEL) + ')</span>' +
             ' – ' + fmt(rev) + ' Umsatz ohne Kanal.</div>' +
           '<button class="btn btn-secondary btn-sm" id="unassignedOpenBtn" style="flex-shrink:0">Jetzt zuordnen</button>' +
         '</div>';
@@ -733,7 +759,8 @@
     unassignedDirty  = false;
     unassignedSearch.value = '';
     unassignedHint.textContent = unassignedRows.length +
-      ' Kunden mit Umsatz haben keine Quelle. Ordne sie einem Eintrag zu – die Zuordnung wird sofort gespeichert.';
+      ' Kunden mit Umsatz haben keine Quelle (Erstrechnung ab ' + UNASSIGNED_FROM_LABEL + ' – ältere Bestandskunden bleiben außen vor).' +
+      ' Ordne sie einem Eintrag zu – die Zuordnung wird sofort gespeichert.';
     renderUnassignedList('');
     unassignedModal.classList.remove('hidden');
     unassignedSearch.focus();
@@ -784,7 +811,8 @@
             unassigned     = unassigned.filter(function (r) { return r.name !== u.name; });
             unassignedAll  = unassignedAll.filter(function (r) { return r.name !== u.name; });
             unassignedHint.textContent = unassignedRows.length +
-              ' Kunden mit Umsatz haben keine Quelle. Ordne sie einem Eintrag zu – die Zuordnung wird sofort gespeichert.';
+              ' Kunden mit Umsatz haben keine Quelle (Erstrechnung ab ' + UNASSIGNED_FROM_LABEL + ' – ältere Bestandskunden bleiben außen vor).' +
+              ' Ordne sie einem Eintrag zu – die Zuordnung wird sofort gespeichert.';
             tr.remove();
             if (!unassignedBody.children.length) {
               unassignedBody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:var(--text-secondary);padding:20px">Alles zugeordnet ✅</td></tr>';
@@ -1009,7 +1037,7 @@
     // Cards
     var TYPE_COLORS = {
       'messe': '#6366f1', 'online-marketing': '#0ea5e9', 'seo': '#10b981',
-      'kaltakquise': '#f59e0b', 'empfehlung': '#ec4899', 'sonstige': '#94a3b8',
+      'ki': '#8b5cf6', 'kaltakquise': '#f59e0b', 'empfehlung': '#ec4899', 'sonstige': '#94a3b8',
     };
 
     typeCards.innerHTML = '';

@@ -15,6 +15,7 @@
     { id: 'c-omr26',  source_name: 'OMR 2026',        source_type: 'messe',            amount: 23000, cost_date: '2026-05-05', notes: null },
     { id: 'c-seo',    source_name: 'Google Organic Search 2026', source_type: 'online-marketing', amount: 21885, cost_date: '2026-01-01', notes: null },
     { id: 'c-empf',   source_name: 'Empfehlungen',    source_type: 'empfehlung',       amount: 0,     cost_date: null,         notes: 'Ohne direkte Kosten' },
+    { id: 'c-ki',     source_name: 'KI-Suche 2026',   source_type: 'ki',               amount: 4000,  cost_date: '2026-01-01', notes: 'ChatGPT, Perplexity & Co.' },
   ];
 
   var links = [
@@ -36,7 +37,9 @@
     'Kreher Feinkost GmbH':       months(2026, 2, 7,  4100),   // zugeordnet (SEO)
     'Nordluft Handels GmbH':      months(2026, 3, 6,  2900),   // OHNE Quelle – neu
     'Pixxprint GmbH':             months(2026, 6, 3,  5200),   // OHNE Quelle – ganz neu
-    'Bega Consult GmbH':          months(2023, 4, 30, 1800),   // OHNE Quelle – Altkunde
+    'Bega Consult GmbH':          months(2023, 4, 30, 1800),   // OHNE Quelle – Altbestand vor Juni 2024 → ausblenden
+    'Altbestand Mai GmbH':        months(2024, 5, 20, 1200),   // Erstrechnung Mai 2024 → knapp davor, ausblenden
+    'Frischstart Juli GmbH':      months(2024, 7, 20, 1500),   // Erstrechnung Juli 2024 → muss erscheinen
     'Adsmasters Verrechnung':     months(2026, 1, 8,  9000),   // excluded → darf NICHT auftauchen
     'Mädl Media GmbH':            months(2026, 1, 8,  99),     // cat:Software → darf NICHT auftauchen
     'Crazy Canvas UG':            months(2026, 2, 7,  99),     // Auto-Erkennung Software → nicht auftauchen

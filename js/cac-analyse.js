@@ -22,6 +22,7 @@
     'messe':            'Messe',
     'online-marketing': 'Online-Marketing',
     'seo':              'SEO',
+    'ki':               'KI-Suche',
     'kaltakquise':       'Kaltakquise',
     'empfehlung':        'Empfehlung',
     'sonstige':          'Sonstige',
