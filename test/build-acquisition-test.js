@@ -14,7 +14,7 @@ const SCRIPTS_LIVE = `<script src="https://cdn.jsdelivr.net/npm/@supabase/supaba
 <script src="js/db.js?v=20260610b"></script>
 <script src="js/utils.js"></script>
 <script src="js/auth.js"></script>
-<script src="js/acquisition.js?v=20260904a"></script>
+<script src="js/acquisition.js?v=20260904c"></script>
   <script defer src="https://adsmasters.github.io/hub/backlink.js"></script>
   <script src="js/nav.js"></script>`;
 

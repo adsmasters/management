@@ -39,7 +39,7 @@
     'Pixxprint GmbH':             months(2026, 6, 3,  5200),   // OHNE Quelle – ganz neu
     'Bega Consult GmbH':          months(2023, 4, 30, 1800),   // OHNE Quelle – Altbestand vor Juni 2024 → ausblenden
     'Altbestand Mai GmbH':        months(2024, 5, 20, 1200),   // Erstrechnung Mai 2024 → knapp davor, ausblenden
-    'Frischstart Juli GmbH':      months(2024, 7, 20, 1500),   // Erstrechnung Juli 2024 → muss erscheinen
+    'MTS Group - Inter-Union Technohandel GmbH':      months(2024, 7, 20, 1500),   // Erstrechnung Juli 2024 → muss erscheinen
     'Adsmasters Verrechnung':     months(2026, 1, 8,  9000),   // excluded → darf NICHT auftauchen
     'Mädl Media GmbH':            months(2026, 1, 8,  99),     // cat:Software → darf NICHT auftauchen
     'Crazy Canvas UG':            months(2026, 2, 7,  99),     // Auto-Erkennung Software → nicht auftauchen

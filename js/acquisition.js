@@ -881,7 +881,7 @@
         '<td>' + ymLabel(u.firstYm) + '</td>' +
         '<td class="right" style="font-variant-numeric:tabular-nums">' + fmt(u.totalRev) + '</td>' +
         '<td><div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">' +
-          '<select class="src-select" style="flex:1;min-width:130px;padding:5px 8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;background:var(--surface);color:var(--text)">' +
+          '<select class="src-select" style="flex:1;min-width:0;padding:5px 8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;background:var(--surface);color:var(--text)">' +
             '<option value="">– Quelle wählen –</option>' + sourceOptions +
           '</select>' +
           '<button class="btn btn-primary btn-sm assign-one" style="flex-shrink:0">Zuordnen</button>' +
