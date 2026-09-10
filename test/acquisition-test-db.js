@@ -43,6 +43,7 @@
   }
   hist('c-yt26', '2026-06-02T09:12:00Z', 'baseline', { new_amount: 5000, new_text: 'YouTube 2026' });
   hist('c-yt26', '2026-07-24T12:44:00Z', 'amount',   { old_amount: 5000, new_amount: 6000 });
+  hist('c-yt26', '2026-08-12T08:03:00Z', 'amount',   { old_amount: 6000, new_amount: 8000 });
   hist('c-yt26', '2026-09-05T07:28:00Z', 'name',     { old_text: 'YouTube 2026 (Bis Ende Juli)', new_text: 'YouTube 2026 (Bis Ende August)' });
   hist('c-seo',  '2026-09-01T06:00:00Z', 'baseline', { new_amount: 17500, new_text: 'Google Organic Search 2026' });
   hist('c-seo',  '2026-09-08T05:35:00Z', 'month',    { ym: '2026-08', new_amount: 2500 });
@@ -151,8 +152,11 @@
     },
     acquisitionCostHistory: {
       available: function () { return ok([]); },
-      listForCost: function (costId) {
-        return ok(costHistory.filter(function (h) { return h.acquisition_cost_id === costId; })
+      listAmountChanges: function (costId) {
+        return ok(costHistory.filter(function (h) {
+            return h.acquisition_cost_id === costId &&
+                   ['amount', 'created', 'baseline'].indexOf(h.field) !== -1;
+          })
           .slice().sort(function (a, b) { return b.changed_at.localeCompare(a.changed_at); }));
       },
     },

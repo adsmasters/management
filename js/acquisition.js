@@ -406,18 +406,23 @@
     acqLastChange.innerHTML = '<span style="color:var(--text-secondary)">Letzte Betragsänderung wird geladen…</span>';
 
     var forId = entry.id;
-    window.db.acquisitionCostHistory.listForCost(forId)
+    window.db.acquisitionCostHistory.listAmountChanges(forId)
       .then(function (rows) {
         if (editingId !== forId) return;            // Dialog inzwischen gewechselt
-        var money = rows.filter(function (h) { return h.field !== 'name'; });
-        if (!money.length) { acqLastChange.classList.add('hidden'); return; }
+        if (!rows.length) { acqLastChange.classList.add('hidden'); return; }
 
-        var h = money[0];                            // Historie kommt absteigend
+        var last = rows[0];                          // Historie kommt absteigend
+        var prev = rows[1];
         acqLastChange.innerHTML =
-          '<div class="lc-head">Betrag zuletzt geändert: ' + fmtWhen(h.changed_at) + '</div>' +
-          '<div style="margin-top:3px">' + historyText(h) + '</div>' +
-          (rows.length > 1
-            ? '<div style="margin-top:5px"><button type="button" class="lc-link" id="acqHistLink">Ganzer Verlauf (' + rows.length + ' Einträge)</button></div>'
+          '<div class="lc-head">Betrag zuletzt geändert: ' + fmtWhen(last.changed_at) + '</div>' +
+          '<div style="margin-top:3px">' + historyText(last) + '</div>' +
+          (prev
+            ? '<div style="margin-top:6px;padding-top:6px;border-top:1px solid var(--border);color:var(--text-secondary)">' +
+                'Davor: ' + fmtWhen(prev.changed_at) + ' – ' + historyText(prev) +
+              '</div>'
+            : '') +
+          (rows.length > 2
+            ? '<div style="margin-top:6px"><button type="button" class="lc-link" id="acqHistLink">Alle ' + rows.length + ' Betragsänderungen</button></div>'
             : '');
 
         var link = document.getElementById('acqHistLink');
@@ -1269,7 +1274,6 @@
   var historyModal      = document.getElementById('historyModal');
   var historyModalTitle = document.getElementById('historyModalTitle');
   var historyModalBody  = document.getElementById('historyModalBody');
-  var historyHead       = document.getElementById('historyModalHead');
   var historyModalClose = document.getElementById('historyModalClose');
   var historyAvailable  = true;   // false, solange die Migration nicht gelaufen ist
 
@@ -1291,36 +1295,26 @@
     return ' <span class="' + cls + '">(' + (diff > 0 ? '+' : '−') + fmt(Math.abs(diff)) + ')</span>';
   }
 
+  // Angezeigt wird ausschließlich die Bewegung des Betrags.
   function historyText(h) {
     var oldA = h.old_amount == null ? null : Number(h.old_amount);
     var newA = h.new_amount == null ? null : Number(h.new_amount);
 
     if (h.field === 'baseline') {
-      return 'Stand beim Einschalten des Verlaufs: <strong>' + fmt(newA || 0) + '</strong>' +
+      return '<strong>' + fmt(newA || 0) + '</strong> – Stand beim Einschalten des Verlaufs' +
              '<div style="font-size:11px;color:var(--text-secondary);margin-top:2px">' +
-             'Zeitstempel = letzte Änderung an der Zeile laut „updated_at", nicht das Datum im Eintrag. ' +
-             'Was davor passiert ist, hat die Datenbank nie gespeichert.</div>';
+             'Keine echte Änderung: nur der Betrag, der zu diesem Zeitpunkt in der Zeile stand.</div>';
     }
     if (h.field === 'created') {
-      return 'Eintrag angelegt mit <strong>' + fmt(newA || 0) + '</strong>';
+      return 'Angelegt mit <strong>' + fmt(newA || 0) + '</strong>';
     }
-    if (h.field === 'name') {
-      return 'Umbenannt: „' + escHtml(h.old_text || '—') + '" → „<strong>' + escHtml(h.new_text || '—') + '</strong>"';
-    }
-    if (h.field === 'month') {
-      var label = h.ym ? ymText(h.ym) : '—';
-      if (oldA == null) return 'Monat ' + label + ' erfasst: <strong>' + fmt(newA || 0) + '</strong>';
-      if (newA == null) return 'Monat ' + label + ' gelöscht (war ' + fmt(oldA) + ')';
-      return 'Monat ' + label + ': ' + fmt(oldA) + ' → <strong>' + fmt(newA) + '</strong>' + deltaHtml(oldA, newA);
-    }
-    // field === 'amount'
-    return 'Betrag: ' + (oldA == null ? '—' : fmt(oldA)) + ' → <strong>' + fmt(newA || 0) + '</strong>' + deltaHtml(oldA, newA);
+    return (oldA == null ? '—' : fmt(oldA)) + ' → <strong>' + fmt(newA || 0) + '</strong>' + deltaHtml(oldA, newA);
   }
 
   function renderHistory(rows) {
     if (!rows.length) {
       historyModalBody.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-secondary)">' +
-        'Noch keine Änderungen aufgezeichnet.</div>';
+        'Noch keine Betragsänderung aufgezeichnet.</div>';
       return;
     }
     historyModalBody.innerHTML = rows.map(function (h) {
@@ -1332,17 +1326,10 @@
   }
 
   function openHistoryModal(cost) {
-    historyModalTitle.textContent = 'Änderungsverlauf – ' + cost.source_name;
-    // Ohne diese Zeile wird das Datum im Eintrag mit dem Änderungszeitpunkt
-    // verwechselt – die beiden haben nichts miteinander zu tun.
-    historyHead.innerHTML =
-      'Datum im Eintrag: <strong>' +
-        (cost.cost_date ? cost.cost_date.split('-').reverse().join('.') : '—') + '</strong>' +
-      ' · aktueller Betrag: <strong>' + fmt(cost.amount || 0) + '</strong>' +
-      '<div style="margin-top:3px">Die Zeitstempel unten sagen, <em>wann geändert wurde</em> – nicht, welcher Zeitraum gemeint ist.</div>';
+    historyModalTitle.textContent = 'Betragsänderungen – ' + cost.source_name;
     historyModalBody.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-secondary)">Wird geladen…</div>';
     historyModal.classList.remove('hidden');
-    window.db.acquisitionCostHistory.listForCost(cost.id)
+    window.db.acquisitionCostHistory.listAmountChanges(cost.id)
       .then(renderHistory)
       .catch(function (e) {
         historyModalBody.innerHTML = '<div style="padding:24px;color:var(--text-secondary)">' +

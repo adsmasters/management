@@ -328,9 +328,13 @@
       // Existenz-Probe: schlägt fehl, solange die Migration nicht gelaufen ist.
       available: () =>
         q(s => s.from('acquisition_cost_history').select('id').limit(1)),
-      listForCost: (costId) =>
+      // Nur Betragsänderungen. Monats- und Namenszeilen schreibt der Trigger
+      // zwar mit, angezeigt wird aber ausschließlich, wann sich der Betrag
+      // bewegt hat – jede Monatsänderung erzeugt ohnehin eine 'amount'-Zeile.
+      listAmountChanges: (costId) =>
         q(s => s.from('acquisition_cost_history').select('*')
           .eq('acquisition_cost_id', costId)
+          .in('field', ['amount', 'created', 'baseline'])
           .order('changed_at', { ascending: false })),
     },
 
