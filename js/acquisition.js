@@ -197,13 +197,17 @@
   function recurringStatus(cost) {
     // Ohne Monatstabelle (Migration nicht gelaufen) verhält sich alles wie bisher.
     if (!cost.is_recurring || !monthsAvailable) return null;
-    var last = lastRecordedYm(cost.id);
+    var last  = lastRecordedYm(cost.id);
+    var rules = rulesByCost[cost.id] || [];
     if (entryYear(cost) < new Date().getFullYear()) return { state: 'done', last: last, missing: 0 };
-    if (!last) return { state: 'none', last: null, missing: 0 };
+    if (!last) {
+      // Mit Regel ist der Eintrag versorgt – dass nichts gefunden wurde, ist
+      // eine Aussage ("kein Spend"), keine vergessene Eingabe. Ohne Regel schon.
+      return { state: rules.length ? 'empty' : 'none', last: null, missing: 0 };
+    }
 
     // Enden alle Regeln in der Vergangenheit, ist der Eintrag abgeschlossen –
     // eine einmalige Kampagne bekommt keine neuen Monate mehr.
-    var rules = rulesByCost[cost.id] || [];
     if (rules.length && rules.every(function (r) { return r.end_date; })) {
       var lastEnd = rules.reduce(function (m, r) { return r.end_date > m ? r.end_date : m; }, '');
       if (lastEnd && lastEnd.slice(0, 7) <= last) return { state: 'done', last: last, missing: 0 };
@@ -1731,8 +1735,9 @@
     }
 
     var badge = '';
-    if      (st.state === 'open') badge = '<span class="badge-open">' + st.missing + ' Mon. offen</span>';
-    else if (st.state === 'none') badge = '<span class="badge-none">nichts erfasst</span>';
+    if      (st.state === 'open')  badge = '<span class="badge-open">' + st.missing + ' Mon. offen</span>';
+    else if (st.state === 'none')  badge = '<span class="badge-none">nichts erfasst</span>';
+    else if (st.state === 'empty') badge = '<span style="font-size:11px;color:var(--text-secondary)">noch keine Buchung</span>';
     else if (st.state === 'ok')   badge = '<span class="badge-ok">aktuell</span>';
 
     return '<td title="' + escHtml(title) + '">' +
