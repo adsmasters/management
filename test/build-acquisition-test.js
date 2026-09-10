@@ -11,10 +11,10 @@ const src = fs.readFileSync(path.join(root, 'acquisition.html'), 'utf8');
 const v = Date.now();
 
 const SCRIPTS_LIVE = `<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="js/db.js?v=20260910a"></script>
+<script src="js/db.js?v=20260910b"></script>
 <script src="js/utils.js"></script>
 <script src="js/auth.js"></script>
-<script src="js/acquisition.js?v=20260910d"></script>
+<script src="js/acquisition.js?v=20260910e"></script>
   <script defer src="https://adsmasters.github.io/hub/backlink.js"></script>
   <script src="js/nav.js"></script>`;
 

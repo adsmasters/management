@@ -344,3 +344,34 @@ Einschalten in der Zeile stand, mit dem Zeitstempel aus `updated_at`. Kein
 rekonstruierter Verlauf – was die DB nie gespeichert hat, steht auch nicht drin.
 
 In der Oberfläche: Uhr-Symbol in der Spalte „Erfasst bis" je Eintrag.
+
+## 20. Akquisitionskosten aus der Kostenanalyse speisen (10.09.2026)
+
+SQL: `supabase/acquisition-cost-rules-schema.sql` — **nach** Migration 18.
+
+Die Monatswerte laufender Kanäle standen in den Bankdaten längst drin: YouTube =
+„T&P Fotografie", SEO = „Backlinked" + SEO-Freelancer, dazu Google Ads. Je
+Akquisitionseintrag lassen sich jetzt Suchbegriffe auf den Buchungstext legen
+(`acquisition_cost_rules`); die Seite summiert die passenden Buchungen pro Monat.
+
+**Netto, nicht brutto.** Der Umsatz im Tool ist netto, die MwSt kommt als
+Vorsteuer zurück. Mit Bruttobeträgen wäre der ROI systematisch zu schlecht
+(Backlinked August: 593,81 € brutto vs. 499 € netto).
+
+**Zwei Herkünfte je Monat.** `acquisition_cost_months` hat jetzt `auto_amount`
+(aus den Buchungen) und `manual_amount` (von Hand, z. B. ein separat gekaufter
+Backlink); `amount` bleibt die Summe und damit die Zahl für alle Auswertungen.
+Bestehende Monatswerte wurden als manuell übernommen. Automatik überschreibt
+manuelle Eingaben nie.
+
+**Jahresgrenze.** Ein Eintrag gilt für ein Jahr (aus `cost_date`); Buchungen
+anderer Jahre zählen dort nicht mit, sondern gehören in den Eintrag des
+jeweiligen Jahres.
+
+Beim Laden der Seite werden die automatischen Werte einmal nachgezogen — ein
+neuer Kreissparkasse-/Amex-Upload landet damit ohne Zutun in der Übersicht. Jede
+dadurch ausgelöste Betragsänderung steht im Verlauf (Migration 19).
+
+Ausgeschlossene Buchungen (`excluded`) zählen auch hier nicht, sonst würden sich
+Kostenanalyse und Akquisition widersprechen. `suggestVendorPattern` liegt jetzt
+in `js/utils.js`, damit beide Seiten denselben Lieferantenbegriff bilden.

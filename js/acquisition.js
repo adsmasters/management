@@ -65,8 +65,72 @@
   // acquisition_costs.amount ist die Summe daraus – so rechnen ROI-, Typ- und
   // CAC-Auswertung unverändert weiter, und man sieht trotzdem, bis wann
   // erfasst wurde.
-  var monthsByCost    = {};    // costId → { 'YYYY-MM': { id, amount } }
+  var monthsByCost    = {};    // costId → { 'YYYY-MM': { id, amount, auto, manual } }
   var monthsAvailable = true;  // false, solange die Migration nicht gelaufen ist
+
+  // Kosten aus der Kostenanalyse: pro Eintrag Regeln auf den Buchungstext,
+  // daraus je Monat die Summe der Nettobeträge.
+  var rulesByCost   = {};      // costId → [ {id, pattern, label, match_type} ]
+  var allTx         = [];      // cost_transactions (Roh)
+  var vendorList    = [];      // [{ name, total, count }] – für die Vorschlagsliste
+  var rulesAvailable = true;   // false, solange die Regel-Migration fehlt
+
+  function txNet(t) {
+    var v = t.amount_net != null ? t.amount_net : t.amount_gross;
+    return Math.round((Number(v) || 0) * 100) / 100;
+  }
+
+  function txHaystack(t) {
+    return ((t.payee || '') + ' ' + (t.description || '')).toLowerCase();
+  }
+
+  function txMatchesRule(t, rule) {
+    var pat = (rule.pattern || '').trim().toLowerCase();
+    if (!pat) return false;
+    if (rule.match_type === 'equals') {
+      return (window.suggestVendorPattern(t.payee || t.description) || '').toLowerCase() === pat;
+    }
+    return txHaystack(t).indexOf(pat) !== -1;
+  }
+
+  // Ausgeschlossene Buchungen zählen auch hier nicht – sonst widerspricht die
+  // Akquisition der Kostenanalyse.
+  function matchingTx(rules) {
+    if (!rules || !rules.length) return [];
+    return allTx.filter(function (t) {
+      if (t.excluded) return false;
+      return rules.some(function (r) { return txMatchesRule(t, r); });
+    });
+  }
+
+  function autoMonthsFor(rules) {
+    var out = {};
+    matchingTx(rules).forEach(function (t) {
+      var ym = t.year + '-' + pad2(t.month);
+      out[ym] = Math.round(((out[ym] || 0) + txNet(t)) * 100) / 100;
+    });
+    return out;
+  }
+
+  function buildVendorList() {
+    var byName = {};
+    allTx.forEach(function (t) {
+      if (t.excluded) return;
+      var name = window.suggestVendorPattern(t.payee || t.description) || '(unbekannt)';
+      if (!byName[name]) byName[name] = { name: name, total: 0, count: 0 };
+      byName[name].total += txNet(t);
+      byName[name].count += 1;
+    });
+    vendorList = Object.keys(byName).map(function (k) { return byName[k]; })
+      .sort(function (a, b) { return b.total - a.total; });
+
+    var dl = document.getElementById('vendorOptions');
+    if (dl) {
+      dl.innerHTML = vendorList.slice(0, 300).map(function (v) {
+        return '<option value="' + escHtml(v.name) + '">' + escHtml(fmt(v.total) + ' · ' + v.count + ' Buchungen') + '</option>';
+      }).join('');
+    }
+  }
 
   function pad2(n)     { return (n < 10 ? '0' : '') + n; }
   function ymIdx(ym)   { return parseInt(ym.slice(0, 4), 10) * 12 + parseInt(ym.slice(5, 7), 10) - 1; }
@@ -313,13 +377,107 @@
   var acqDateField      = document.getElementById('acqDateField');
   var acqLastChange     = document.getElementById('acqLastChange');
 
-  var monthDraft      = {};  // 'YYYY-MM' → Eingabewert (nur der offene Dialog)
+  var acqRulesWrap  = document.getElementById('acqRulesWrap');
+  var acqRulesList  = document.getElementById('acqRulesList');
+  var acqRulesSum   = document.getElementById('acqRulesSum');
+  var acqRuleInput  = document.getElementById('acqRuleInput');
+  var acqRuleAdd    = document.getElementById('acqRuleAdd');
+
+  var monthDraft      = {};  // 'YYYY-MM' → manuell eingetippter Wert
+  var autoDraft       = {};  // 'YYYY-MM' → Betrag aus den Bankdaten
+  var ruleDraft       = [];  // Regeln des offenen Dialogs (erst beim Speichern in die DB)
   var draftBaseAmount = 0;   // Gesamtbetrag vor der Umstellung auf monatlich
 
+  function recalcAutoDraft() {
+    autoDraft = autoMonthsFor(ruleDraft);
+  }
+
+  function renderRules() {
+    if (!acqRulesList) return;
+    acqRulesWrap.classList.toggle('hidden', !(acqRecurringCheck.checked && monthsAvailable && rulesAvailable));
+
+    if (!ruleDraft.length) {
+      acqRulesList.innerHTML = '<div style="font-size:12px;color:var(--text-secondary);padding:2px 0 4px">' +
+        'Noch keine Quelle zugeordnet – die Monate füllst du dann von Hand.</div>';
+    } else {
+      acqRulesList.innerHTML = '';
+      var gridYear = parseInt(acqYearSelect.value, 10);
+      ruleDraft.forEach(function (rule, idx) {
+        var all  = matchingTx([rule]);
+        // Gezählt wird das Jahr des Eintrags – Buchungen anderer Jahre gehören
+        // in den jeweiligen Jahreseintrag.
+        var hits = all.filter(function (t) { return t.year === gridYear; });
+        var sum  = hits.reduce(function (a, t) { return a + txNet(t); }, 0);
+        var other = all.length - hits.length;
+
+        var row = document.createElement('div');
+        row.className = 'rule-row' + (hits.length ? '' : ' no-hits');
+        row.innerHTML =
+          '<span class="rule-pattern">' + escHtml(rule.pattern) + '</span>' +
+          '<span class="rule-hits"' +
+            (other ? ' title="' + other + ' weitere Buchung' + (other === 1 ? '' : 'en') + ' in anderen Jahren"' : '') +
+            '>' + (hits.length
+              ? hits.length + (hits.length === 1 ? ' Buchung · ' : ' Buchungen · ') + fmt(sum)
+              : 'kein Treffer ' + gridYear) + '</span>';
+
+        var del = document.createElement('button');
+        del.type = 'button';
+        del.className = 'rule-del';
+        del.title = 'Quelle entfernen';
+        del.textContent = '✕';
+        del.addEventListener('click', function () {
+          ruleDraft.splice(idx, 1);
+          recalcAutoDraft();
+          renderRules();
+          renderMonthGrid();
+        });
+        row.appendChild(del);
+        acqRulesList.appendChild(row);
+      });
+    }
+
+    var year = parseInt(acqYearSelect.value, 10);
+    var yearSum = 0;
+    Object.keys(autoDraft).forEach(function (ym) {
+      if (parseInt(ym.slice(0, 4), 10) === year) yearSum += autoDraft[ym];
+    });
+    acqRulesSum.textContent = ruleDraft.length ? 'aus Konto ' + year + ': ' + fmt(yearSum) : '';
+  }
+
+  function addRuleFromInput() {
+    var val = (acqRuleInput.value || '').trim();
+    if (!val) { acqRuleInput.focus(); return; }
+    var exists = ruleDraft.some(function (r) { return r.pattern.toLowerCase() === val.toLowerCase(); });
+    if (exists) { acqRuleInput.value = ''; return; }
+    ruleDraft.push({ id: null, pattern: val, label: val, match_type: 'contains' });
+    acqRuleInput.value = '';
+    recalcAutoDraft();
+    renderRules();
+    renderMonthGrid();
+  }
+
+  if (acqRuleAdd)   acqRuleAdd.addEventListener('click', addRuleFromInput);
+  if (acqRuleInput) acqRuleInput.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') { e.preventDefault(); addRuleFromInput(); }
+  });
+
+  // Automatik gilt nur für das Jahr, für das der Eintrag geführt wird –
+  // "Backlinked" bucht auch 2025, das gehört aber in den 2025er Eintrag.
+  function autoOfYear(year) {
+    var out = {};
+    Object.keys(autoDraft).forEach(function (ym) {
+      if (parseInt(ym.slice(0, 4), 10) === year) out[ym] = autoDraft[ym];
+    });
+    return out;
+  }
+
   function draftSum() {
-    var s = 0;
-    Object.keys(monthDraft).forEach(function (k) { s += parseFloat(monthDraft[k]) || 0; });
-    return s;
+    var year = parseInt(acqYearSelect.value, 10);
+    var sum = 0;
+    Object.keys(monthDraft).forEach(function (k) { sum += parseFloat(monthDraft[k]) || 0; });
+    var auto = autoOfYear(year);
+    Object.keys(auto).forEach(function (k) { sum += auto[k]; });
+    return Math.round(sum * 100) / 100;
   }
 
   function fillYearSelect(year) {
@@ -337,7 +495,8 @@
     for (var i = 0; i < 12; i++) {
       (function (idx) {
         var ym     = year + '-' + pad2(idx + 1);
-        var filled = monthDraft[ym] != null && monthDraft[ym] !== '';
+        var auto   = autoDraft[ym] || 0;
+        var filled = (monthDraft[ym] != null && monthDraft[ym] !== '') || auto > 0;
         var future = ymIdx(ym) > ymIdx(due);
         var cell   = document.createElement('div');
         cell.className = 'month-cell' + (future ? ' is-future' : (filled ? '' : ' is-open'));
@@ -349,17 +508,25 @@
         var inp = document.createElement('input');
         inp.type = 'number'; inp.min = '0'; inp.step = '0.01';
         inp.id = 'acqMonth_' + ym;
-        inp.placeholder = '—';
-        inp.value = filled ? monthDraft[ym] : '';
+        inp.placeholder = auto > 0 ? '+ manuell' : '—';
+        inp.title = auto > 0 ? 'Zusatzkosten, die nicht über Konto/Karte laufen' : '';
+        inp.value = (monthDraft[ym] != null && monthDraft[ym] !== '') ? monthDraft[ym] : '';
         inp.addEventListener('input', function () {
           var v = this.value.trim();
           if (v === '') delete monthDraft[ym]; else monthDraft[ym] = v;
-          cell.classList.toggle('is-open', v === '' && !future);
+          cell.classList.toggle('is-open', v === '' && !(autoDraft[ym] > 0) && !future);
           updateMonthSum();
         });
 
+        // Herkunft sichtbar machen: was aus den Bankdaten kommt, steht darunter.
+        var note = document.createElement('div');
+        note.className = 'month-auto';
+        note.innerHTML = auto > 0 ? '<strong>' + fmt(auto) + '</strong> Konto' : '';
+        note.title = auto > 0 ? 'Aus der Kostenanalyse übernommen' : '';
+
         cell.appendChild(lab);
         cell.appendChild(inp);
+        cell.appendChild(note);
         acqMonthsGrid.appendChild(cell);
       })(i);
     }
@@ -376,7 +543,8 @@
     var missing = [], filled = [];
     for (var i = 0; i < 12; i++) {
       var ym = year + '-' + pad2(i + 1);
-      if (monthDraft[ym] != null && monthDraft[ym] !== '') filled.push(ym);
+      var has = (monthDraft[ym] != null && monthDraft[ym] !== '') || (autoDraft[ym] || 0) > 0;
+      if (has) filled.push(ym);
       else if (ymIdx(ym) <= ymIdx(due)) missing.push(ym);
     }
 
@@ -438,11 +606,12 @@
     acqAmountInput.readOnly = on;
     acqAmountInput.title    = on ? 'Wird aus den Monatswerten berechnet' : '';
     acqAmountInput.style.background = on ? 'var(--surface-hover,#f1f5f9)' : '';
+    renderRules();
     if (on) renderMonthGrid();
   }
 
   acqRecurringCheck.addEventListener('change', syncRecurringUi);
-  acqYearSelect.addEventListener('change', renderMonthGrid);
+  acqYearSelect.addEventListener('change', function () { renderRules(); renderMonthGrid(); });
 
   function openModal(entry) {
     editingId = entry ? entry.id : null;
@@ -454,11 +623,21 @@
     acqNotesInput.value  = entry ? (entry.notes || '') : '';
 
     monthDraft      = {};
+    ruleDraft       = [];
     draftBaseAmount = entry ? (entry.amount || 0) : 0;
     if (entry) {
       var m = monthsOf(entry.id);
-      Object.keys(m).forEach(function (k) { monthDraft[k] = String(m[k].amount); });
+      Object.keys(m).forEach(function (k) {
+        // Im Eingabefeld steht nur der manuelle Anteil; der Rest kommt aus der
+        // Kostenanalyse und wird daneben angezeigt.
+        var man = m[k].manual != null ? m[k].manual : m[k].amount;
+        if (Number(man)) monthDraft[k] = String(man);
+      });
+      (rulesByCost[entry.id] || []).forEach(function (r) {
+        ruleDraft.push({ id: r.id, pattern: r.pattern, label: r.label, match_type: r.match_type });
+      });
     }
+    recalcAutoDraft();
     acqRecurringCheck.checked  = !!(entry && entry.is_recurring);
     acqRecurringCheck.disabled = !monthsAvailable;
     fillYearSelect(entry ? entryYear(entry) : new Date().getFullYear());
@@ -476,9 +655,11 @@
   acqModal.addEventListener('click', function (e) { if (e.target === acqModal) closeModal(); });
   addEntryBtn.addEventListener('click', function () { openModal(null); });
 
-  // Monatszeilen an den Dialog angleichen: geänderte schreiben, geleerte
-  // löschen. Wird ein Eintrag auf „einmalig" zurückgestellt, fliegen alle raus.
-  function syncMonths(costId, draft, recurring) {
+  // Monatszeilen an den Dialog angleichen: geänderte schreiben, leer gewordene
+  // löschen. Betroffen ist nur das Jahr des Eintrags – Monate anderer Jahre
+  // gehören zu anderen Einträgen und bleiben unangetastet. Wird ein Eintrag auf
+  // „einmalig" zurückgestellt, fliegen alle raus.
+  function syncMonths(costId, draft, recurring, year) {
     var existing = monthsOf(costId), ops = [];
     if (!recurring) {
       return Object.keys(existing).length
@@ -487,10 +668,30 @@
     }
     Object.keys(draft).forEach(function (ym) {
       var cur = existing[ym];
-      if (!cur || Number(cur.amount) !== draft[ym]) ops.push(window.db.acquisitionCostMonths.set(costId, ym, draft[ym]));
+      var d   = draft[ym];
+      if (!cur || Number(cur.auto) !== d.auto || Number(cur.manual) !== d.manual) {
+        ops.push(window.db.acquisitionCostMonths.set(costId, ym, d));
+      }
     });
     Object.keys(existing).forEach(function (ym) {
+      if (parseInt(ym.slice(0, 4), 10) !== year) return;
       if (!(ym in draft)) ops.push(window.db.acquisitionCostMonths.remove(costId, ym));
+    });
+    return Promise.all(ops);
+  }
+
+  // Regeln des Dialogs mit der DB abgleichen.
+  function syncRules(costId, recurring) {
+    if (!rulesAvailable) return Promise.resolve();
+    var existing = rulesByCost[costId] || [];
+    var keep     = recurring ? ruleDraft : [];
+    var ops      = [];
+    keep.forEach(function (r) {
+      if (!r.id) ops.push(window.db.acquisitionCostRules.create(costId, r.pattern, r.label, r.match_type));
+    });
+    existing.forEach(function (r) {
+      var stillThere = keep.some(function (d) { return d.id === r.id; });
+      if (!stillThere) ops.push(window.db.acquisitionCostRules.remove(r.id));
     });
     return Promise.all(ops);
   }
@@ -505,20 +706,30 @@
 
     // Monatswerte einsammeln – der Gesamtbetrag ist bei laufenden Kosten
     // immer deren Summe, nie ein separat getippter Wert.
-    var draft = {};
+    var gridYear = parseInt(acqYearSelect.value, 10);
+    var draft = {};   // 'YYYY-MM' → { auto, manual }
     if (recurring) {
+      var auto = autoOfYear(gridYear);
+      Object.keys(auto).forEach(function (k) {
+        draft[k] = { auto: auto[k], manual: 0 };
+      });
       Object.keys(monthDraft).forEach(function (k) {
         var v = parseFloat(monthDraft[k]);
-        if (!isNaN(v) && v !== 0) draft[k] = v;
+        if (isNaN(v) || v === 0) return;
+        if (!draft[k]) draft[k] = { auto: 0, manual: 0 };
+        draft[k].manual = v;
+      });
+      Object.keys(draft).forEach(function (k) {
+        if (!draft[k].auto && !draft[k].manual) delete draft[k];
       });
     }
     var ymKeys = Object.keys(draft).sort();
     var amount = recurring
-      ? ymKeys.reduce(function (s, k) { return s + draft[k]; }, 0)
+      ? Math.round(ymKeys.reduce(function (s, k) { return s + draft[k].auto + draft[k].manual; }, 0) * 100) / 100
       : (parseFloat(acqAmountInput.value) || 0);
     // cost_date bleibt die Jahres-Zuordnung für die CAC-Analyse.
     var date = recurring
-      ? (ymKeys.length ? ymKeys[0] + '-01' : acqYearSelect.value + '-01-01')
+      ? (ymKeys.length ? ymKeys[0] + '-01' : gridYear + '-01-01')
       : (acqDateInput.value || null);
 
     acqModalSave.disabled    = true;
@@ -537,7 +748,10 @@
     promise
       .then(function (saved) {
         var id = editingId || (saved && saved.id);
-        return id ? syncMonths(id, draft, recurring) : null;
+        if (!id) return null;
+        return syncRules(id, recurring).then(function () {
+          return syncMonths(id, draft, recurring, gridYear);
+        });
       })
       .then(function () { closeModal(); loadData(); })
       .catch(function (e) { showError('Fehler: ' + e.message); closeModal(); })
@@ -1216,6 +1430,67 @@
   unassignedModalDone.addEventListener('click',  closeUnassignedModal);
   unassignedModal.addEventListener('click', function (e) { if (e.target === unassignedModal) closeUnassignedModal(); });
 
+  // ── Automatik: Monatswerte aus den Bankdaten nachziehen ───────────────
+  var autoSyncDone = false;
+
+  function syncAutoFromRules(costs) {
+    if (!monthsAvailable || !rulesAvailable) return Promise.resolve(false);
+
+    var ops = [], touched = {};
+    costs.forEach(function (cost) {
+      var rules = rulesByCost[cost.id] || [];
+      if (!cost.is_recurring || !rules.length) return;
+
+      var year     = entryYear(cost);
+      var auto     = autoMonthsFor(rules);
+      var existing = monthsOf(cost.id);
+      var seen     = {};
+
+      Object.keys(auto).forEach(function (ym) {
+        if (parseInt(ym.slice(0, 4), 10) !== year) return;   // gehört zu einem anderen Jahreseintrag
+        seen[ym] = true;
+        var cur = existing[ym];
+        if (!cur || Math.abs(cur.auto - auto[ym]) > 0.004) {
+          ops.push(window.db.acquisitionCostMonths.set(cost.id, ym, { auto: auto[ym], manual: cur ? cur.manual : 0 }));
+          touched[cost.id] = true;
+        }
+      });
+
+      // Buchung nachträglich ausgeschlossen oder Regel entfernt → Auto-Anteil weg
+      Object.keys(existing).forEach(function (ym) {
+        if (parseInt(ym.slice(0, 4), 10) !== year || seen[ym]) return;
+        var cur = existing[ym];
+        if (!cur.auto) return;
+        if (cur.manual) ops.push(window.db.acquisitionCostMonths.set(cost.id, ym, { auto: 0, manual: cur.manual }));
+        else            ops.push(window.db.acquisitionCostMonths.remove(cost.id, ym));
+        touched[cost.id] = true;
+      });
+    });
+
+    if (!ops.length) return Promise.resolve(false);
+
+    return Promise.all(ops).then(function () {
+      // Gesamtbetrag nachziehen, damit ROI-, Typ- und CAC-Auswertung stimmen.
+      var totals = [];
+      costs.forEach(function (cost) {
+        if (!touched[cost.id]) return;
+        var year = entryYear(cost);
+        var auto = autoMonthsFor(rulesByCost[cost.id] || []);
+        var sum  = 0;
+        Object.keys(auto).forEach(function (ym) { if (parseInt(ym.slice(0, 4), 10) === year) sum += auto[ym]; });
+        Object.keys(monthsOf(cost.id)).forEach(function (ym) {
+          if (parseInt(ym.slice(0, 4), 10) === year) sum += monthsOf(cost.id)[ym].manual;
+        });
+        sum = Math.round(sum * 100) / 100;
+        if (Math.abs(sum - (Number(cost.amount) || 0)) > 0.004) {
+          totals.push(window.db.acquisitionCosts.update(cost.id, { amount: sum, updated_at: new Date().toISOString() }));
+        }
+      });
+      return Promise.all(totals);
+    }).then(function () { return true; })
+      .catch(function (e) { showError('Automatische Übernahme fehlgeschlagen: ' + e.message); return false; });
+  }
+
   // ── Load data ─────────────────────────────────────────────────────────
   function loadData() {
     errorEl.innerHTML = '';
@@ -1233,6 +1508,9 @@
       (window.db.acquisitionCostMonths ? window.db.acquisitionCostMonths.listAll() : Promise.resolve(null)).catch(function () { return null; }),
       (window.db.acquisitionCostHistory ? window.db.acquisitionCostHistory.available() : Promise.resolve(null))
         .then(function () { return true; }).catch(function () { return false; }),
+      (window.db.acquisitionCostRules ? window.db.acquisitionCostRules.listAll() : Promise.resolve(null)).catch(function () { return null; }),
+      // Buchungen aus der Kostenanalyse – Quelle der automatischen Monatswerte.
+      (window.db.cost && window.db.cost.transactions ? window.db.cost.transactions.all() : Promise.resolve([])).catch(function () { return []; }),
     ])
     .then(function (results) {
       var costs    = results[0];
@@ -1247,8 +1525,24 @@
       monthsByCost    = {};
       (monthRows || []).forEach(function (r) {
         if (!monthsByCost[r.acquisition_cost_id]) monthsByCost[r.acquisition_cost_id] = {};
-        monthsByCost[r.acquisition_cost_id][r.ym] = { id: r.id, amount: Number(r.amount) || 0 };
+        monthsByCost[r.acquisition_cost_id][r.ym] = {
+          id: r.id,
+          amount: Number(r.amount) || 0,
+          auto:   Number(r.auto_amount) || 0,
+          manual: r.manual_amount != null ? Number(r.manual_amount) : (Number(r.amount) || 0),
+        };
       });
+
+      var ruleRows   = results[6];
+      rulesAvailable = ruleRows !== null;
+      rulesByCost    = {};
+      (ruleRows || []).forEach(function (r) {
+        if (!rulesByCost[r.acquisition_cost_id]) rulesByCost[r.acquisition_cost_id] = [];
+        rulesByCost[r.acquisition_cost_id].push(r);
+      });
+
+      allTx = results[7] || [];
+      buildVendorList();
       buildExclusions(revenues);
 
       loadingEl.classList.add('hidden');
@@ -1258,6 +1552,17 @@
       allClients = Object.keys(contactSet).sort(function (a, b) { return a.localeCompare(b, 'de'); });
 
       if (costs.length === 0) { emptyState.classList.remove('hidden'); return; }
+
+      // Neue Bankdaten sollen ohne Zutun in der Übersicht landen: einmal je
+      // Seitenaufruf werden die automatischen Monatswerte nachgezogen.
+      if (!autoSyncDone) {
+        autoSyncDone = true;
+        return syncAutoFromRules(costs).then(function (changed) {
+          if (changed) { loadData(); return; }
+          contentEl.classList.remove('hidden');
+          render(costs, revenues, links);
+        });
+      }
 
       contentEl.classList.remove('hidden');
       render(costs, revenues, links);
@@ -1383,6 +1688,7 @@
     var pending = [];
     if (!monthsAvailable)  pending.push({ what: 'Monatserfassung', file: 'supabase/acquisition-cost-months-schema.sql' });
     if (!historyAvailable) pending.push({ what: 'Änderungsverlauf', file: 'supabase/acquisition-cost-history-schema.sql' });
+    if (!rulesAvailable)   pending.push({ what: 'Kostenquellen',     file: 'supabase/acquisition-cost-rules-schema.sql' });
     if (pending.length) {
       banner.innerHTML = '<div class="alert alert-warn" style="margin:0;display:block">' +
         '<div style="font-weight:600;margin-bottom:4px">⚠️ ' +
@@ -1537,9 +1843,16 @@
         ? '<button class="btn btn-ghost btn-sm detail-btn" style="padding:2px 8px;font-size:13px;font-weight:600">' + count + '</button>'
         : '<span style="color:var(--text-secondary)">0</span>';
 
+      // Sichtbar machen, dass die Zahlen aus den Bankdaten kommen.
+      var srcRules = rulesByCost[cost.id] || [];
+      var autoChip = srcRules.length
+        ? '<span class="auto-chip" title="' + escHtml('Automatisch aus der Kostenanalyse (netto):\n' +
+            srcRules.map(function (r) { return '• ' + r.pattern; }).join('\n')) + '">⟳ Konto</span>'
+        : '';
+
       var tr = document.createElement('tr');
       tr.innerHTML =
-        '<td style="font-weight:500">' + escHtml(cost.source_name) +
+        '<td style="font-weight:500">' + escHtml(cost.source_name) + autoChip +
           (cost.notes ? '<br><span style="font-size:11px;color:var(--text-secondary);font-weight:400">' + escHtml(cost.notes) + '</span>' : '') +
         '</td>' +
         '<td><span style="font-size:12px;background:var(--surface-hover,#f1f5f9);padding:2px 8px;border-radius:4px;border:1px solid var(--border)">' + typeLabel + '</span></td>' +

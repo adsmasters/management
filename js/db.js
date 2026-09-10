@@ -309,18 +309,37 @@
     acquisitionCostMonths: {
       listAll: () =>
         q(s => s.from('acquisition_cost_months').select('*').order('ym', { ascending: true })),
-      set: (costId, ym, amount) =>
-        q(s => s.from('acquisition_cost_months')
-          .upsert({ acquisition_cost_id: costId, ym: ym, amount: amount,
+      // amounts = { auto, manual } – amount ist immer die Summe daraus.
+      set: (costId, ym, amounts) => {
+        const auto   = Math.round((Number(amounts.auto)   || 0) * 100) / 100;
+        const manual = Math.round((Number(amounts.manual) || 0) * 100) / 100;
+        return q(s => s.from('acquisition_cost_months')
+          .upsert({ acquisition_cost_id: costId, ym: ym,
+                    auto_amount: auto, manual_amount: manual,
+                    amount: Math.round((auto + manual) * 100) / 100,
                     updated_at: new Date().toISOString() },
                   { onConflict: 'acquisition_cost_id,ym' })
-          .select().single()),
+          .select().single());
+      },
       remove: (costId, ym) =>
         q(s => s.from('acquisition_cost_months')
           .delete().eq('acquisition_cost_id', costId).eq('ym', ym)),
       removeAll: (costId) =>
         q(s => s.from('acquisition_cost_months')
           .delete().eq('acquisition_cost_id', costId)),
+    },
+
+    // Zuordnung Akquisitionsquelle → Lieferanten in cost_transactions.
+    acquisitionCostRules: {
+      listAll: () =>
+        q(s => s.from('acquisition_cost_rules').select('*').order('created_at', { ascending: true })),
+      create: (costId, pattern, label, matchType) =>
+        q(s => s.from('acquisition_cost_rules')
+          .insert({ acquisition_cost_id: costId, pattern: pattern,
+                    label: label || null, match_type: matchType || 'contains' })
+          .select().single()),
+      remove: (id) =>
+        q(s => s.from('acquisition_cost_rules').delete().eq('id', id)),
     },
 
     // Änderungsverlauf – wird per DB-Trigger gefüllt, nur lesen.

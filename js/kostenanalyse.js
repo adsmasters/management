@@ -65,20 +65,9 @@
   // Sinnvolles Regel-Pattern: Anbietername ohne angehängte Transaktions-IDs.
   // "PAYPAL *FLASCHENP. 17642964006" → "PAYPAL *FLASCHENP."
   // "PAYPAL *A24 4029357733" → "PAYPAL *A24"   (kurze Codes wie A24 bleiben)
-  function suggestPattern(text) {
-    var s = String(text || '').split('|')[0].trim();
-    var toks = s.split(/\s+/);
-    var out = [];
-    for (var i = 0; i < toks.length; i++) {
-      var t = toks[i];
-      var digitCount = (t.match(/\d/g) || []).length;
-      var pureDigits = /^\d+$/.test(t);
-      if ((pureDigits && t.length >= 4) || digitCount >= 5) break;   // ID-Token → abschneiden
-      out.push(t);
-    }
-    var p = out.join(' ').replace(/[\s.,;:_\-]+$/, '').trim();
-    return p || s;
-  }
+  // Liegt in js/utils.js, damit die Akquisitionsseite denselben
+  // Lieferantenbegriff bildet.
+  function suggestPattern(text) { return window.suggestVendorPattern(text); }
 
   function isExcludedRevenue(name) {
     var n = (name || '').trim().toLowerCase();

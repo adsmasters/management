@@ -1,6 +1,24 @@
 (function () {
   'use strict';
 
+  // Lieferantenname aus einem Buchungstext – Transaktions-IDs abgeschnitten.
+  // "PAYPAL *BACKLINKED 22828679560" → "PAYPAL *BACKLINKED"
+  // Identisch zu suggestPattern in js/kostenanalyse.js, damit Kostenanalyse und
+  // Akquisition denselben Lieferantenbegriff verwenden.
+  window.suggestVendorPattern = function (text) {
+    var s = String(text || '').split('|')[0].trim();
+    var toks = s.split(/\s+/);
+    var out = [];
+    for (var i = 0; i < toks.length; i++) {
+      var t = toks[i];
+      var digitCount = (t.match(/\d/g) || []).length;
+      if ((/^\d+$/.test(t) && t.length >= 4) || digitCount >= 5) break;   // ID-Token → abschneiden
+      out.push(t);
+    }
+    var p = out.join(' ').replace(/[\s.,;:_\-]+$/, '').trim();
+    return p || s;
+  };
+
   window.MONTHS_DE = [
     'Januar','Februar','März','April','Mai','Juni',
     'Juli','August','September','Oktober','November','Dezember'

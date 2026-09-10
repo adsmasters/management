@@ -29,7 +29,8 @@
   var costMonths = [];
   function addMonths(costId, year, fromM, toM, amount) {
     for (var m = fromM; m <= toM; m++) {
-      costMonths.push({ id: id(), acquisition_cost_id: costId, ym: year + '-' + (m < 10 ? '0' : '') + m, amount: amount });
+      costMonths.push({ id: id(), acquisition_cost_id: costId, ym: year + '-' + (m < 10 ? '0' : '') + m,
+                        amount: amount, auto_amount: 0, manual_amount: amount });
     }
   }
   // Änderungsverlauf – in der echten DB von Triggern gefüllt, hier nachgebaut,
@@ -97,6 +98,35 @@
     });
   });
 
+  // Buchungen wie in cost_transactions – Schreibweisen bewusst gemischt,
+  // genau wie in den echten Kreissparkasse-/Amex-Uploads.
+  var costTx = [];
+  function tx(date, payee, gross, net, cat, excluded) {
+    costTx.push({
+      id: id(), tx_date: date, year: +date.slice(0, 4), month: +date.slice(5, 7),
+      source: 'amex', payee: payee, description: payee, amount_gross: gross,
+      amount_net: net, category: cat, excluded: !!excluded,
+    });
+  }
+  tx('2026-05-19', 'T&P Fotografie',   1250, 1250, 'Freelancer/Externe');
+  tx('2026-06-10', 'T&P Fotografie',   1750, 1750, 'Freelancer/Externe');
+  tx('2026-06-30', 'T&P Fotografie',    950,  950, 'Freelancer/Externe');
+  tx('2026-07-07', 'T&P Fotografie',   1600, 1600, 'Freelancer/Externe');
+  tx('2026-07-22', 'T & P Fotografie', 1150, 1150, 'Freelancer/Externe');   // andere Schreibweise
+  tx('2026-08-12', 'T & P Fotografie', 1200, 1200, 'Freelancer/Externe');
+  tx('2026-08-18', 'T & P Fotografie', 1850, 1850, 'Freelancer/Externe');
+  tx('2026-08-03', 'PAYPAL *BACKLINKED 22828679560',  59.50,  50.00, 'Marketing');
+  tx('2026-08-18', 'PAYPAL *BACKLINKED 22828679560', 593.81, 499.00, 'Marketing');
+  tx('2026-07-09', 'PAYPAL *BACKLINKED 22828679560', 1670.76, 1404.00, 'Marketing');
+  tx('2026-08-05', 'Baris D. SEO Freelancer', 1190, 1000, 'Freelancer/Externe');
+  tx('2026-08-01', 'GOOGLE*ADS6354044357 GO CC GOOGL', 1000, 1000, 'Software');
+  tx('2025-11-04', 'PAYPAL *BACKLINKED 22828679560', 238, 200, 'Marketing');  // Vorjahr – darf 2026 nicht zählen
+  tx('2026-08-20', 'T & P Fotografie', 400, 400, 'Freelancer/Externe', true); // ausgeschlossen
+
+  var costRules = [
+    { id: 'r-yt', acquisition_cost_id: 'c-yt26', match_type: 'contains', pattern: 'Fotografie', label: 'T&P Fotografie' },
+  ];
+
   window.db = {
     acquisitionCosts: {
       list: function () { return ok(costs); },
@@ -126,16 +156,19 @@
     },
     acquisitionCostMonths: {
       listAll: function () { return ok(costMonths); },
-      set: function (costId, ym, amount) {
-        var now = new Date().toISOString();
+      set: function (costId, ym, amounts) {
+        var now    = new Date().toISOString();
+        var auto   = Math.round((Number(amounts.auto)   || 0) * 100) / 100;
+        var manual = Math.round((Number(amounts.manual) || 0) * 100) / 100;
+        var total  = Math.round((auto + manual) * 100) / 100;
         var row = costMonths.filter(function (m) { return m.acquisition_cost_id === costId && m.ym === ym; })[0];
         if (row) {
-          if (Number(row.amount) !== Number(amount)) hist(costId, now, 'month', { ym: ym, old_amount: row.amount, new_amount: amount });
-          row.amount = amount;
+          if (Number(row.amount) !== total) hist(costId, now, 'month', { ym: ym, old_amount: row.amount, new_amount: total });
+          row.amount = total; row.auto_amount = auto; row.manual_amount = manual;
         } else {
-          row = { id: id(), acquisition_cost_id: costId, ym: ym, amount: amount };
+          row = { id: id(), acquisition_cost_id: costId, ym: ym, amount: total, auto_amount: auto, manual_amount: manual };
           costMonths.push(row);
-          hist(costId, now, 'month', { ym: ym, new_amount: amount });
+          hist(costId, now, 'month', { ym: ym, new_amount: total });
         }
         return ok(row);
       },
@@ -149,6 +182,18 @@
         costMonths = costMonths.filter(function (m) { return m.acquisition_cost_id !== costId; });
         return ok(null);
       },
+    },
+    acquisitionCostRules: {
+      listAll: function () { return ok(costRules); },
+      create: function (costId, pattern, label, matchType) {
+        var row = { id: id(), acquisition_cost_id: costId, pattern: pattern,
+                    label: label || null, match_type: matchType || 'contains' };
+        costRules.push(row); return ok(row);
+      },
+      remove: function (i) { costRules = costRules.filter(function (r) { return r.id !== i; }); return ok(null); },
+    },
+    cost: {
+      transactions: { all: function () { return ok(costTx); } },
     },
     acquisitionCostHistory: {
       available: function () { return ok([]); },
