@@ -32,6 +32,22 @@
       costMonths.push({ id: id(), acquisition_cost_id: costId, ym: year + '-' + (m < 10 ? '0' : '') + m, amount: amount });
     }
   }
+  // Änderungsverlauf – in der echten DB von Triggern gefüllt, hier nachgebaut,
+  // damit die Testseite dasselbe Verhalten zeigt.
+  var costHistory = [];
+  function hist(costId, when, field, extra) {
+    var row = { id: id(), acquisition_cost_id: costId, changed_at: when, field: field,
+                ym: null, old_amount: null, new_amount: null, old_text: null, new_text: null };
+    Object.keys(extra || {}).forEach(function (k) { row[k] = extra[k]; });
+    costHistory.push(row);
+  }
+  hist('c-yt26', '2026-06-02T09:12:00Z', 'baseline', { new_amount: 5000, new_text: 'YouTube 2026' });
+  hist('c-yt26', '2026-07-24T12:44:00Z', 'amount',   { old_amount: 5000, new_amount: 6000 });
+  hist('c-yt26', '2026-09-05T07:28:00Z', 'name',     { old_text: 'YouTube 2026 (Bis Ende Juli)', new_text: 'YouTube 2026 (Bis Ende August)' });
+  hist('c-seo',  '2026-09-01T06:00:00Z', 'baseline', { new_amount: 17500, new_text: 'Google Organic Search 2026' });
+  hist('c-seo',  '2026-09-08T05:35:00Z', 'month',    { ym: '2026-08', new_amount: 2500 });
+  hist('c-seo',  '2026-09-08T05:35:00Z', 'amount',   { old_amount: 17500, new_amount: 20000 });
+
   addMonths('c-seo',  2026, 1, 8, 2500);   // Jan–Aug 2026 – vollständig
   addMonths('c-yt26', 2026, 1, 6, 1000);   // nur Jan–Jun 2026
   addMonths('c-yt25', 2025, 1, 12, 1250);  // volles Vorjahr
@@ -86,10 +102,19 @@
       create: function (sourceName, sourceType, amount, costDate, notes, isRecurring) {
         var row = { id: id(), source_name: sourceName, source_type: sourceType, amount: amount || 0,
                     cost_date: costDate || null, notes: notes || null, is_recurring: !!isRecurring };
-        costs.push(row); return ok(row);
+        costs.push(row);
+        hist(row.id, new Date().toISOString(), 'created', { new_amount: row.amount, new_text: row.source_name });
+        return ok(row);
       },
       update: function (i, fields) {
         var row = costs.filter(function (c) { return c.id === i; })[0];
+        var now = new Date().toISOString();
+        if (fields.amount !== undefined && Number(fields.amount) !== Number(row.amount)) {
+          hist(i, now, 'amount', { old_amount: row.amount, new_amount: fields.amount });
+        }
+        if (fields.source_name !== undefined && fields.source_name !== row.source_name) {
+          hist(i, now, 'name', { old_text: row.source_name, new_text: fields.source_name });
+        }
         Object.assign(row, fields); return ok(row);
       },
       delete: function (i) {
@@ -101,18 +126,34 @@
     acquisitionCostMonths: {
       listAll: function () { return ok(costMonths); },
       set: function (costId, ym, amount) {
+        var now = new Date().toISOString();
         var row = costMonths.filter(function (m) { return m.acquisition_cost_id === costId && m.ym === ym; })[0];
-        if (row) { row.amount = amount; }
-        else { row = { id: id(), acquisition_cost_id: costId, ym: ym, amount: amount }; costMonths.push(row); }
+        if (row) {
+          if (Number(row.amount) !== Number(amount)) hist(costId, now, 'month', { ym: ym, old_amount: row.amount, new_amount: amount });
+          row.amount = amount;
+        } else {
+          row = { id: id(), acquisition_cost_id: costId, ym: ym, amount: amount };
+          costMonths.push(row);
+          hist(costId, now, 'month', { ym: ym, new_amount: amount });
+        }
         return ok(row);
       },
       remove: function (costId, ym) {
+        var row = costMonths.filter(function (m) { return m.acquisition_cost_id === costId && m.ym === ym; })[0];
+        if (row) hist(costId, new Date().toISOString(), 'month', { ym: ym, old_amount: row.amount });
         costMonths = costMonths.filter(function (m) { return !(m.acquisition_cost_id === costId && m.ym === ym); });
         return ok(null);
       },
       removeAll: function (costId) {
         costMonths = costMonths.filter(function (m) { return m.acquisition_cost_id !== costId; });
         return ok(null);
+      },
+    },
+    acquisitionCostHistory: {
+      available: function () { return ok([]); },
+      listForCost: function (costId) {
+        return ok(costHistory.filter(function (h) { return h.acquisition_cost_id === costId; })
+          .slice().sort(function (a, b) { return b.changed_at.localeCompare(a.changed_at); }));
       },
     },
     acquisitionContactLinks: {

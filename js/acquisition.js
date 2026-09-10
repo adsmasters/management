@@ -1191,12 +1191,16 @@
       // null = Tabelle fehlt noch (Migration nicht gelaufen) – die Seite läuft
       // dann ohne Monatserfassung weiter statt zu brechen.
       (window.db.acquisitionCostMonths ? window.db.acquisitionCostMonths.listAll() : Promise.resolve(null)).catch(function () { return null; }),
+      (window.db.acquisitionCostHistory ? window.db.acquisitionCostHistory.available() : Promise.resolve(null))
+        .then(function () { return true; }).catch(function () { return false; }),
     ])
     .then(function (results) {
       var costs    = results[0];
       var revenues = results[1];
       var links    = results[2];
       allOverrides = results[3] || [];
+
+      historyAvailable = results[5] === true;
 
       var monthRows   = results[4];
       monthsAvailable = monthRows !== null;
@@ -1226,6 +1230,82 @@
     });
   }
 
+  // ── Änderungsverlauf ─────────────────────────────────────────────────
+  var historyModal      = document.getElementById('historyModal');
+  var historyModalTitle = document.getElementById('historyModalTitle');
+  var historyModalBody  = document.getElementById('historyModalBody');
+  var historyModalClose = document.getElementById('historyModalClose');
+  var historyAvailable  = true;   // false, solange die Migration nicht gelaufen ist
+
+  function closeHistoryModal() { historyModal.classList.add('hidden'); }
+  historyModalClose.addEventListener('click', closeHistoryModal);
+  historyModal.addEventListener('click', function (e) { if (e.target === historyModal) closeHistoryModal(); });
+
+  function fmtWhen(iso) {
+    var d = new Date(iso);
+    return d.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit', year: 'numeric' }) + ', ' +
+           d.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+  }
+
+  function deltaHtml(oldA, newA) {
+    if (oldA == null || newA == null) return '';
+    var diff = Number(newA) - Number(oldA);
+    if (!diff) return '';
+    var cls = diff > 0 ? 'hist-up' : 'hist-down';
+    return ' <span class="' + cls + '">(' + (diff > 0 ? '+' : '−') + fmt(Math.abs(diff)) + ')</span>';
+  }
+
+  function historyText(h) {
+    var oldA = h.old_amount == null ? null : Number(h.old_amount);
+    var newA = h.new_amount == null ? null : Number(h.new_amount);
+
+    if (h.field === 'baseline') {
+      return 'Stand beim Einschalten des Verlaufs: <strong>' + fmt(newA || 0) + '</strong>' +
+             '<div style="font-size:11px;color:var(--text-secondary);margin-top:2px">' +
+             'Zeitpunkt laut „zuletzt geändert" – frühere Änderungen hat die Datenbank nie gespeichert.</div>';
+    }
+    if (h.field === 'created') {
+      return 'Eintrag angelegt mit <strong>' + fmt(newA || 0) + '</strong>';
+    }
+    if (h.field === 'name') {
+      return 'Umbenannt: „' + escHtml(h.old_text || '—') + '" → „<strong>' + escHtml(h.new_text || '—') + '</strong>"';
+    }
+    if (h.field === 'month') {
+      var label = h.ym ? ymText(h.ym) : '—';
+      if (oldA == null) return 'Monat ' + label + ' erfasst: <strong>' + fmt(newA || 0) + '</strong>';
+      if (newA == null) return 'Monat ' + label + ' gelöscht (war ' + fmt(oldA) + ')';
+      return 'Monat ' + label + ': ' + fmt(oldA) + ' → <strong>' + fmt(newA) + '</strong>' + deltaHtml(oldA, newA);
+    }
+    // field === 'amount'
+    return 'Betrag: ' + (oldA == null ? '—' : fmt(oldA)) + ' → <strong>' + fmt(newA || 0) + '</strong>' + deltaHtml(oldA, newA);
+  }
+
+  function renderHistory(rows) {
+    if (!rows.length) {
+      historyModalBody.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-secondary)">' +
+        'Noch keine Änderungen aufgezeichnet.</div>';
+      return;
+    }
+    historyModalBody.innerHTML = rows.map(function (h) {
+      return '<div class="hist-row">' +
+        '<div class="hist-when">' + fmtWhen(h.changed_at) + '</div>' +
+        '<div class="hist-what">' + historyText(h) + '</div>' +
+      '</div>';
+    }).join('');
+  }
+
+  function openHistoryModal(cost) {
+    historyModalTitle.textContent = 'Änderungsverlauf – ' + cost.source_name;
+    historyModalBody.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-secondary)">Wird geladen…</div>';
+    historyModal.classList.remove('hidden');
+    window.db.acquisitionCostHistory.listForCost(cost.id)
+      .then(renderHistory)
+      .catch(function (e) {
+        historyModalBody.innerHTML = '<div style="padding:24px;color:var(--text-secondary)">' +
+          'Verlauf nicht verfügbar: ' + escHtml(e.message) + '</div>';
+      });
+  }
+
   // Spalte „Erfasst bis": bei laufenden Kosten der letzte erfasste Monat samt
   // Status, bei einmaligen schlicht das Datum. Der Tooltip zeigt, wann der
   // Eintrag zuletzt angefasst wurde.
@@ -1233,10 +1313,17 @@
     var upd   = cost.updated_at ? new Date(cost.updated_at) : null;
     var title = upd ? 'Zuletzt geändert: ' + upd.toLocaleDateString('de-DE') : '';
 
+    // Uhr-Symbol öffnet den Änderungsverlauf dieses Eintrags.
+    var histBtn = historyAvailable
+      ? ' <button class="hist-btn" title="Änderungsverlauf anzeigen">' +
+          '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-1px"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>' +
+        '</button>'
+      : '';
+
     var st = recurringStatus(cost);
     if (!st) {
       var d = cost.cost_date ? cost.cost_date.split('-').reverse().join('.') : '—';
-      return '<td title="' + escHtml(title) + '"><span style="font-size:12px;color:var(--text-secondary)">' + d + '</span></td>';
+      return '<td title="' + escHtml(title) + '"><span style="font-size:12px;color:var(--text-secondary)">' + d + '</span>' + histBtn + '</td>';
     }
 
     var badge = '';
@@ -1246,7 +1333,7 @@
 
     return '<td title="' + escHtml(title) + '">' +
       '<div style="display:flex;flex-direction:column;gap:3px;align-items:flex-start">' +
-        '<span style="font-size:13px;font-weight:600">' + (st.last ? ymText(st.last) : '—') + '</span>' +
+        '<span style="font-size:13px;font-weight:600">' + (st.last ? ymText(st.last) : '—') + histBtn + '</span>' +
         badge +
       '</div></td>';
   }
@@ -1258,11 +1345,18 @@
     banner.innerHTML = '';
     banner.classList.add('hidden');
 
-    if (!monthsAvailable) {
-      banner.innerHTML = '<div class="alert alert-warn" style="margin:0">⚠️ Monatserfassung ist noch nicht aktiv – ' +
-        'bitte <code>supabase/acquisition-cost-months-schema.sql</code> im Supabase-SQL-Editor ausführen.</div>';
+    var pending = [];
+    if (!monthsAvailable)  pending.push({ what: 'Monatserfassung', file: 'supabase/acquisition-cost-months-schema.sql' });
+    if (!historyAvailable) pending.push({ what: 'Änderungsverlauf', file: 'supabase/acquisition-cost-history-schema.sql' });
+    if (pending.length) {
+      banner.innerHTML = '<div class="alert alert-warn" style="margin:0;display:block">' +
+        '<div style="font-weight:600;margin-bottom:4px">⚠️ ' +
+          pending.map(function (p) { return p.what; }).join(' und ') +
+          ' noch nicht aktiv – im Supabase-SQL-Editor ausführen:</div>' +
+        pending.map(function (p) { return '<div><code>' + p.file + '</code></div>'; }).join('') +
+      '</div>';
       banner.classList.remove('hidden');
-      return;
+      if (!monthsAvailable) return;   // ohne Monatstabelle gibt es nichts zu mahnen
     }
 
     var open = costs.filter(function (c) {
@@ -1431,6 +1525,8 @@
             ' Löschen</button>' +
         '</div></td>';
 
+      var histEl = tr.querySelector('.hist-btn');
+      if (histEl) histEl.addEventListener('click', function () { openHistoryModal(cost); });
       if (count > 0) tr.querySelector('.detail-btn').addEventListener('click', function () { openDetailModal(cost, linkedOriginal); });
       tr.querySelector('.assign-btn').addEventListener('click',  function () { openAssignModal(cost); });
       tr.querySelector('.edit-btn').addEventListener('click',    function () { openModal(cost); });

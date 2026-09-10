@@ -323,6 +323,17 @@
           .delete().eq('acquisition_cost_id', costId)),
     },
 
+    // Änderungsverlauf – wird per DB-Trigger gefüllt, nur lesen.
+    acquisitionCostHistory: {
+      // Existenz-Probe: schlägt fehl, solange die Migration nicht gelaufen ist.
+      available: () =>
+        q(s => s.from('acquisition_cost_history').select('id').limit(1)),
+      listForCost: (costId) =>
+        q(s => s.from('acquisition_cost_history').select('*')
+          .eq('acquisition_cost_id', costId)
+          .order('changed_at', { ascending: false })),
+    },
+
     revenueExclusions: {
       // (Kunde × Mitarbeiter) die NICHT am Umsatz beteiligt werden
       listAll: () =>

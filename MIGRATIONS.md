@@ -320,3 +320,27 @@ der letzte abgeschlossene Monat fehlt.
 
 Nebeneffekt: Bei aktivem Zeitraumfilter werden laufende Einträge mit der Summe
 der Monate **im Zeitraum** gerechnet statt mit dem Jahresbetrag.
+
+## 19. Änderungsverlauf für Akquisitionskosten (10.09.2026)
+
+SQL: `supabase/acquisition-cost-history-schema.sql` — **nach** Migration 18
+ausführen (die Datei bricht sonst mit einem Hinweis ab).
+
+`updated_at` wird bei jeder Änderung überschrieben; die vorletzte Änderung ist
+damit verloren. Konkreter Fall: Bei „YouTube 2026" wurde am 05.09. der Name von
+„(Bis Ende Juli)" auf „(Bis Ende August)" gezogen, während der Betrag seit dem
+24.07. unverändert bei 11.000 € stand – nachweisbar war das nur noch über alte
+Chatprotokolle.
+
+`acquisition_cost_history` hängt an **Triggern**, nicht am Frontend: `amount`-
+und `source_name`-Änderungen an `acquisition_costs`, dazu jede Einfügung,
+Änderung und Löschung in `acquisition_cost_months`. Damit wird auch mitgeschrieben,
+was jemand direkt im Supabase-Editor ändert. Geschrieben wird nur über
+SECURITY-DEFINER-Funktionen, die Policy erlaubt der Anwendung ausschließlich
+SELECT – der Verlauf ist aus dem Tool heraus nicht manipulierbar.
+
+Bestehende Einträge bekommen eine `baseline`-Zeile: der Betrag, der beim
+Einschalten in der Zeile stand, mit dem Zeitstempel aus `updated_at`. Kein
+rekonstruierter Verlauf – was die DB nie gespeichert hat, steht auch nicht drin.
+
+In der Oberfläche: Uhr-Symbol in der Spalte „Erfasst bis" je Eintrag.
