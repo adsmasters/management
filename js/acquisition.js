@@ -1601,6 +1601,7 @@
       allTx = results[7] || [];
       buildCategoryList();
       buildVendorList();
+      updateRulesBadge();
       buildExclusions(revenues);
 
       loadingEl.classList.add('hidden');
@@ -1868,6 +1869,162 @@
     banner.classList.remove('hidden');
   }
 
+  // ── Regel-Übersicht: alle Kostenquellen an einem Ort ──────────────────
+  var rulesModal     = document.getElementById('rulesModal');
+  var rulesModalBody = document.getElementById('rulesModalBody');
+  var rulesYear      = document.getElementById('rulesYear');
+  var newRuleCost    = document.getElementById('newRuleCost');
+  var newRuleKind    = document.getElementById('newRuleKind');
+  var newRulePattern = document.getElementById('newRulePattern');
+  var newRuleAdd     = document.getElementById('newRuleAdd');
+  var newRuleHint    = document.getElementById('newRuleHint');
+
+  function closeRules() { rulesModal.classList.add('hidden'); }
+  var rulesModalClose = document.getElementById('rulesModalClose');
+  if (rulesModalClose) rulesModalClose.addEventListener('click', closeRules);
+  if (rulesModal) rulesModal.addEventListener('click', function (e) { if (e.target === rulesModal) closeRules(); });
+
+  function renderRulesManager() {
+    if (!rulesModalBody) return;
+    var year = parseInt(rulesYear.value, 10);
+
+    // Nur laufende Einträge können Regeln haben – einmalige Messen nicht.
+    var recurring = (allCosts || []).filter(function (c) { return c.is_recurring; })
+      .sort(function (a, b) { return (b.cost_date || '').localeCompare(a.cost_date || ''); });
+
+    if (!recurring.length) {
+      rulesModalBody.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-secondary)">' +
+        'Noch kein Eintrag ist auf „laufende Kosten" gestellt. Setze im Bearbeiten-Dialog den Haken, ' +
+        'dann lassen sich hier Kostenquellen zuordnen.</div>';
+      return;
+    }
+
+    rulesModalBody.innerHTML = '';
+    recurring.forEach(function (cost) {
+      var rules = rulesByCost[cost.id] || [];
+      var group = document.createElement('div');
+      group.className = 'rules-group';
+
+      var sum = matchingTx(rules).filter(function (t) { return t.year === year; })
+        .reduce(function (a, t) { return a + txNet(t); }, 0);
+
+      var head = document.createElement('h4');
+      head.innerHTML = '<span>' + escHtml(cost.source_name) + '</span>' +
+        '<span class="rg-sum">' + (rules.length ? fmt(sum) + ' aus Konto ' + year : 'keine Quelle') + '</span>';
+      group.appendChild(head);
+
+      if (!rules.length) {
+        var empty = document.createElement('div');
+        empty.className = 'rg-empty';
+        empty.textContent = 'Keine Regel – die Monatswerte kommen hier nur von Hand.';
+        group.appendChild(empty);
+      }
+
+      rules.forEach(function (rule) {
+        var hits = matchingTx([rule]).filter(function (t) { return t.year === year; });
+        var rsum = hits.reduce(function (a, t) { return a + txNet(t); }, 0);
+
+        var row = document.createElement('div');
+        row.className = 'rule-row' + (hits.length ? '' : ' no-hits');
+        row.innerHTML =
+          '<span class="rule-pattern">' + escHtml(ruleLabel(rule)) + '</span>' +
+          '<span class="rule-hits">' + (hits.length
+            ? hits.length + (hits.length === 1 ? ' Buchung · ' : ' Buchungen · ') + fmt(rsum)
+            : 'kein Treffer ' + year) + '</span>';
+
+        var del = document.createElement('button');
+        del.type = 'button';
+        del.className = 'rule-del';
+        del.title = 'Regel löschen';
+        del.textContent = '✕';
+        del.addEventListener('click', function () {
+          del.disabled = true;
+          window.db.acquisitionCostRules.remove(rule.id)
+            .then(function () { return reloadRules(); })
+            .then(renderRulesManager)
+            .catch(function (e) { showError('Regel konnte nicht gelöscht werden: ' + e.message); del.disabled = false; });
+        });
+        row.appendChild(del);
+        group.appendChild(row);
+      });
+
+      var openBtn = document.createElement('button');
+      openBtn.type = 'button';
+      openBtn.className = 'lc-link';
+      openBtn.style.marginTop = '4px';
+      openBtn.textContent = 'Monatswerte dieses Eintrags öffnen';
+      openBtn.addEventListener('click', function () { closeRules(); openModal(cost); });
+      group.appendChild(openBtn);
+
+      rulesModalBody.appendChild(group);
+    });
+  }
+
+  // Regeln neu laden, ohne die ganze Seite zu rendern.
+  function reloadRules() {
+    return window.db.acquisitionCostRules.listAll().then(function (rows) {
+      rulesByCost = {};
+      (rows || []).forEach(function (r) {
+        if (!rulesByCost[r.acquisition_cost_id]) rulesByCost[r.acquisition_cost_id] = [];
+        rulesByCost[r.acquisition_cost_id].push(r);
+      });
+      updateRulesBadge();
+      if (lastRenderArgs) render(lastRenderArgs[0], lastRenderArgs[1], lastRenderArgs[2]);
+    });
+  }
+
+  function updateRulesBadge() {
+    var el = document.getElementById('rulesBtnCount');
+    if (!el) return;
+    var n = 0;
+    Object.keys(rulesByCost).forEach(function (k) { n += rulesByCost[k].length; });
+    el.textContent = n ? ' (' + n + ')' : '';
+  }
+
+  function syncNewRuleUi() {
+    var isCat = newRuleKind.value === 'category';
+    newRulePattern.setAttribute('list', isCat ? 'categoryOptions' : 'vendorOptions');
+    newRulePattern.placeholder = isCat ? 'Kategorie, z. B. Marketing' : 'Lieferant oder Suchbegriff';
+  }
+
+  function openRulesManager() {
+    if (!rulesAvailable) {
+      showError('Kostenquellen sind noch nicht aktiv – bitte die Migration ausführen (siehe Hinweis oben).');
+      return;
+    }
+    var years = {};
+    allTx.forEach(function (t) { if (!t.excluded) years[t.year] = 1; });
+    var yl = Object.keys(years).sort(function (a, b) { return b - a; });
+    if (!yl.length) yl = [String(new Date().getFullYear())];
+    rulesYear.innerHTML = yl.map(function (y) { return '<option value="' + y + '">' + y + '</option>'; }).join('');
+    rulesYear.value = yl[0];
+
+    newRuleCost.innerHTML = (allCosts || []).filter(function (c) { return c.is_recurring; })
+      .sort(function (a, b) { return (b.cost_date || '').localeCompare(a.cost_date || ''); })
+      .map(function (c) { return '<option value="' + c.id + '">' + escHtml(c.source_name) + '</option>'; }).join('');
+    newRuleHint.textContent = '';
+    syncNewRuleUi();
+    renderRulesManager();
+    rulesModal.classList.remove('hidden');
+  }
+
+  if (rulesYear)    rulesYear.addEventListener('change', renderRulesManager);
+  if (newRuleKind)  newRuleKind.addEventListener('change', syncNewRuleUi);
+  if (newRuleAdd)   newRuleAdd.addEventListener('click', function () {
+    var costId = newRuleCost.value;
+    var pat    = (newRulePattern.value || '').trim();
+    if (!costId) { newRuleHint.textContent = 'Kein laufender Eintrag vorhanden – erst im Bearbeiten-Dialog „Laufende Kosten" setzen.'; return; }
+    if (!pat) { newRulePattern.focus(); return; }
+    newRuleAdd.disabled = true;
+    window.db.acquisitionCostRules.create(costId, pat, pat, newRuleKind.value)
+      .then(function () { newRulePattern.value = ''; return reloadRules(); })
+      .then(function () { renderRulesManager(); newRuleHint.textContent = 'Regel angelegt. Die Beträge übernimmst du oben über den Vorschlag.'; })
+      .catch(function (e) { newRuleHint.textContent = 'Fehler: ' + e.message; })
+      .finally(function () { newRuleAdd.disabled = false; });
+  });
+  var rulesBtn = document.getElementById('rulesBtn');
+  if (rulesBtn) rulesBtn.addEventListener('click', openRulesManager);
+
   // ── Abdeckung: was ist zugeordnet, was nicht ──────────────────────────
   // Beantwortet die Frage, die eine Regel offenlässt: „Google organisch zieht
   // Backlinked und Baris Dag – und alles andere? "
@@ -2075,8 +2232,10 @@
       // Sichtbar machen, dass die Zahlen aus den Bankdaten kommen.
       var srcRules = rulesByCost[cost.id] || [];
       var autoChip = srcRules.length
-        ? '<span class="auto-chip" title="' + escHtml('Automatisch aus der Kostenanalyse (netto):\n' +
-            srcRules.map(function (r) { return '• ' + r.pattern; }).join('\n')) + '">⟳ Konto</span>'
+        ? '<button type="button" class="auto-chip chip-rules" title="' +
+            escHtml('Automatisch aus der Kostenanalyse (netto):\n' +
+              srcRules.map(function (r) { return '• ' + r.pattern; }).join('\n') +
+              '\n\nKlicken für alle Kostenquellen') + '">⟳ Konto</button>'
         : '';
 
       var tr = document.createElement('tr');
@@ -2102,6 +2261,8 @@
             ' Löschen</button>' +
         '</div></td>';
 
+      var chipEl = tr.querySelector('.chip-rules');
+      if (chipEl) chipEl.addEventListener('click', function () { openRulesManager(); });
       var histEl = tr.querySelector('.hist-btn');
       if (histEl) histEl.addEventListener('click', function () { openHistoryModal(cost); });
       if (count > 0) tr.querySelector('.detail-btn').addEventListener('click', function () { openDetailModal(cost, linkedOriginal); });

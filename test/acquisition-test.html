@@ -34,8 +34,9 @@
       display: inline-block; margin-left: 6px; padding: 0 5px; border-radius: 4px;
       font-size: 10.5px; font-weight: 600; vertical-align: 1px;
       color: #0f766e; background: #ccfbf1; border: 1px solid #99f6e4;
-      cursor: help; white-space: nowrap;
+      cursor: pointer; white-space: nowrap; font-family: inherit;
     }
+    button.auto-chip:hover { background: #99f6e4; }
 
     .rules-box {
       margin-bottom: 12px; border: 1px solid var(--border); border-radius: var(--radius);
@@ -70,6 +71,14 @@
       border: 1px solid var(--border); border-radius: var(--radius);
       background: var(--surface); color: var(--text);
     }
+    .rules-group { border-bottom: 1px solid var(--border); padding: 12px 20px; }
+    .rules-group:last-child { border-bottom: 0; }
+    .rules-group h4 {
+      margin: 0 0 7px; font-size: 13.5px; display: flex; align-items: baseline; gap: 8px;
+    }
+    .rules-group h4 .rg-sum { font-weight: 400; font-size: 12px; color: var(--text-secondary); margin-left: auto; }
+    .rules-group .rg-empty { font-size: 12px; color: #92400e; }
+
     .rule-tx-wrap { margin-top: 8px; }
     .rule-tx-wrap summary {
       cursor: pointer; font-size: 12px; color: var(--primary, #4f46e5); user-select: none;
@@ -159,6 +168,9 @@
       <button id="viewAll"  class="btn btn-primary btn-sm">Alle Einträge</button>
       <button id="viewType" class="btn btn-secondary btn-sm">Nach Typ</button>
       <button id="viewTag"  class="btn btn-secondary btn-sm">Nach Unterkanal</button>
+      <button id="rulesBtn" class="btn btn-secondary btn-sm" title="Welche Lieferanten aus der Kostenanalyse fließen in welche Akquisitionsquelle?">
+        ⟳ Kostenquellen<span id="rulesBtnCount"></span>
+      </button>
       <button id="coverageBtn" class="btn btn-ghost btn-sm" title="Welche Kosten aus der Kostenanalyse sind einer Quelle zugeordnet – und welche nicht?">Abdeckung prüfen</button>
       <div style="width:1px;height:24px;background:var(--border);margin:0 4px"></div>
       <div style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-secondary)">
@@ -440,6 +452,40 @@
   </div>
 </div>
 
+<!-- Rules Manager Modal -->
+<div id="rulesModal" class="modal-overlay hidden">
+  <div class="modal" style="max-width:760px">
+    <div class="modal-header">
+      <h3>Kostenquellen – alle Regeln</h3>
+      <button class="modal-close" id="rulesModalClose">✕</button>
+    </div>
+    <div style="padding:12px 20px;background:var(--surface-hover,#f8fafc);border-bottom:1px solid var(--border);font-size:12.5px;color:var(--text-secondary);line-height:1.5">
+      Jede Regel zieht die passenden Buchungen aus der
+      <a href="kostenanalyse.html">Kostenanalyse</a> in eine Akquisitionsquelle – netto,
+      im Monat der Zahlung. Ausgeschlossene Buchungen zählen nicht.
+      <div style="display:flex;gap:10px;align-items:center;margin-top:8px;flex-wrap:wrap">
+        <label for="rulesYear" style="margin:0;font-weight:600;color:var(--text)">Treffer für Jahr</label>
+        <select id="rulesYear" style="padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;background:var(--surface);color:var(--text)"></select>
+      </div>
+    </div>
+    <div class="modal-body" id="rulesModalBody" style="padding:0;max-height:52vh;overflow-y:auto"></div>
+    <div style="padding:12px 20px;border-top:1px solid var(--border);background:var(--surface-hover,#f8fafc)">
+      <div style="font-size:12.5px;font-weight:600;margin-bottom:7px">Neue Regel</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        <select id="newRuleCost" style="flex:1 1 200px;min-width:0;padding:5px 8px;border:1px solid var(--border);border-radius:var(--radius);font-size:12.5px;background:var(--surface);color:var(--text)"></select>
+        <select id="newRuleKind" style="padding:5px 6px;border:1px solid var(--border);border-radius:var(--radius);font-size:12.5px;background:var(--surface);color:var(--text)">
+          <option value="contains">Lieferant / Text</option>
+          <option value="category">Kategorie</option>
+        </select>
+        <input type="text" id="newRulePattern" list="vendorOptions" autocomplete="off" placeholder="Suchbegriff"
+               style="flex:1 1 170px;min-width:0;padding:5px 8px;border:1px solid var(--border);border-radius:var(--radius);font-size:12.5px;background:var(--surface);color:var(--text)">
+        <button type="button" class="btn btn-primary btn-sm" id="newRuleAdd">Hinzufügen</button>
+      </div>
+      <div id="newRuleHint" style="font-size:11.5px;color:var(--text-secondary);margin-top:6px"></div>
+    </div>
+  </div>
+</div>
+
 <!-- Coverage Modal -->
 <div id="coverageModal" class="modal-overlay hidden">
   <div class="modal" style="max-width:820px">
@@ -487,8 +533,8 @@
   </div>
 </div>
 
-<script src="acquisition-test-db.js?v=1789041580448"></script>
-<script src="../js/utils.js?v=1789041580448"></script>
-<script src="../js/acquisition.js?v=1789041580448"></script>
+<script src="acquisition-test-db.js?v=1789044628496"></script>
+<script src="../js/utils.js?v=1789044628496"></script>
+<script src="../js/acquisition.js?v=1789044628496"></script>
 </body>
 </html>

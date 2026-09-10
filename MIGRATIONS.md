@@ -421,3 +421,17 @@ hereinkommt, aber nicht, was draußen bleibt.
 
 Mehrfachtreffer werden angezeigt statt stillschweigend summiert – eine Buchung,
 die zwei Quellen trifft, zählt sonst unbemerkt doppelt.
+
+## 20c. Regel-Übersicht auf der Akquisitionsseite (10.09.2026)
+
+Kein Schema-Update. Die Regeln lagen nur im Bearbeiten-Dialog eines einzelnen
+Eintrags – man musste wissen, wo man sucht.
+
+Neue Schaltfläche **„⟳ Kostenquellen (n)"** in der Werkzeugleiste: alle Regeln
+aller laufenden Einträge auf einen Blick, je Regel die Treffer und die
+Nettosumme im gewählten Jahr, Löschen direkt aus der Liste, Anlegen über die
+Zeile unten (Eintrag + Lieferant/Kategorie + Suchbegriff). Der Zähler im Button
+zeigt, wie viele Regeln insgesamt gesetzt sind.
+
+Der ⟳-Chip in der Tabelle ist jetzt eine Schaltfläche und öffnet dieselbe
+Übersicht — von der betroffenen Zeile aus direkt zu den Regeln.
