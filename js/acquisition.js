@@ -311,6 +311,7 @@
   var acqMonthsHint     = document.getElementById('acqMonthsHint');
   var acqYearSelect     = document.getElementById('acqYearSelect');
   var acqDateField      = document.getElementById('acqDateField');
+  var acqLastChange     = document.getElementById('acqLastChange');
 
   var monthDraft      = {};  // 'YYYY-MM' → Eingabewert (nur der offene Dialog)
   var draftBaseAmount = 0;   // Gesamtbetrag vor der Umstellung auf monatlich
@@ -392,6 +393,39 @@
     acqMonthsHint.innerHTML = html;
   }
 
+  // Zeigt im Dialog, wann zuletzt Geld an diesem Eintrag bewegt wurde.
+  // Umbenennungen zählen bewusst NICHT – ein geänderter Name („Bis Ende
+  // August") sagt nichts darüber, ob der Betrag mitgezogen wurde.
+  function renderLastChange(entry) {
+    if (!acqLastChange) return;
+    acqLastChange.innerHTML = '';
+    acqLastChange.classList.add('hidden');
+    if (!entry || !historyAvailable) return;
+
+    acqLastChange.classList.remove('hidden');
+    acqLastChange.innerHTML = '<span style="color:var(--text-secondary)">Letzte Betragsänderung wird geladen…</span>';
+
+    var forId = entry.id;
+    window.db.acquisitionCostHistory.listForCost(forId)
+      .then(function (rows) {
+        if (editingId !== forId) return;            // Dialog inzwischen gewechselt
+        var money = rows.filter(function (h) { return h.field !== 'name'; });
+        if (!money.length) { acqLastChange.classList.add('hidden'); return; }
+
+        var h = money[0];                            // Historie kommt absteigend
+        acqLastChange.innerHTML =
+          '<div class="lc-head">Betrag zuletzt geändert: ' + fmtWhen(h.changed_at) + '</div>' +
+          '<div style="margin-top:3px">' + historyText(h) + '</div>' +
+          (rows.length > 1
+            ? '<div style="margin-top:5px"><button type="button" class="lc-link" id="acqHistLink">Ganzer Verlauf (' + rows.length + ' Einträge)</button></div>'
+            : '');
+
+        var link = document.getElementById('acqHistLink');
+        if (link) link.addEventListener('click', function () { openHistoryModal(entry); });
+      })
+      .catch(function () { acqLastChange.classList.add('hidden'); });
+  }
+
   function syncRecurringUi() {
     var on = acqRecurringCheck.checked && monthsAvailable;
     acqMonthsWrap.classList.toggle('hidden', !on);
@@ -424,6 +458,7 @@
     acqRecurringCheck.disabled = !monthsAvailable;
     fillYearSelect(entry ? entryYear(entry) : new Date().getFullYear());
     syncRecurringUi();
+    renderLastChange(entry);
 
     acqModal.classList.remove('hidden');
     acqSourceInput.focus();
