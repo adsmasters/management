@@ -406,3 +406,18 @@ Gesetzte Suchbegriffe (netto, Stand 10.09.2026):
 Fotografie" aus demselben Grund („T&P" vs. „T & P").
 
 Für Google Ads 2026 gab es keinen Akquisitionseintrag — das Skript legt ihn an.
+
+## 20b. Nachvollziehbarkeit der Kostenquellen (10.09.2026)
+
+Kein Schema-Update. Eine Regel ist sonst eine Blackbox: Sie sagt, was
+hereinkommt, aber nicht, was draußen bleibt.
+
+- **Im Dialog** klappt unter den Regeln die Liste der tatsächlich gezogenen
+  Buchungen des Jahres auf (Datum, Lieferant, Nettobetrag).
+- **„Abdeckung prüfen"** (neben den Ansichts-Umschaltern) listet je Jahr und
+  Kategorie alle Lieferanten aus `cost_transactions` mit ihrer Nettosumme und
+  der Quelle, der sie zugeordnet sind. Nicht zugeordnete stehen oben und sind
+  gelb hinterlegt; im Kopf steht „zugeordnet X · offen Y".
+
+Mehrfachtreffer werden angezeigt statt stillschweigend summiert – eine Buchung,
+die zwei Quellen trifft, zählt sonst unbemerkt doppelt.

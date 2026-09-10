@@ -465,6 +465,31 @@
       if (parseInt(ym.slice(0, 4), 10) === year) yearSum += autoDraft[ym];
     });
     acqRulesSum.textContent = ruleDraft.length ? 'aus Konto ' + year + ': ' + fmt(yearSum) : '';
+
+    renderRuleTxList(year);
+  }
+
+  // Nachvollziehbar machen, welche Buchungen tatsächlich gezogen werden –
+  // eine Regel ist sonst eine Blackbox.
+  function renderRuleTxList(year) {
+    var wrap = document.getElementById('acqRuleTxWrap');
+    if (!wrap) return;
+    var hits = matchingTx(ruleDraft).filter(function (t) { return t.year === year; })
+      .sort(function (a, b) { return a.tx_date.localeCompare(b.tx_date); });
+
+    if (!hits.length) { wrap.innerHTML = ''; return; }
+
+    wrap.innerHTML =
+      '<details><summary>' + hits.length + ' Buchung' + (hits.length === 1 ? '' : 'en') + ' ' + year + ' anzeigen</summary>' +
+      '<div class="rule-tx-list">' +
+        hits.map(function (t) {
+          return '<div class="rule-tx">' +
+            '<span>' + escHtml(t.tx_date.split('-').reverse().join('.')) + '</span>' +
+            '<span style="flex:1;min-width:0;overflow-wrap:anywhere">' + escHtml((t.payee || t.description || '').slice(0, 46)) + '</span>' +
+            '<span style="font-variant-numeric:tabular-nums">' + fmt(txNet(t)) + '</span>' +
+          '</div>';
+        }).join('') +
+      '</div></details>';
   }
 
   function syncRuleKindUi() {
@@ -1842,6 +1867,111 @@
     banner.appendChild(box);
     banner.classList.remove('hidden');
   }
+
+  // ── Abdeckung: was ist zugeordnet, was nicht ──────────────────────────
+  // Beantwortet die Frage, die eine Regel offenlässt: „Google organisch zieht
+  // Backlinked und Baris Dag – und alles andere? "
+  var coverageModal = document.getElementById('coverageModal');
+  var coverageBody  = document.getElementById('coverageBody');
+  var coverageYear  = document.getElementById('coverageYear');
+  var coverageCat   = document.getElementById('coverageCat');
+  var coverageSum   = document.getElementById('coverageSummary');
+
+  function closeCoverage() { coverageModal.classList.add('hidden'); }
+  var coverageClose = document.getElementById('coverageModalClose');
+  if (coverageClose) coverageClose.addEventListener('click', closeCoverage);
+  if (coverageModal) coverageModal.addEventListener('click', function (e) { if (e.target === coverageModal) closeCoverage(); });
+
+  // Welche Quelle greift auf eine Buchung? Mehrfachtreffer sind möglich und
+  // werden angezeigt – sonst zählte eine Buchung unbemerkt doppelt.
+  function sourcesForTx(t) {
+    var out = [];
+    (allCosts || []).forEach(function (cost) {
+      var rules = rulesByCost[cost.id] || [];
+      if (!cost.is_recurring || !rules.length) return;
+      if (entryYear(cost) !== t.year) return;         // anderer Jahreseintrag
+      if (rules.some(function (r) { return txMatchesRule(t, r); })) out.push(cost.source_name);
+    });
+    return out;
+  }
+
+  function renderCoverage() {
+    if (!coverageBody) return;
+    var year = parseInt(coverageYear.value, 10);
+    var cat  = coverageCat.value;
+
+    var byVendor = {};
+    allTx.forEach(function (t) {
+      if (t.excluded || t.year !== year) return;
+      if (cat !== '__all__' && (t.category || '(ohne)') !== cat) return;
+      var name = window.suggestVendorPattern(t.payee || t.description) || '(unbekannt)';
+      var srcs = sourcesForTx(t);
+      var key  = name + '|' + (t.category || '');
+      if (!byVendor[key]) byVendor[key] = { name: name, category: t.category || '—', total: 0, count: 0, sources: {} };
+      byVendor[key].total += txNet(t);
+      byVendor[key].count += 1;
+      srcs.forEach(function (s) { byVendor[key].sources[s] = true; });
+    });
+
+    var list = Object.keys(byVendor).map(function (k) { return byVendor[k]; });
+    var covered = 0, open = 0;
+    list.forEach(function (v) {
+      v.srcList = Object.keys(v.sources);
+      if (v.srcList.length) covered += v.total; else open += v.total;
+    });
+    // Nicht zugeordnete zuerst, innerhalb absteigend – oben steht, was fehlt.
+    list.sort(function (a, b) {
+      if (!a.srcList.length !== !b.srcList.length) return a.srcList.length ? 1 : -1;
+      return b.total - a.total;
+    });
+
+    coverageSum.innerHTML = 'zugeordnet <strong style="color:#0f766e">' + fmt(covered) + '</strong>' +
+      ' · offen <strong style="color:#92400e">' + fmt(open) + '</strong>';
+
+    if (!list.length) {
+      coverageBody.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-secondary)">Keine Buchungen in dieser Auswahl.</div>';
+      return;
+    }
+
+    coverageBody.innerHTML =
+      '<table style="width:100%"><thead><tr>' +
+        '<th style="min-width:200px">Lieferant</th>' +
+        '<th style="min-width:130px">Kategorie</th>' +
+        '<th class="right" style="min-width:70px">Buchungen</th>' +
+        '<th class="right" style="min-width:110px">Netto</th>' +
+        '<th style="min-width:200px">Zugeordnet zu</th>' +
+      '</tr></thead><tbody>' +
+      list.map(function (v) {
+        var zu = v.srcList.length
+          ? v.srcList.map(function (s) { return '<span class="auto-chip" style="margin:0 4px 2px 0">' + escHtml(s) + '</span>'; }).join('')
+          : '<span style="color:#92400e">— nicht berücksichtigt</span>';
+        return '<tr' + (v.srcList.length ? '' : ' style="background:#fffbeb"') + '>' +
+          '<td style="font-weight:500;overflow-wrap:anywhere">' + escHtml(v.name) + '</td>' +
+          '<td style="font-size:12px;color:var(--text-secondary)">' + escHtml(v.category) + '</td>' +
+          '<td class="right">' + v.count + '</td>' +
+          '<td class="right" style="font-variant-numeric:tabular-nums">' + fmt(v.total) + '</td>' +
+          '<td>' + zu + '</td>' +
+        '</tr>';
+      }).join('') + '</tbody></table>';
+  }
+
+  function openCoverage() {
+    var years = {}, cats = {};
+    allTx.forEach(function (t) { if (!t.excluded) { years[t.year] = 1; cats[t.category || '(ohne)'] = 1; } });
+    var yl = Object.keys(years).sort(function (a, b) { return b - a; });
+    coverageYear.innerHTML = yl.map(function (y) { return '<option value="' + y + '">' + y + '</option>'; }).join('');
+    if (yl.length) coverageYear.value = yl[0];
+    coverageCat.innerHTML = '<option value="__all__">alle</option>' +
+      Object.keys(cats).sort(function (a, b) { return a.localeCompare(b, 'de'); })
+        .map(function (c) { return '<option value="' + escHtml(c) + '">' + escHtml(c) + '</option>'; }).join('');
+    renderCoverage();
+    coverageModal.classList.remove('hidden');
+  }
+
+  if (coverageYear) coverageYear.addEventListener('change', renderCoverage);
+  if (coverageCat)  coverageCat.addEventListener('change', renderCoverage);
+  var coverageBtn = document.getElementById('coverageBtn');
+  if (coverageBtn) coverageBtn.addEventListener('click', openCoverage);
 
   function render(costs, revenues, links) {
     lastRenderArgs = [costs, revenues, links];
