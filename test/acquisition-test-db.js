@@ -108,20 +108,20 @@
       amount_net: net, category: cat, excluded: !!excluded,
     });
   }
-  tx('2026-05-19', 'T&P Fotografie',   1250, 1250, 'Freelancer/Externe');
-  tx('2026-06-10', 'T&P Fotografie',   1750, 1750, 'Freelancer/Externe');
-  tx('2026-06-30', 'T&P Fotografie',    950,  950, 'Freelancer/Externe');
-  tx('2026-07-07', 'T&P Fotografie',   1600, 1600, 'Freelancer/Externe');
-  tx('2026-07-22', 'T & P Fotografie', 1150, 1150, 'Freelancer/Externe');   // andere Schreibweise
-  tx('2026-08-12', 'T & P Fotografie', 1200, 1200, 'Freelancer/Externe');
-  tx('2026-08-18', 'T & P Fotografie', 1850, 1850, 'Freelancer/Externe');
-  tx('2026-08-03', 'PAYPAL *BACKLINKED 22828679560',  59.50,  50.00, 'Marketing');
-  tx('2026-08-18', 'PAYPAL *BACKLINKED 22828679560', 593.81, 499.00, 'Marketing');
-  tx('2026-07-09', 'PAYPAL *BACKLINKED 22828679560', 1670.76, 1404.00, 'Marketing');
-  tx('2026-08-05', 'Baris D. SEO Freelancer', 1190, 1000, 'Freelancer/Externe');
-  tx('2026-08-01', 'GOOGLE*ADS6354044357 GO CC GOOGL', 1000, 1000, 'Software');
-  tx('2025-11-04', 'PAYPAL *BACKLINKED 22828679560', 238, 200, 'Marketing');  // Vorjahr – darf 2026 nicht zählen
-  tx('2026-08-20', 'T & P Fotografie', 400, 400, 'Freelancer/Externe', true); // ausgeschlossen
+  // Echte Werte aus cost_transactions (Jan–Aug 2026, netto) – als Monatssummen
+  // gebucht, damit die Testseite dieselben Zahlen zeigt wie die Live-Daten.
+  [['01',3450],['02',1250],['03',1200],['04',1300],['05',1250],['06',2700],['07',2750],['08',3050]]
+    .forEach(function (m, i) { tx('2026-' + m[0] + '-15', i % 2 ? 'T & P Fotografie' : 'T&P Fotografie', m[1], m[1], 'Freelancer/Externe'); });
+  [['01',1540],['02',2561],['05',2442.40],['06',5865],['07',2531],['08',626]]
+    .forEach(function (m) { tx('2026-' + m[0] + '-12', 'PAYPAL *BACKLINKED 22828679560', Math.round(m[1] * 1.19 * 100) / 100, m[1], 'Marketing'); });
+  [['02',2262.19],['05',1508.33]]
+    .forEach(function (m) { tx('2026-' + m[0] + '-20', 'Baris Dag', m[1], m[1], 'Freelancer/Externe'); });
+  tx('2026-06-03', 'Baris Dag', 37.00, 37.00, 'Reisekosten');           // andere Kategorie
+  tx('2026-01-01', 'GOOGLE *ADS6354044357 CC@GOOGLE.COM', 143.86, 143.86, 'Software');
+  tx('2026-05-01', 'GOOGLE*ADS6354044357 GO CC GOOGLE.COM', 80.71, 80.71, 'Software');
+  tx('2026-06-01', 'GOOGLE*ADS6354044357 GO CC GOOGLE.COM', 278.19, 278.19, 'Software');
+  tx('2025-11-04', 'PAYPAL *BACKLINKED 22828679560', 238, 200, 'Marketing');   // Vorjahr
+  tx('2026-08-20', 'T & P Fotografie', 400, 400, 'Freelancer/Externe', true);  // ausgeschlossen
 
   var costRules = [
     { id: 'r-yt', acquisition_cost_id: 'c-yt26', match_type: 'contains', pattern: 'Fotografie', label: 'T&P Fotografie' },

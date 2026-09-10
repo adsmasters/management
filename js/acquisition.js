@@ -87,10 +87,17 @@
   function txMatchesRule(t, rule) {
     var pat = (rule.pattern || '').trim().toLowerCase();
     if (!pat) return false;
+    if (rule.match_type === 'category') {
+      return (t.category || '').trim().toLowerCase() === pat;
+    }
     if (rule.match_type === 'equals') {
       return (window.suggestVendorPattern(t.payee || t.description) || '').toLowerCase() === pat;
     }
     return txHaystack(t).indexOf(pat) !== -1;
+  }
+
+  function ruleLabel(rule) {
+    return rule.match_type === 'category' ? 'Kategorie: ' + rule.pattern : rule.pattern;
   }
 
   // Ausgeschlossene Buchungen zählen auch hier nicht – sonst widerspricht die
@@ -112,6 +119,17 @@
     return out;
   }
 
+  var categoryList = [];   // Kategorien aus der Kostenanalyse
+
+  function buildCategoryList() {
+    var seen = {};
+    allTx.forEach(function (t) {
+      var c = (t.category || '').trim();
+      if (c) seen[c] = (seen[c] || 0) + 1;
+    });
+    categoryList = Object.keys(seen).sort(function (a, b) { return a.localeCompare(b, 'de'); });
+  }
+
   function buildVendorList() {
     var byName = {};
     allTx.forEach(function (t) {
@@ -129,6 +147,10 @@
       dl.innerHTML = vendorList.slice(0, 300).map(function (v) {
         return '<option value="' + escHtml(v.name) + '">' + escHtml(fmt(v.total) + ' · ' + v.count + ' Buchungen') + '</option>';
       }).join('');
+    }
+    var dlc = document.getElementById('categoryOptions');
+    if (dlc) {
+      dlc.innerHTML = categoryList.map(function (c) { return '<option value="' + escHtml(c) + '">'; }).join('');
     }
   }
 
@@ -382,6 +404,7 @@
   var acqRulesSum   = document.getElementById('acqRulesSum');
   var acqRuleInput  = document.getElementById('acqRuleInput');
   var acqRuleAdd    = document.getElementById('acqRuleAdd');
+  var acqRuleKind   = document.getElementById('acqRuleKind');
 
   var monthDraft      = {};  // 'YYYY-MM' → manuell eingetippter Wert
   var autoDraft       = {};  // 'YYYY-MM' → Betrag aus den Bankdaten
@@ -413,7 +436,7 @@
         var row = document.createElement('div');
         row.className = 'rule-row' + (hits.length ? '' : ' no-hits');
         row.innerHTML =
-          '<span class="rule-pattern">' + escHtml(rule.pattern) + '</span>' +
+          '<span class="rule-pattern">' + escHtml(ruleLabel(rule)) + '</span>' +
           '<span class="rule-hits"' +
             (other ? ' title="' + other + ' weitere Buchung' + (other === 1 ? '' : 'en') + ' in anderen Jahren"' : '') +
             '>' + (hits.length
@@ -444,18 +467,30 @@
     acqRulesSum.textContent = ruleDraft.length ? 'aus Konto ' + year + ': ' + fmt(yearSum) : '';
   }
 
+  function syncRuleKindUi() {
+    var isCat = acqRuleKind && acqRuleKind.value === 'category';
+    acqRuleInput.setAttribute('list', isCat ? 'categoryOptions' : 'vendorOptions');
+    acqRuleInput.placeholder = isCat
+      ? 'Kategorie wählen, z. B. Marketing'
+      : 'Lieferant wählen oder Suchbegriff, z. B. Fotografie';
+  }
+
   function addRuleFromInput() {
-    var val = (acqRuleInput.value || '').trim();
+    var val  = (acqRuleInput.value || '').trim();
+    var kind = acqRuleKind ? acqRuleKind.value : 'contains';
     if (!val) { acqRuleInput.focus(); return; }
-    var exists = ruleDraft.some(function (r) { return r.pattern.toLowerCase() === val.toLowerCase(); });
+    var exists = ruleDraft.some(function (r) {
+      return r.pattern.toLowerCase() === val.toLowerCase() && r.match_type === kind;
+    });
     if (exists) { acqRuleInput.value = ''; return; }
-    ruleDraft.push({ id: null, pattern: val, label: val, match_type: 'contains' });
+    ruleDraft.push({ id: null, pattern: val, label: val, match_type: kind });
     acqRuleInput.value = '';
     recalcAutoDraft();
     renderRules();
     renderMonthGrid();
   }
 
+  if (acqRuleKind)  acqRuleKind.addEventListener('change', syncRuleKindUi);
   if (acqRuleAdd)   acqRuleAdd.addEventListener('click', addRuleFromInput);
   if (acqRuleInput) acqRuleInput.addEventListener('keydown', function (e) {
     if (e.key === 'Enter') { e.preventDefault(); addRuleFromInput(); }
@@ -1430,65 +1465,62 @@
   unassignedModalDone.addEventListener('click',  closeUnassignedModal);
   unassignedModal.addEventListener('click', function (e) { if (e.target === unassignedModal) closeUnassignedModal(); });
 
-  // ── Automatik: Monatswerte aus den Bankdaten nachziehen ───────────────
-  var autoSyncDone = false;
+  // ── Vorschlag aus den Bankdaten ───────────────────────────────────────
+  // Bewusst kein automatisches Schreiben: die Seite rechnet nur aus, was sich
+  // gegenüber den erfassten Monaten geändert hat, und zeigt es an. Übernommen
+  // wird auf Knopfdruck oder beim Speichern im Dialog.
+  function autoDiffFor(cost) {
+    var rules = rulesByCost[cost.id] || [];
+    if (!cost.is_recurring || !rules.length) return null;
 
-  function syncAutoFromRules(costs) {
-    if (!monthsAvailable || !rulesAvailable) return Promise.resolve(false);
+    var year     = entryYear(cost);
+    var auto     = autoMonthsFor(rules);
+    var existing = monthsOf(cost.id);
+    var changes  = [];   // [{ ym, from, to }]
+    var seen     = {};
 
-    var ops = [], touched = {};
-    costs.forEach(function (cost) {
-      var rules = rulesByCost[cost.id] || [];
-      if (!cost.is_recurring || !rules.length) return;
-
-      var year     = entryYear(cost);
-      var auto     = autoMonthsFor(rules);
-      var existing = monthsOf(cost.id);
-      var seen     = {};
-
-      Object.keys(auto).forEach(function (ym) {
-        if (parseInt(ym.slice(0, 4), 10) !== year) return;   // gehört zu einem anderen Jahreseintrag
-        seen[ym] = true;
-        var cur = existing[ym];
-        if (!cur || Math.abs(cur.auto - auto[ym]) > 0.004) {
-          ops.push(window.db.acquisitionCostMonths.set(cost.id, ym, { auto: auto[ym], manual: cur ? cur.manual : 0 }));
-          touched[cost.id] = true;
-        }
-      });
-
-      // Buchung nachträglich ausgeschlossen oder Regel entfernt → Auto-Anteil weg
-      Object.keys(existing).forEach(function (ym) {
-        if (parseInt(ym.slice(0, 4), 10) !== year || seen[ym]) return;
-        var cur = existing[ym];
-        if (!cur.auto) return;
-        if (cur.manual) ops.push(window.db.acquisitionCostMonths.set(cost.id, ym, { auto: 0, manual: cur.manual }));
-        else            ops.push(window.db.acquisitionCostMonths.remove(cost.id, ym));
-        touched[cost.id] = true;
-      });
+    Object.keys(auto).forEach(function (ym) {
+      if (parseInt(ym.slice(0, 4), 10) !== year) return;   // gehört zu einem anderen Jahreseintrag
+      seen[ym] = true;
+      var cur = existing[ym];
+      var had = cur ? cur.auto : 0;
+      if (Math.abs(had - auto[ym]) > 0.004) changes.push({ ym: ym, from: had, to: auto[ym] });
     });
 
-    if (!ops.length) return Promise.resolve(false);
+    // Buchung nachträglich ausgeschlossen oder Regel entfernt → Auto-Anteil weg
+    Object.keys(existing).forEach(function (ym) {
+      if (parseInt(ym.slice(0, 4), 10) !== year || seen[ym]) return;
+      if (existing[ym].auto) changes.push({ ym: ym, from: existing[ym].auto, to: 0 });
+    });
 
+    if (!changes.length) return null;
+
+    var newTotal = 0;
+    Object.keys(existing).forEach(function (ym) {
+      if (parseInt(ym.slice(0, 4), 10) === year) newTotal += existing[ym].manual;
+    });
+    Object.keys(auto).forEach(function (ym) {
+      if (parseInt(ym.slice(0, 4), 10) === year) newTotal += auto[ym];
+    });
+    newTotal = Math.round(newTotal * 100) / 100;
+
+    return { cost: cost, changes: changes, newTotal: newTotal, delta: Math.round((newTotal - (Number(cost.amount) || 0)) * 100) / 100 };
+  }
+
+  function applyAutoFor(cost) {
+    var diff = autoDiffFor(cost);
+    if (!diff) return Promise.resolve();
+    var existing = monthsOf(cost.id);
+    var ops = diff.changes.map(function (c) {
+      var manual = existing[c.ym] ? existing[c.ym].manual : 0;
+      if (!c.to && !manual) return window.db.acquisitionCostMonths.remove(cost.id, c.ym);
+      return window.db.acquisitionCostMonths.set(cost.id, c.ym, { auto: c.to, manual: manual });
+    });
     return Promise.all(ops).then(function () {
-      // Gesamtbetrag nachziehen, damit ROI-, Typ- und CAC-Auswertung stimmen.
-      var totals = [];
-      costs.forEach(function (cost) {
-        if (!touched[cost.id]) return;
-        var year = entryYear(cost);
-        var auto = autoMonthsFor(rulesByCost[cost.id] || []);
-        var sum  = 0;
-        Object.keys(auto).forEach(function (ym) { if (parseInt(ym.slice(0, 4), 10) === year) sum += auto[ym]; });
-        Object.keys(monthsOf(cost.id)).forEach(function (ym) {
-          if (parseInt(ym.slice(0, 4), 10) === year) sum += monthsOf(cost.id)[ym].manual;
-        });
-        sum = Math.round(sum * 100) / 100;
-        if (Math.abs(sum - (Number(cost.amount) || 0)) > 0.004) {
-          totals.push(window.db.acquisitionCosts.update(cost.id, { amount: sum, updated_at: new Date().toISOString() }));
-        }
+      return window.db.acquisitionCosts.update(cost.id, {
+        amount: diff.newTotal, updated_at: new Date().toISOString(),
       });
-      return Promise.all(totals);
-    }).then(function () { return true; })
-      .catch(function (e) { showError('Automatische Übernahme fehlgeschlagen: ' + e.message); return false; });
+    });
   }
 
   // ── Load data ─────────────────────────────────────────────────────────
@@ -1542,6 +1574,7 @@
       });
 
       allTx = results[7] || [];
+      buildCategoryList();
       buildVendorList();
       buildExclusions(revenues);
 
@@ -1552,17 +1585,6 @@
       allClients = Object.keys(contactSet).sort(function (a, b) { return a.localeCompare(b, 'de'); });
 
       if (costs.length === 0) { emptyState.classList.remove('hidden'); return; }
-
-      // Neue Bankdaten sollen ohne Zutun in der Übersicht landen: einmal je
-      // Seitenaufruf werden die automatischen Monatswerte nachgezogen.
-      if (!autoSyncDone) {
-        autoSyncDone = true;
-        return syncAutoFromRules(costs).then(function (changed) {
-          if (changed) { loadData(); return; }
-          contentEl.classList.remove('hidden');
-          render(costs, revenues, links);
-        });
-      }
 
       contentEl.classList.remove('hidden');
       render(costs, revenues, links);
@@ -1744,6 +1766,83 @@
     banner.classList.remove('hidden');
   }
 
+  // Was die Bankdaten gegenüber den erfassten Monaten hergeben – als Vorschlag.
+  function renderAutoBanner(costs) {
+    var banner = document.getElementById('autoBanner');
+    if (!banner) return;
+    banner.innerHTML = '';
+    banner.classList.add('hidden');
+    if (!monthsAvailable || !rulesAvailable) return;
+
+    var diffs = costs.map(autoDiffFor).filter(Boolean);
+    if (!diffs.length) return;
+
+    var box = document.createElement('div');
+    box.className = 'alert alert-info';
+    box.style.cssText = 'margin:0;display:block';
+
+    var head = document.createElement('div');
+    head.style.cssText = 'font-weight:600;margin-bottom:6px';
+    head.textContent = 'Neue Buchungen aus der Kostenanalyse – noch nicht übernommen';
+    box.appendChild(head);
+
+    diffs.forEach(function (d) {
+      var row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:4px 0;border-top:1px solid rgba(55,48,163,.15)';
+
+      // Bei vielen Monaten nur die Spanne nennen – die Einzelwerte stehen im Dialog.
+      var sorted = d.changes.slice().sort(function (a, b) { return a.ym.localeCompare(b.ym); });
+      var months = sorted.length > 3
+        ? ymText(sorted[0].ym) + ' – ' + ymText(sorted[sorted.length - 1].ym) + ' (' + sorted.length + ' Monate)'
+        : sorted.map(function (c) { return ymText(c.ym) + ': ' + (c.to ? fmt(c.to) : 'entfällt'); }).join(' · ');
+
+      var txt = document.createElement('span');
+      txt.style.cssText = 'flex:1;min-width:0';
+      txt.innerHTML = '<strong>' + escHtml(d.cost.source_name) + '</strong> – ' + escHtml(months) +
+        '<br><span style="opacity:.85">Betrag danach: ' + fmt(d.newTotal) +
+        ' (' + (d.delta >= 0 ? '+' : '−') + fmt(Math.abs(d.delta)) + ')</span>';
+
+      var view = document.createElement('button');
+      view.className = 'btn btn-ghost btn-sm';
+      view.style.flexShrink = '0';
+      view.textContent = 'Ansehen';
+      view.addEventListener('click', function () { openModal(d.cost); });
+
+      var take = document.createElement('button');
+      take.className = 'btn btn-secondary btn-sm';
+      take.style.flexShrink = '0';
+      take.textContent = 'Übernehmen';
+      take.addEventListener('click', function () {
+        take.disabled = true; take.textContent = '…';
+        applyAutoFor(d.cost)
+          .then(function () { loadData(); })
+          .catch(function (e) { showError('Übernahme fehlgeschlagen: ' + e.message); take.disabled = false; take.textContent = 'Übernehmen'; });
+      });
+
+      row.appendChild(txt); row.appendChild(view); row.appendChild(take);
+      box.appendChild(row);
+    });
+
+    if (diffs.length > 1) {
+      var allRow = document.createElement('div');
+      allRow.style.cssText = 'display:flex;justify-content:flex-end;padding-top:8px';
+      var all = document.createElement('button');
+      all.className = 'btn btn-primary btn-sm';
+      all.textContent = 'Alle ' + diffs.length + ' übernehmen';
+      all.addEventListener('click', function () {
+        all.disabled = true; all.textContent = '…';
+        diffs.reduce(function (p, d) { return p.then(function () { return applyAutoFor(d.cost); }); }, Promise.resolve())
+          .then(function () { loadData(); })
+          .catch(function (e) { showError('Übernahme fehlgeschlagen: ' + e.message); all.disabled = false; });
+      });
+      allRow.appendChild(all);
+      box.appendChild(allRow);
+    }
+
+    banner.appendChild(box);
+    banner.classList.remove('hidden');
+  }
+
   function render(costs, revenues, links) {
     lastRenderArgs = [costs, revenues, links];
     allLinks = links;
@@ -1883,6 +1982,7 @@
     });
 
     allCosts = costs;
+    renderAutoBanner(costs);
     renderStaleBanner(costs);
     renderUnassigned(revenues, links);
     renderTagView(applyDateFilter(costs), links, revByContact);

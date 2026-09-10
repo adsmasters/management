@@ -368,9 +368,15 @@ manuelle Eingaben nie.
 anderer Jahre zählen dort nicht mit, sondern gehören in den Eintrag des
 jeweiligen Jahres.
 
-Beim Laden der Seite werden die automatischen Werte einmal nachgezogen — ein
-neuer Kreissparkasse-/Amex-Upload landet damit ohne Zutun in der Übersicht. Jede
-dadurch ausgelöste Betragsänderung steht im Verlauf (Migration 19).
+**Übernommen wird nichts von allein.** Die Seite rechnet nur aus, was die
+Buchungen gegenüber den erfassten Monaten hergeben, und zeigt es oben als
+Vorschlag mit „Übernehmen" je Quelle. Erst dann wird geschrieben — und die
+Änderung steht im Betragsverlauf (Migration 19).
+
+**Regeltypen.** `contains` sucht im Buchungstext (fängt Schreibvarianten wie
+„T&P" / „T & P" über den Teilbegriff „Fotografie"). `category` nimmt alles, was
+in der Kostenanalyse in dieser Kategorie liegt — grob, aber nützlich, wenn die
+Buchungen dort schon sauber einsortiert sind.
 
 Ausgeschlossene Buchungen (`excluded`) zählen auch hier nicht, sonst würden sich
 Kostenanalyse und Akquisition widersprechen. `suggestVendorPattern` liegt jetzt

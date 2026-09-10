@@ -60,6 +60,11 @@
     .rule-row .rule-del:hover { color: var(--danger, #dc2626); }
     .rule-row.no-hits .rule-hits { color: #b45309; }
     .rules-add { display: flex; gap: 6px; margin-top: 8px; }
+    .rules-add select {
+      padding: 5px 6px; font-size: 12.5px; font-family: inherit; flex: 0 0 auto;
+      border: 1px solid var(--border); border-radius: var(--radius);
+      background: var(--surface); color: var(--text);
+    }
     .rules-add input {
       flex: 1; min-width: 0; padding: 5px 8px; font-size: 13px; font-family: inherit;
       border: 1px solid var(--border); border-radius: var(--radius);
@@ -166,6 +171,8 @@
       </div>
     </div>
 
+    <div id="autoBanner" class="hidden" style="margin-bottom:20px"></div>
+
     <div id="staleBanner" class="hidden" style="margin-bottom:20px"></div>
 
     <div id="unassignedBanner" class="hidden" style="margin-bottom:20px"></div>
@@ -254,6 +261,7 @@
 
 <datalist id="tagOptions"></datalist>
 <datalist id="vendorOptions"></datalist>
+<datalist id="categoryOptions"></datalist>
 
 <!-- Add / Edit Modal -->
 <div id="acqModal" class="modal-overlay hidden">
@@ -305,14 +313,19 @@
         </div>
         <div id="acqRulesList"></div>
         <div class="rules-add">
+          <select id="acqRuleKind">
+            <option value="contains">Lieferant / Text</option>
+            <option value="category">Kategorie</option>
+          </select>
           <input type="text" id="acqRuleInput" list="vendorOptions" autocomplete="off"
                  placeholder="Lieferant wählen oder Suchbegriff, z.&nbsp;B. Fotografie">
           <button type="button" class="btn btn-secondary btn-sm" id="acqRuleAdd">+ Quelle</button>
         </div>
         <div class="rules-note">
-          Trifft auf den Buchungstext zu (Teiltreffer). Gerechnet wird mit dem
-          Nettobetrag. Ein Suchbegriff wie „Fotografie" fängt auch Schreibvarianten
-          („T&amp;P" / „T &amp; P") ein.
+          <strong>Lieferant / Text</strong> trifft auf den Buchungstext zu (Teiltreffer) –
+          „Fotografie" fängt auch „T&amp;P" und „T &amp; P" ein.
+          <strong>Kategorie</strong> nimmt alles, was in der Kostenanalyse dort einsortiert ist.
+          Gerechnet wird netto; ausgeschlossene Buchungen zählen nicht.
         </div>
       </div>
 
@@ -437,8 +450,8 @@
   </div>
 </div>
 
-<script src="acquisition-test-db.js?v=1789033101173"></script>
-<script src="../js/utils.js?v=1789033101173"></script>
-<script src="../js/acquisition.js?v=1789033101173"></script>
+<script src="acquisition-test-db.js?v=1789033495256"></script>
+<script src="../js/utils.js?v=1789033495256"></script>
+<script src="../js/acquisition.js?v=1789033495256"></script>
 </body>
 </html>
