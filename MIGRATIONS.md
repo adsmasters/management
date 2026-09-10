@@ -435,3 +435,19 @@ zeigt, wie viele Regeln insgesamt gesetzt sind.
 
 Der ⟳-Chip in der Tabelle ist jetzt eine Schaltfläche und öffnet dieselbe
 Übersicht — von der betroffenen Zeile aus direkt zu den Regeln.
+
+## 20d. Abdeckung auf akquisitionsrelevante Kategorien begrenzt (10.09.2026)
+
+Kein Schema-Update. Die Abdeckungsliste zeigte alles – auch Taxifahrten und
+Amazon-Kleinkram für 9,07 €. Standardfilter ist jetzt **Marketing &
+Freelancer/Externe**, plus alles, was bereits einer Quelle zugeordnet ist
+(sonst fiele eine Quelle aus einer anderen Kategorie aus der eigenen
+Übersicht). „alle Kategorien" bleibt wählbar; 0-€-Zeilen fliegen raus.
+
+**Google Ads liegt jetzt in Marketing** (vorher Software, wegen der Regel
+`google` → Software). Neue Kategorie-Regel `ADS6354044357` → Marketing, dazu die
+19 vorhandenen Buchungen umgesetzt (6.515,16 € netto: 2025 6.012,40 / 2026
+502,76). Die Regel gewinnt gegen `google`, weil `categoryRules.list()` nach
+`category` sortiert und die erste Übereinstimmung greift – „Marketing" steht
+alphabetisch vor „Software". Bei künftigen Regeln daran denken: Reihenfolge =
+Alphabet der Kategorie, nicht Anlagedatum.

@@ -2052,6 +2052,10 @@
     return out;
   }
 
+  // Nur Kosten, die überhaupt Akquisition sein können. Equipment, Reisekosten
+  // und Amazon-Kleinkram gehören nicht in diese Liste.
+  var COVERAGE_CATS = ['Marketing', 'Freelancer/Externe'];
+
   function renderCoverage() {
     if (!coverageBody) return;
     var year = parseInt(coverageYear.value, 10);
@@ -2060,17 +2064,25 @@
     var byVendor = {};
     allTx.forEach(function (t) {
       if (t.excluded || t.year !== year) return;
-      if (cat !== '__all__' && (t.category || '(ohne)') !== cat) return;
-      var name = window.suggestVendorPattern(t.payee || t.description) || '(unbekannt)';
+      var tcat = t.category || '(ohne)';
       var srcs = sourcesForTx(t);
+      if (cat === '__relevant__') {
+        // Zugeordnetes immer zeigen – Google Ads liegt z.B. unter "Software"
+        // und würde sonst aus der eigenen Übersicht fallen.
+        if (COVERAGE_CATS.indexOf(tcat) === -1 && !srcs.length) return;
+      } else if (cat !== '__all__' && tcat !== cat) {
+        return;
+      }
+      var name = window.suggestVendorPattern(t.payee || t.description) || '(unbekannt)';
       var key  = name + '|' + (t.category || '');
-      if (!byVendor[key]) byVendor[key] = { name: name, category: t.category || '—', total: 0, count: 0, sources: {} };
+      if (!byVendor[key]) byVendor[key] = { name: name, category: tcat, total: 0, count: 0, sources: {} };
       byVendor[key].total += txNet(t);
       byVendor[key].count += 1;
       srcs.forEach(function (s) { byVendor[key].sources[s] = true; });
     });
 
-    var list = Object.keys(byVendor).map(function (k) { return byVendor[k]; });
+    var list = Object.keys(byVendor).map(function (k) { return byVendor[k]; })
+      .filter(function (v) { return Math.abs(v.total) >= 0.01; });   // 0-€-Zeilen sind nur Rauschen
     var covered = 0, open = 0;
     list.forEach(function (v) {
       v.srcList = Object.keys(v.sources);
@@ -2118,9 +2130,12 @@
     var yl = Object.keys(years).sort(function (a, b) { return b - a; });
     coverageYear.innerHTML = yl.map(function (y) { return '<option value="' + y + '">' + y + '</option>'; }).join('');
     if (yl.length) coverageYear.value = yl[0];
-    coverageCat.innerHTML = '<option value="__all__">alle</option>' +
+    coverageCat.innerHTML =
+      '<option value="__relevant__">Marketing &amp; Freelancer (+ Zugeordnetes)</option>' +
+      '<option value="__all__">alle Kategorien</option>' +
       Object.keys(cats).sort(function (a, b) { return a.localeCompare(b, 'de'); })
         .map(function (c) { return '<option value="' + escHtml(c) + '">' + escHtml(c) + '</option>'; }).join('');
+    coverageCat.value = '__relevant__';
     renderCoverage();
     coverageModal.classList.remove('hidden');
   }
