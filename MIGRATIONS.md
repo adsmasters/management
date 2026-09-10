@@ -381,3 +381,28 @@ Buchungen dort schon sauber einsortiert sind.
 Ausgeschlossene Buchungen (`excluded`) zählen auch hier nicht, sonst würden sich
 Kostenanalyse und Akquisition widersprechen. `suggestVendorPattern` liegt jetzt
 in `js/utils.js`, damit beide Seiten denselben Lieferantenbegriff bilden.
+
+## 20a. Fertige Kostenquellen für SEO, Google Ads und YouTube (10.09.2026)
+
+SQL: `supabase/acquisition-rules-seed.sql` — enthält Migration 20 **und** die
+Regeln, kann also statt `acquisition-cost-rules-schema.sql` ausgeführt werden.
+
+Zeitliche Zuordnung: es zählt der **Monat der Zahlung** (Buchungsdatum), nicht
+der Leistungsmonat. Bewusste Entscheidung — bei T&P Fotografie liegen zwischen
+Drehtag und Zahlung meist 8–25 Tage, über zwei Jahre gleicht sich das aus, und
+die Beträge sind klein genug. Deshalb gibt es keine Verschiebefunktion.
+
+Gesetzte Suchbegriffe (netto, Stand 10.09.2026):
+
+| Eintrag | Suchbegriff | 2025 | 2026 |
+|---|---|---|---|
+| Google Organic … & KI | `BACKLINKED` | 19.107,80 | 15.565,40 |
+| Google Organic … & KI | `Baris Dag` | 8.312,15 | 3.770,52 |
+| Google Ads | `ADS6354044357` | 6.012,40 | 502,76 |
+| YouTube | `Fotografie` | — | 16.950,00 |
+
+`ADS6354044357` statt „Google Ads", weil die Bank mal `GOOGLE*ADS…`, mal
+`GOOGLE *ADS…` schreibt; die Kundennummer fängt beide. `Fotografie` statt „T&P
+Fotografie" aus demselben Grund („T&P" vs. „T & P").
+
+Für Google Ads 2026 gab es keinen Akquisitionseintrag — das Skript legt ihn an.
