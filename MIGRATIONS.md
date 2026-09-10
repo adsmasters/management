@@ -451,3 +451,26 @@ Freelancer/Externe**, plus alles, was bereits einer Quelle zugeordnet ist
 `category` sortiert und die erste Übereinstimmung greift – „Marketing" steht
 alphabetisch vor „Software". Bei künftigen Regeln daran denken: Reihenfolge =
 Alphabet der Kategorie, nicht Anlagedatum.
+
+## 21. Zeitfenster für Kostenquellen (10.09.2026)
+
+SQL: `supabase/acquisition-rule-daterange.sql` (ausgeführt am 10.09.2026).
+`acquisition_cost_rules` bekommt `start_date` und `end_date`.
+
+Warum: Ein Webinar wird über Facebook und Google beworben, der Kunde kommt aber
+„über das Webinar" – welche Plattform ihn hineingebracht hat, ist nicht messbar.
+Die Werbekosten gehören deshalb in den Webinar-Eintrag. Facebook und Google als
+eigene Quellen zu führen wäre falsch: dort stünden Kosten ohne Kunden und beim
+Webinar Kunden ohne Kosten.
+
+Da sich mehrere Aktionen denselben Werbekonto-Lieferanten teilen, trennt erst
+das Zeitfenster „Webinar Januar" von „Webinar Mai" – dasselbe Muster wie bei
+`cost_vat_rules`.
+
+Zwei Folgeänderungen:
+- Regeln lassen sich jetzt auch an **einmalige** Einträge hängen (eine Kampagne
+  ist keine laufende Quelle). Der Dialog weist darauf hin, dass der Eintrag für
+  die Übernahme trotzdem auf „laufende Kosten" gestellt werden muss.
+- `recurringStatus` mahnt einen Eintrag nicht mehr an, wenn **alle** seine
+  Regeln ein Enddatum haben und der letzte erfasste Monat dahinter liegt – eine
+  abgeschlossene Kampagne bekommt keine neuen Monate mehr.

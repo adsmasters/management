@@ -333,10 +333,11 @@
     acquisitionCostRules: {
       listAll: () =>
         q(s => s.from('acquisition_cost_rules').select('*').order('created_at', { ascending: true })),
-      create: (costId, pattern, label, matchType) =>
+      create: (costId, pattern, label, matchType, startDate, endDate) =>
         q(s => s.from('acquisition_cost_rules')
           .insert({ acquisition_cost_id: costId, pattern: pattern,
-                    label: label || null, match_type: matchType || 'contains' })
+                    label: label || null, match_type: matchType || 'contains',
+                    start_date: startDate || null, end_date: endDate || null })
           .select().single()),
       remove: (id) =>
         q(s => s.from('acquisition_cost_rules').delete().eq('id', id)),

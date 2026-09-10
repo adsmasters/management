@@ -15,6 +15,8 @@
     { id: 'c-omr26',  source_name: 'OMR 2026',        source_type: 'messe',            amount: 23000, cost_date: '2026-05-05', notes: null, updated_at: '2026-08-14T13:05:00Z' },
     { id: 'c-seo',    source_name: 'Google Organic Search 2026', source_type: 'online-marketing', amount: 20000, cost_date: '2026-01-01', notes: null, is_recurring: true },
     { id: 'c-empf',   source_name: 'Empfehlungen',    source_type: 'empfehlung',       amount: 0,     cost_date: null,         notes: 'Ohne direkte Kosten' },
+    { id: 'c-web1',   source_name: 'Webinar (Neujahr 26)', source_type: 'online-marketing', amount: 3000, cost_date: '2026-01-10', notes: null, is_recurring: true },
+    { id: 'c-web2',   source_name: 'Webinar (HTFIL 26)',    source_type: 'online-marketing', amount: 2000, cost_date: '2026-05-24', notes: null, is_recurring: true },
     { id: 'c-ki',     source_name: 'KI-Suche 2026',   source_type: 'ki',               amount: 4000,  cost_date: '2026-01-01', notes: 'ChatGPT, Perplexity & Co.', is_recurring: true },
     // Laufende Kanäle – Monatsraster statt Einmalbetrag
     { id: 'c-yt26',   source_name: 'YouTube 2026',    source_type: 'sonstige',         amount: 8000,  cost_date: '2026-01-01', notes: null, is_recurring: true, updated_at: '2026-09-05T07:28:00Z' },
@@ -120,11 +122,23 @@
   tx('2026-01-01', 'GOOGLE *ADS6354044357 CC@GOOGLE.COM', 143.86, 143.86, 'Software');
   tx('2026-05-01', 'GOOGLE*ADS6354044357 GO CC GOOGLE.COM', 80.71, 80.71, 'Software');
   tx('2026-06-01', 'GOOGLE*ADS6354044357 GO CC GOOGLE.COM', 278.19, 278.19, 'Software');
+  // Werbung rund um die beiden Webinar-Termine – dazwischen Funkstille
+  tx('2026-01-01', 'GOOGLE *ADS6354044357 CC@GOOGLE.COM', 143.86, 143.86, 'Marketing');
+  tx('2026-01-04', 'FACEBK *GSG4C9ZN72 DUBLIN', 800, 800, 'Marketing');
+  tx('2026-01-06', 'FACEBK *3YH4K79P72 DUBLIN', 235.52, 235.52, 'Marketing');
+  tx('2026-02-06', 'FACEBK *BG4W5CDN72 DUBLIN', 175.44, 175.44, 'Marketing');
+  tx('2026-05-17', 'FACEBK *SFAQ8NDN72 DUBLIN', 800, 800, 'Marketing');
+  tx('2026-05-24', 'FACEBK *35ZRTNDP72 DUBLIN', 800, 800, 'Marketing');
+  tx('2026-06-06', 'FACEBK *VSZN3RHN72 DUBLIN', 432.06, 432.06, 'Marketing');
   tx('2025-11-04', 'PAYPAL *BACKLINKED 22828679560', 238, 200, 'Marketing');   // Vorjahr
   tx('2026-08-20', 'T & P Fotografie', 400, 400, 'Freelancer/Externe', true);  // ausgeschlossen
 
   var costRules = [
-    { id: 'r-yt', acquisition_cost_id: 'c-yt26', match_type: 'contains', pattern: 'Fotografie', label: 'T&P Fotografie' },
+    { id: 'r-yt', acquisition_cost_id: 'c-yt26', match_type: 'contains', pattern: 'Fotografie', label: 'T&P Fotografie', start_date: null, end_date: null },
+    // Zeitfenster trennt die beiden Webinar-Kampagnen desselben Werbekontos
+    { id: 'r-w1a', acquisition_cost_id: 'c-web1', match_type: 'contains', pattern: 'FACEBK', label: 'Facebook', start_date: '2025-12-15', end_date: '2026-02-15' },
+    { id: 'r-w1b', acquisition_cost_id: 'c-web1', match_type: 'contains', pattern: 'ADS6354044357', label: 'Google Ads', start_date: '2025-12-15', end_date: '2026-02-15' },
+    { id: 'r-w2a', acquisition_cost_id: 'c-web2', match_type: 'contains', pattern: 'FACEBK', label: 'Facebook', start_date: '2026-05-01', end_date: '2026-06-30' },
   ];
 
   window.db = {
@@ -185,9 +199,10 @@
     },
     acquisitionCostRules: {
       listAll: function () { return ok(costRules); },
-      create: function (costId, pattern, label, matchType) {
+      create: function (costId, pattern, label, matchType, startDate, endDate) {
         var row = { id: id(), acquisition_cost_id: costId, pattern: pattern,
-                    label: label || null, match_type: matchType || 'contains' };
+                    label: label || null, match_type: matchType || 'contains',
+                    start_date: startDate || null, end_date: endDate || null };
         costRules.push(row); return ok(row);
       },
       remove: function (i) { costRules = costRules.filter(function (r) { return r.id !== i; }); return ok(null); },

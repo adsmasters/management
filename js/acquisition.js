@@ -87,6 +87,10 @@
   function txMatchesRule(t, rule) {
     var pat = (rule.pattern || '').trim().toLowerCase();
     if (!pat) return false;
+    // Zeitfenster: mehrere Aktionen teilen sich denselben Werbe-Lieferanten,
+    // erst das Fenster trennt "Webinar Januar" von "Webinar Mai".
+    if (rule.start_date && t.tx_date < rule.start_date) return false;
+    if (rule.end_date   && t.tx_date > rule.end_date)   return false;
     if (rule.match_type === 'category') {
       return (t.category || '').trim().toLowerCase() === pat;
     }
@@ -97,7 +101,10 @@
   }
 
   function ruleLabel(rule) {
-    return rule.match_type === 'category' ? 'Kategorie: ' + rule.pattern : rule.pattern;
+    var base = rule.match_type === 'category' ? 'Kategorie: ' + rule.pattern : rule.pattern;
+    if (!rule.start_date && !rule.end_date) return base;
+    var d = function (x) { return x ? x.split('-').reverse().join('.') : '…'; };
+    return base + '  (' + d(rule.start_date) + ' – ' + d(rule.end_date) + ')';
   }
 
   // Ausgeschlossene Buchungen zählen auch hier nicht – sonst widerspricht die
@@ -193,6 +200,15 @@
     var last = lastRecordedYm(cost.id);
     if (entryYear(cost) < new Date().getFullYear()) return { state: 'done', last: last, missing: 0 };
     if (!last) return { state: 'none', last: null, missing: 0 };
+
+    // Enden alle Regeln in der Vergangenheit, ist der Eintrag abgeschlossen –
+    // eine einmalige Kampagne bekommt keine neuen Monate mehr.
+    var rules = rulesByCost[cost.id] || [];
+    if (rules.length && rules.every(function (r) { return r.end_date; })) {
+      var lastEnd = rules.reduce(function (m, r) { return r.end_date > m ? r.end_date : m; }, '');
+      if (lastEnd && lastEnd.slice(0, 7) <= last) return { state: 'done', last: last, missing: 0 };
+    }
+
     var due = dueYm();
     if (ymIdx(last) >= ymIdx(due)) return { state: 'ok', last: last, missing: 0 };
     return { state: 'open', last: last, missing: ymIdx(due) - ymIdx(last) };
@@ -1877,6 +1893,8 @@
   var newRuleKind    = document.getElementById('newRuleKind');
   var newRulePattern = document.getElementById('newRulePattern');
   var newRuleAdd     = document.getElementById('newRuleAdd');
+  var newRuleFrom    = document.getElementById('newRuleFrom');
+  var newRuleTo      = document.getElementById('newRuleTo');
   var newRuleHint    = document.getElementById('newRuleHint');
 
   function closeRules() { rulesModal.classList.add('hidden'); }
@@ -1999,9 +2017,14 @@
     rulesYear.innerHTML = yl.map(function (y) { return '<option value="' + y + '">' + y + '</option>'; }).join('');
     rulesYear.value = yl[0];
 
-    newRuleCost.innerHTML = (allCosts || []).filter(function (c) { return c.is_recurring; })
+    // Auch einmalige Einträge anbieten: ein Webinar ist keine laufende Quelle,
+    // hat aber sehr wohl Werbekosten. Der Hinweis sagt, was dann passiert.
+    newRuleCost.innerHTML = (allCosts || [])
       .sort(function (a, b) { return (b.cost_date || '').localeCompare(a.cost_date || ''); })
-      .map(function (c) { return '<option value="' + c.id + '">' + escHtml(c.source_name) + '</option>'; }).join('');
+      .map(function (c) {
+        return '<option value="' + c.id + '">' + escHtml(c.source_name) +
+               (c.is_recurring ? '' : ' — einmalig') + '</option>';
+      }).join('');
     newRuleHint.textContent = '';
     syncNewRuleUi();
     renderRulesManager();
@@ -2016,9 +2039,16 @@
     if (!costId) { newRuleHint.textContent = 'Kein laufender Eintrag vorhanden – erst im Bearbeiten-Dialog „Laufende Kosten" setzen.'; return; }
     if (!pat) { newRulePattern.focus(); return; }
     newRuleAdd.disabled = true;
-    window.db.acquisitionCostRules.create(costId, pat, pat, newRuleKind.value)
+    window.db.acquisitionCostRules.create(costId, pat, pat, newRuleKind.value,
+                                          newRuleFrom.value || null, newRuleTo.value || null)
       .then(function () { newRulePattern.value = ''; return reloadRules(); })
-      .then(function () { renderRulesManager(); newRuleHint.textContent = 'Regel angelegt. Die Beträge übernimmst du oben über den Vorschlag.'; })
+      .then(function () {
+        renderRulesManager();
+        var cost = (allCosts || []).filter(function (c) { return c.id === costId; })[0];
+        newRuleHint.textContent = cost && !cost.is_recurring
+          ? 'Regel angelegt. Damit die Beträge gezogen werden, muss der Eintrag noch auf „Laufende Kosten" gestellt werden (Bearbeiten-Dialog).'
+          : 'Regel angelegt. Die Beträge übernimmst du oben über den Vorschlag.';
+      })
       .catch(function (e) { newRuleHint.textContent = 'Fehler: ' + e.message; })
       .finally(function () { newRuleAdd.disabled = false; });
   });
