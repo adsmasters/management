@@ -13,10 +13,28 @@
   var costs = [
     { id: 'c-omr25',  source_name: 'OMR 2025',        source_type: 'messe',            amount: 23000, cost_date: '2025-05-06', notes: null },
     { id: 'c-omr26',  source_name: 'OMR 2026',        source_type: 'messe',            amount: 23000, cost_date: '2026-05-05', notes: null },
-    { id: 'c-seo',    source_name: 'Google Organic Search 2026', source_type: 'online-marketing', amount: 21885, cost_date: '2026-01-01', notes: null },
+    { id: 'c-seo',    source_name: 'Google Organic Search 2026', source_type: 'online-marketing', amount: 20000, cost_date: '2026-01-01', notes: null, is_recurring: true },
     { id: 'c-empf',   source_name: 'Empfehlungen',    source_type: 'empfehlung',       amount: 0,     cost_date: null,         notes: 'Ohne direkte Kosten' },
-    { id: 'c-ki',     source_name: 'KI-Suche 2026',   source_type: 'ki',               amount: 4000,  cost_date: '2026-01-01', notes: 'ChatGPT, Perplexity & Co.' },
+    { id: 'c-ki',     source_name: 'KI-Suche 2026',   source_type: 'ki',               amount: 4000,  cost_date: '2026-01-01', notes: 'ChatGPT, Perplexity & Co.', is_recurring: true },
+    // Laufende Kanäle – Monatsraster statt Einmalbetrag
+    { id: 'c-yt26',   source_name: 'YouTube 2026',    source_type: 'sonstige',         amount: 8000,  cost_date: '2026-01-01', notes: null, is_recurring: true },
+    { id: 'c-yt25',   source_name: 'YouTube 2025',    source_type: 'sonstige',         amount: 15000, cost_date: '2025-01-01', notes: null, is_recurring: true },
   ];
+
+  // Monatswerte laufender Kosten ('YYYY-MM'). Deckt die drei Zustände ab:
+  //   c-seo  → bis zum letzten abgeschlossenen Monat erfasst  → „aktuell"
+  //   c-yt26 → hinkt hinterher                                → „x Mon. offen"
+  //   c-ki   → laufend, aber noch kein Monat erfasst          → „nichts erfasst"
+  //   c-yt25 → abgeschlossenes Vorjahr                        → keine Mahnung
+  var costMonths = [];
+  function addMonths(costId, year, fromM, toM, amount) {
+    for (var m = fromM; m <= toM; m++) {
+      costMonths.push({ id: id(), acquisition_cost_id: costId, ym: year + '-' + (m < 10 ? '0' : '') + m, amount: amount });
+    }
+  }
+  addMonths('c-seo',  2026, 1, 8, 2500);   // Jan–Aug 2026 – vollständig
+  addMonths('c-yt26', 2026, 1, 6, 1000);   // nur Jan–Jun 2026
+  addMonths('c-yt25', 2025, 1, 12, 1250);  // volles Vorjahr
 
   var links = [
     { id: 'l1', acquisition_cost_id: 'c-omr25', contact_name: 'Verapur Schlafsysteme GmbH', tag: null },
@@ -65,15 +83,37 @@
   window.db = {
     acquisitionCosts: {
       list: function () { return ok(costs); },
-      create: function (sourceName, sourceType, amount, costDate, notes) {
-        var row = { id: id(), source_name: sourceName, source_type: sourceType, amount: amount || 0, cost_date: costDate || null, notes: notes || null };
+      create: function (sourceName, sourceType, amount, costDate, notes, isRecurring) {
+        var row = { id: id(), source_name: sourceName, source_type: sourceType, amount: amount || 0,
+                    cost_date: costDate || null, notes: notes || null, is_recurring: !!isRecurring };
         costs.push(row); return ok(row);
       },
       update: function (i, fields) {
         var row = costs.filter(function (c) { return c.id === i; })[0];
         Object.assign(row, fields); return ok(row);
       },
-      delete: function (i) { costs = costs.filter(function (c) { return c.id !== i; }); return ok(null); },
+      delete: function (i) {
+        costs = costs.filter(function (c) { return c.id !== i; });
+        costMonths = costMonths.filter(function (m) { return m.acquisition_cost_id !== i; });
+        return ok(null);
+      },
+    },
+    acquisitionCostMonths: {
+      listAll: function () { return ok(costMonths); },
+      set: function (costId, ym, amount) {
+        var row = costMonths.filter(function (m) { return m.acquisition_cost_id === costId && m.ym === ym; })[0];
+        if (row) { row.amount = amount; }
+        else { row = { id: id(), acquisition_cost_id: costId, ym: ym, amount: amount }; costMonths.push(row); }
+        return ok(row);
+      },
+      remove: function (costId, ym) {
+        costMonths = costMonths.filter(function (m) { return !(m.acquisition_cost_id === costId && m.ym === ym); });
+        return ok(null);
+      },
+      removeAll: function (costId) {
+        costMonths = costMonths.filter(function (m) { return m.acquisition_cost_id !== costId; });
+        return ok(null);
+      },
     },
     acquisitionContactLinks: {
       listAll: function () { return ok(links); },

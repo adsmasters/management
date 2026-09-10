@@ -59,6 +59,76 @@
 
   var MONTHS_LABEL = ['Jan','Feb','Mär','Apr','Mai','Jun','Jul','Aug','Sep','Okt','Nov','Dez'];
 
+  // ── Laufende Kosten: Monatswerte ─────────────────────────────────────
+  // Einmalige Aktivitäten (Messe, Webinar) behalten Betrag + Datum. Laufende
+  // Kanäle (SEO, YouTube, Ads) werden pro Monat erfasst; der Gesamtbetrag in
+  // acquisition_costs.amount ist die Summe daraus – so rechnen ROI-, Typ- und
+  // CAC-Auswertung unverändert weiter, und man sieht trotzdem, bis wann
+  // erfasst wurde.
+  var monthsByCost    = {};    // costId → { 'YYYY-MM': { id, amount } }
+  var monthsAvailable = true;  // false, solange die Migration nicht gelaufen ist
+
+  function pad2(n)     { return (n < 10 ? '0' : '') + n; }
+  function ymIdx(ym)   { return parseInt(ym.slice(0, 4), 10) * 12 + parseInt(ym.slice(5, 7), 10) - 1; }
+  function ymText(ym)  { return MONTHS_LABEL[parseInt(ym.slice(5, 7), 10) - 1] + ' ' + ym.slice(0, 4); }
+
+  // Letzter abgeschlossener Monat – bis hierhin sollte erfasst sein.
+  function dueYm() {
+    var d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1);
+    return d.getFullYear() + '-' + pad2(d.getMonth() + 1);
+  }
+
+  function monthsOf(costId) { return monthsByCost[costId] || {}; }
+
+  function monthYms(costId) {
+    var m = monthsOf(costId);
+    return Object.keys(m).filter(function (k) { return (m[k].amount || 0) !== 0; }).sort();
+  }
+
+  function lastRecordedYm(costId) {
+    var l = monthYms(costId);
+    return l.length ? l[l.length - 1] : null;
+  }
+
+  function hasMonths(cost) { return monthYms(cost.id).length > 0; }
+
+  // Jahr, für das ein laufender Eintrag geführt wird.
+  function entryYear(cost) {
+    if (cost.cost_date) return parseInt(cost.cost_date.slice(0, 4), 10);
+    var last = lastRecordedYm(cost.id);
+    return last ? parseInt(last.slice(0, 4), 10) : new Date().getFullYear();
+  }
+
+  // Status eines laufenden Eintrags. Gemahnt wird nur das laufende Jahr –
+  // ein abgeschlossenes Vorjahr bekommt keine neuen Monate mehr.
+  function recurringStatus(cost) {
+    // Ohne Monatstabelle (Migration nicht gelaufen) verhält sich alles wie bisher.
+    if (!cost.is_recurring || !monthsAvailable) return null;
+    var last = lastRecordedYm(cost.id);
+    if (entryYear(cost) < new Date().getFullYear()) return { state: 'done', last: last, missing: 0 };
+    if (!last) return { state: 'none', last: null, missing: 0 };
+    var due = dueYm();
+    if (ymIdx(last) >= ymIdx(due)) return { state: 'ok', last: last, missing: 0 };
+    return { state: 'open', last: last, missing: ymIdx(due) - ymIdx(last) };
+  }
+
+  // Betrag im aktiven Zeitraum. Ein laufender Eintrag zählt nur mit den
+  // Monaten, die im Filter liegen – sonst schlüge der ganze Jahresbetrag in
+  // einem Monatsfilter durch.
+  function costAmt(cost) {
+    var from = filterFrom.value, to = filterTo.value;
+    if (!(from || to) || !hasMonths(cost)) return cost.amount || 0;
+    var f = from ? from.slice(0, 7) : null;
+    var t = to   ? to.slice(0, 7)   : null;
+    var m = monthsOf(cost.id), sum = 0;
+    Object.keys(m).forEach(function (k) {
+      if (f && ymIdx(k) < ymIdx(f)) return;
+      if (t && ymIdx(k) > ymIdx(t)) return;
+      sum += (m[k].amount || 0);
+    });
+    return sum;
+  }
+
   // Unterkanal = feinere Herkunft innerhalb einer Quelle. Ein Kostenblock wie
   // „Google Organic & KI" lässt sich damit auswerten, ohne die Kosten künstlich
   // aufzuteilen. Freitext – die Liste ist nur Vorschlag und wird um alle bereits
@@ -126,7 +196,17 @@
     var from = filterFrom.value;
     var to   = filterTo.value;
     if (!from && !to) return costs;
+    var f = from ? from.slice(0, 7) : null;
+    var t = to   ? to.slice(0, 7)   : null;
     return costs.filter(function(c) {
+      // Laufende Einträge: drin, wenn irgendein erfasster Monat im Zeitraum liegt.
+      if (hasMonths(c)) {
+        return monthYms(c.id).some(function (k) {
+          if (f && ymIdx(k) < ymIdx(f)) return false;
+          if (t && ymIdx(k) > ymIdx(t)) return false;
+          return true;
+        });
+      }
       var d = c.cost_date || '';
       if (!d) return true; // no date → always show
       if (from && d < from) return false;
@@ -224,6 +304,107 @@
   updateSortIcons();
 
   // ── Add/Edit Modal ────────────────────────────────────────────────────
+  var acqRecurringCheck = document.getElementById('acqRecurringCheck');
+  var acqMonthsWrap     = document.getElementById('acqMonthsWrap');
+  var acqMonthsGrid     = document.getElementById('acqMonthsGrid');
+  var acqMonthsSum      = document.getElementById('acqMonthsSum');
+  var acqMonthsHint     = document.getElementById('acqMonthsHint');
+  var acqYearSelect     = document.getElementById('acqYearSelect');
+  var acqDateField      = document.getElementById('acqDateField');
+
+  var monthDraft      = {};  // 'YYYY-MM' → Eingabewert (nur der offene Dialog)
+  var draftBaseAmount = 0;   // Gesamtbetrag vor der Umstellung auf monatlich
+
+  function draftSum() {
+    var s = 0;
+    Object.keys(monthDraft).forEach(function (k) { s += parseFloat(monthDraft[k]) || 0; });
+    return s;
+  }
+
+  function fillYearSelect(year) {
+    var now = new Date().getFullYear(), years = [], y;
+    for (y = now + 1; y >= now - 5; y--) years.push(y);
+    if (years.indexOf(year) === -1) { years.push(year); years.sort(function (a, b) { return b - a; }); }
+    acqYearSelect.innerHTML = years.map(function (yy) { return '<option value="' + yy + '">' + yy + '</option>'; }).join('');
+    acqYearSelect.value = String(year);
+  }
+
+  function renderMonthGrid() {
+    var year = parseInt(acqYearSelect.value, 10);
+    var due  = dueYm();
+    acqMonthsGrid.innerHTML = '';
+    for (var i = 0; i < 12; i++) {
+      (function (idx) {
+        var ym     = year + '-' + pad2(idx + 1);
+        var filled = monthDraft[ym] != null && monthDraft[ym] !== '';
+        var future = ymIdx(ym) > ymIdx(due);
+        var cell   = document.createElement('div');
+        cell.className = 'month-cell' + (future ? ' is-future' : (filled ? '' : ' is-open'));
+
+        var lab = document.createElement('label');
+        lab.textContent = MONTHS_LABEL[idx];
+        lab.setAttribute('for', 'acqMonth_' + ym);
+
+        var inp = document.createElement('input');
+        inp.type = 'number'; inp.min = '0'; inp.step = '0.01';
+        inp.id = 'acqMonth_' + ym;
+        inp.placeholder = '—';
+        inp.value = filled ? monthDraft[ym] : '';
+        inp.addEventListener('input', function () {
+          var v = this.value.trim();
+          if (v === '') delete monthDraft[ym]; else monthDraft[ym] = v;
+          cell.classList.toggle('is-open', v === '' && !future);
+          updateMonthSum();
+        });
+
+        cell.appendChild(lab);
+        cell.appendChild(inp);
+        acqMonthsGrid.appendChild(cell);
+      })(i);
+    }
+    updateMonthSum();
+  }
+
+  function updateMonthSum() {
+    var sum = draftSum();
+    acqMonthsSum.textContent = fmt(sum);
+    acqAmountInput.value = sum ? sum : '';
+
+    var year = parseInt(acqYearSelect.value, 10);
+    var due  = dueYm();
+    var missing = [], filled = [];
+    for (var i = 0; i < 12; i++) {
+      var ym = year + '-' + pad2(i + 1);
+      if (monthDraft[ym] != null && monthDraft[ym] !== '') filled.push(ym);
+      else if (ymIdx(ym) <= ymIdx(due)) missing.push(ym);
+    }
+
+    var html = '';
+    if (draftBaseAmount > 0 && filled.length === 0) {
+      html += '<div style="color:#92400e">Bisher nur als Gesamtbetrag erfasst: <strong>' + fmt(draftBaseAmount) +
+              '</strong>. Sobald Monatswerte drinstehen, ersetzt deren Summe diesen Betrag.</div>';
+    }
+    if (missing.length) {
+      html += '<div style="margin-top:4px">Noch nicht erfasst: <strong>' + missing.map(ymText).join(', ') + '</strong></div>';
+    } else if (filled.length) {
+      html += '<div style="margin-top:4px;color:#065f46">Alle Monate bis ' + ymText(due) + ' erfasst ✅</div>';
+    }
+    acqMonthsHint.innerHTML = html;
+  }
+
+  function syncRecurringUi() {
+    var on = acqRecurringCheck.checked && monthsAvailable;
+    acqMonthsWrap.classList.toggle('hidden', !on);
+    acqDateField.classList.toggle('hidden', on);
+    acqAmountInput.readOnly = on;
+    acqAmountInput.title    = on ? 'Wird aus den Monatswerten berechnet' : '';
+    acqAmountInput.style.background = on ? 'var(--surface-hover,#f1f5f9)' : '';
+    if (on) renderMonthGrid();
+  }
+
+  acqRecurringCheck.addEventListener('change', syncRecurringUi);
+  acqYearSelect.addEventListener('change', renderMonthGrid);
+
   function openModal(entry) {
     editingId = entry ? entry.id : null;
     acqModalTitle.textContent = entry ? 'Eintrag bearbeiten' : 'Neuer Eintrag';
@@ -232,6 +413,18 @@
     acqAmountInput.value = entry ? (entry.amount != null ? entry.amount : '') : '';
     acqDateInput.value   = entry ? (entry.cost_date || '') : '';
     acqNotesInput.value  = entry ? (entry.notes || '') : '';
+
+    monthDraft      = {};
+    draftBaseAmount = entry ? (entry.amount || 0) : 0;
+    if (entry) {
+      var m = monthsOf(entry.id);
+      Object.keys(m).forEach(function (k) { monthDraft[k] = String(m[k].amount); });
+    }
+    acqRecurringCheck.checked  = !!(entry && entry.is_recurring);
+    acqRecurringCheck.disabled = !monthsAvailable;
+    fillYearSelect(entry ? entryYear(entry) : new Date().getFullYear());
+    syncRecurringUi();
+
     acqModal.classList.remove('hidden');
     acqSourceInput.focus();
   }
@@ -243,20 +436,70 @@
   acqModal.addEventListener('click', function (e) { if (e.target === acqModal) closeModal(); });
   addEntryBtn.addEventListener('click', function () { openModal(null); });
 
+  // Monatszeilen an den Dialog angleichen: geänderte schreiben, geleerte
+  // löschen. Wird ein Eintrag auf „einmalig" zurückgestellt, fliegen alle raus.
+  function syncMonths(costId, draft, recurring) {
+    var existing = monthsOf(costId), ops = [];
+    if (!recurring) {
+      return Object.keys(existing).length
+        ? window.db.acquisitionCostMonths.removeAll(costId)
+        : Promise.resolve();
+    }
+    Object.keys(draft).forEach(function (ym) {
+      var cur = existing[ym];
+      if (!cur || Number(cur.amount) !== draft[ym]) ops.push(window.db.acquisitionCostMonths.set(costId, ym, draft[ym]));
+    });
+    Object.keys(existing).forEach(function (ym) {
+      if (!(ym in draft)) ops.push(window.db.acquisitionCostMonths.remove(costId, ym));
+    });
+    return Promise.all(ops);
+  }
+
   acqModalSave.addEventListener('click', function () {
     var source = acqSourceInput.value.trim();
     if (!source) { acqSourceInput.focus(); acqSourceInput.style.borderColor = 'var(--danger)'; return; }
     acqSourceInput.style.borderColor = '';
-    var type   = acqTypeSelect.value;
-    var amount = parseFloat(acqAmountInput.value) || 0;
-    var date   = acqDateInput.value || null;
-    var notes  = acqNotesInput.value.trim() || null;
+    var type      = acqTypeSelect.value;
+    var notes     = acqNotesInput.value.trim() || null;
+    var recurring = acqRecurringCheck.checked && monthsAvailable;
+
+    // Monatswerte einsammeln – der Gesamtbetrag ist bei laufenden Kosten
+    // immer deren Summe, nie ein separat getippter Wert.
+    var draft = {};
+    if (recurring) {
+      Object.keys(monthDraft).forEach(function (k) {
+        var v = parseFloat(monthDraft[k]);
+        if (!isNaN(v) && v !== 0) draft[k] = v;
+      });
+    }
+    var ymKeys = Object.keys(draft).sort();
+    var amount = recurring
+      ? ymKeys.reduce(function (s, k) { return s + draft[k]; }, 0)
+      : (parseFloat(acqAmountInput.value) || 0);
+    // cost_date bleibt die Jahres-Zuordnung für die CAC-Analyse.
+    var date = recurring
+      ? (ymKeys.length ? ymKeys[0] + '-01' : acqYearSelect.value + '-01-01')
+      : (acqDateInput.value || null);
+
     acqModalSave.disabled    = true;
     acqModalSave.textContent = 'Speichern…';
+
+    var fields = {
+      source_name: source, source_type: type, amount: amount, cost_date: date,
+      notes: notes, updated_at: new Date().toISOString(),
+    };
+    if (monthsAvailable) fields.is_recurring = recurring;
     var promise = editingId
-      ? window.db.acquisitionCosts.update(editingId, { source_name: source, source_type: type, amount: amount, cost_date: date, notes: notes, updated_at: new Date().toISOString() })
-      : window.db.acquisitionCosts.create(source, type, amount, date, notes);
-    promise.then(function () { closeModal(); loadData(); })
+      ? window.db.acquisitionCosts.update(editingId, fields)
+      : window.db.acquisitionCosts.create(source, type, amount, date, notes,
+                                          monthsAvailable ? recurring : undefined);
+
+    promise
+      .then(function (saved) {
+        var id = editingId || (saved && saved.id);
+        return id ? syncMonths(id, draft, recurring) : null;
+      })
+      .then(function () { closeModal(); loadData(); })
       .catch(function (e) { showError('Fehler: ' + e.message); closeModal(); })
       .finally(function () { acqModalSave.disabled = false; acqModalSave.textContent = 'Speichern'; });
   });
@@ -945,12 +1188,23 @@
       window.db.revenue.allRows(),
       window.db.acquisitionContactLinks.listAll(),
       (window.db.contactOverrides ? window.db.contactOverrides.listAll() : Promise.resolve([])).catch(function () { return []; }),
+      // null = Tabelle fehlt noch (Migration nicht gelaufen) – die Seite läuft
+      // dann ohne Monatserfassung weiter statt zu brechen.
+      (window.db.acquisitionCostMonths ? window.db.acquisitionCostMonths.listAll() : Promise.resolve(null)).catch(function () { return null; }),
     ])
     .then(function (results) {
       var costs    = results[0];
       var revenues = results[1];
       var links    = results[2];
       allOverrides = results[3] || [];
+
+      var monthRows   = results[4];
+      monthsAvailable = monthRows !== null;
+      monthsByCost    = {};
+      (monthRows || []).forEach(function (r) {
+        if (!monthsByCost[r.acquisition_cost_id]) monthsByCost[r.acquisition_cost_id] = {};
+        monthsByCost[r.acquisition_cost_id][r.ym] = { id: r.id, amount: Number(r.amount) || 0 };
+      });
       buildExclusions(revenues);
 
       loadingEl.classList.add('hidden');
@@ -970,6 +1224,89 @@
         ? 'Keine Supabase-Verbindung. Bitte <a href="settings.html">Einstellungen</a> prüfen.'
         : e.message);
     });
+  }
+
+  // Spalte „Erfasst bis": bei laufenden Kosten der letzte erfasste Monat samt
+  // Status, bei einmaligen schlicht das Datum. Der Tooltip zeigt, wann der
+  // Eintrag zuletzt angefasst wurde.
+  function trackingCell(cost) {
+    var upd   = cost.updated_at ? new Date(cost.updated_at) : null;
+    var title = upd ? 'Zuletzt geändert: ' + upd.toLocaleDateString('de-DE') : '';
+
+    var st = recurringStatus(cost);
+    if (!st) {
+      var d = cost.cost_date ? cost.cost_date.split('-').reverse().join('.') : '—';
+      return '<td title="' + escHtml(title) + '"><span style="font-size:12px;color:var(--text-secondary)">' + d + '</span></td>';
+    }
+
+    var badge = '';
+    if      (st.state === 'open') badge = '<span class="badge-open">' + st.missing + ' Mon. offen</span>';
+    else if (st.state === 'none') badge = '<span class="badge-none">nichts erfasst</span>';
+    else if (st.state === 'ok')   badge = '<span class="badge-ok">aktuell</span>';
+
+    return '<td title="' + escHtml(title) + '">' +
+      '<div style="display:flex;flex-direction:column;gap:3px;align-items:flex-start">' +
+        '<span style="font-size:13px;font-weight:600">' + (st.last ? ymText(st.last) : '—') + '</span>' +
+        badge +
+      '</div></td>';
+  }
+
+  // Erinnerung für laufende Kanäle: Welche Quelle hinkt hinterher?
+  function renderStaleBanner(costs) {
+    var banner = document.getElementById('staleBanner');
+    if (!banner) return;
+    banner.innerHTML = '';
+    banner.classList.add('hidden');
+
+    if (!monthsAvailable) {
+      banner.innerHTML = '<div class="alert alert-warn" style="margin:0">⚠️ Monatserfassung ist noch nicht aktiv – ' +
+        'bitte <code>supabase/acquisition-cost-months-schema.sql</code> im Supabase-SQL-Editor ausführen.</div>';
+      banner.classList.remove('hidden');
+      return;
+    }
+
+    var open = costs.filter(function (c) {
+      var st = recurringStatus(c);
+      return st && (st.state === 'open' || st.state === 'none');
+    });
+    if (!open.length) return;
+
+    var box = document.createElement('div');
+    box.className = 'alert alert-warn';
+    // .alert ist flex – hier sollen Kopfzeile und Quellen untereinander stehen.
+    box.style.cssText = 'margin:0;display:block';
+
+    var head = document.createElement('div');
+    head.style.cssText = 'font-weight:600;margin-bottom:6px';
+    head.textContent = '⚠️ Laufende Kosten nicht aktuell – erfasst sein sollte alles bis einschließlich ' + ymText(dueYm()) + '.';
+    box.appendChild(head);
+
+    open.sort(function (a, b) { return (a.source_name || '').localeCompare(b.source_name || '', 'de'); })
+      .forEach(function (cost) {
+        var st  = recurringStatus(cost);
+        var row = document.createElement('div');
+        row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:4px 0;border-top:1px solid rgba(146,64,14,.15)';
+
+        var txt = document.createElement('span');
+        txt.style.cssText = 'flex:1;min-width:0';
+        txt.textContent = cost.source_name + ' – ' +
+          (st.last
+            ? 'zuletzt ' + ymText(st.last) + ' (' + st.missing + ' Monat' + (st.missing === 1 ? '' : 'e') + ' offen)'
+            : 'noch kein Monat erfasst');
+
+        var btn = document.createElement('button');
+        btn.className = 'btn btn-secondary btn-sm';
+        btn.style.flexShrink = '0';
+        btn.textContent = 'Nachtragen';
+        btn.addEventListener('click', function () { openModal(cost); });
+
+        row.appendChild(txt);
+        row.appendChild(btn);
+        box.appendChild(row);
+      });
+
+    banner.appendChild(box);
+    banner.classList.remove('hidden');
   }
 
   function render(costs, revenues, links) {
@@ -1011,7 +1348,7 @@
     var totalCosts  = 0;
     var totalRevAcq = 0;
     applyDateFilter(costs).forEach(function (cost) {
-      totalCosts  += (cost.amount || 0);
+      totalCosts  += costAmt(cost);
       totalRevAcq += costRevenue(cost.id);
     });
 
@@ -1032,15 +1369,16 @@
     if (sortCol) {
       sorted.sort(function(a, b) {
         var av, bv;
+        var aAmt = costAmt(a), bAmt = costAmt(b);
         if (sortCol === 'kosten') {
-          av = a.amount || 0;
-          bv = b.amount || 0;
+          av = aAmt;
+          bv = bAmt;
         } else if (sortCol === 'umsatz') {
           av = costRevenue(a.id);
           bv = costRevenue(b.id);
         } else { // roi
-          av = (a.amount > 0) ? costRevenue(a.id) / a.amount : -Infinity;
-          bv = (b.amount > 0) ? costRevenue(b.id) / b.amount : -Infinity;
+          av = (aAmt > 0) ? costRevenue(a.id) / aAmt : -Infinity;
+          bv = (bAmt > 0) ? costRevenue(b.id) / bAmt : -Infinity;
         }
         return sortDir === 'desc' ? bv - av : av - bv;
       });
@@ -1052,9 +1390,11 @@
       var count  = linkedOriginal.length;
       var ltdRev = costRevenue(cost.id);
 
+      var amt = costAmt(cost);
+
       var roiHtml;
-      if (cost.amount > 0) {
-        var mult = ltdRev / cost.amount;
+      if (amt > 0) {
+        var mult = ltdRev / amt;
         var cls  = mult >= 1 ? 'roi-pos' : 'roi-neg';
         roiHtml  = '<span class="' + cls + '">' + mult.toFixed(1) + '× ROI</span>';
       } else {
@@ -1074,7 +1414,8 @@
           (cost.notes ? '<br><span style="font-size:11px;color:var(--text-secondary);font-weight:400">' + escHtml(cost.notes) + '</span>' : '') +
         '</td>' +
         '<td><span style="font-size:12px;background:var(--surface-hover,#f1f5f9);padding:2px 8px;border-radius:4px;border:1px solid var(--border)">' + typeLabel + '</span></td>' +
-        '<td class="right" style="font-variant-numeric:tabular-nums">' + fmt(cost.amount || 0) + '</td>' +
+        '<td class="right" style="font-variant-numeric:tabular-nums">' + fmt(amt) + '</td>' +
+        trackingCell(cost) +
         '<td class="right">' + countHtml + '</td>' +
         '<td class="right" style="font-variant-numeric:tabular-nums">' + fmt(ltdRev) + '</td>' +
         '<td>' + roiHtml + '</td>' +
@@ -1098,6 +1439,7 @@
     });
 
     allCosts = costs;
+    renderStaleBanner(costs);
     renderUnassigned(revenues, links);
     renderTagView(applyDateFilter(costs), links, revByContact);
 
@@ -1196,7 +1538,7 @@
     costs.forEach(function(cost) {
       var t = cost.source_type || 'sonstige';
       if (!byType[t]) byType[t] = { costs: 0, revenue: 0, clients: 0, count: 0, entries: [] };
-      byType[t].costs  += (cost.amount || 0);
+      byType[t].costs  += costAmt(cost);
       byType[t].count  += 1;
       var linked = linksByCostNorm[cost.id] || [];
       var linkedOrig = linksByCostOriginal[cost.id] || [];
@@ -1231,14 +1573,15 @@
       card.style.borderTop = '3px solid ' + color;
 
       // Sort entries by costs desc
-      var sortedEntries = d.entries.slice().sort(function(a, b) { return (b.cost.amount || 0) - (a.cost.amount || 0); });
+      var sortedEntries = d.entries.slice().sort(function(a, b) { return costAmt(b.cost) - costAmt(a.cost); });
 
       // Build activities HTML
       var activitiesHtml = '<div style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px;display:flex;flex-direction:column;gap:6px">';
       sortedEntries.forEach(function(entry) {
         var c = entry.cost;
-        var entryRoi = c.amount > 0 ? (entry.revenue / c.amount).toFixed(1) + '× ROI' : '—';
-        var entryRoiCls = c.amount > 0 && entry.revenue >= c.amount ? 'roi-pos' : (c.amount > 0 ? 'roi-neg' : '');
+        var cAmt = costAmt(c);
+        var entryRoi = cAmt > 0 ? (entry.revenue / cAmt).toFixed(1) + '× ROI' : '—';
+        var entryRoiCls = cAmt > 0 && entry.revenue >= cAmt ? 'roi-pos' : (cAmt > 0 ? 'roi-neg' : '');
         var clientsHtml = '';
         if (entry.linkedNames.length > 0) {
           clientsHtml = '<div style="margin-top:4px;display:flex;flex-wrap:wrap;gap:3px">';
@@ -1251,8 +1594,8 @@
           '<div style="background:var(--surface-hover,#f8fafc);border:1px solid var(--border);border-radius:6px;padding:8px 10px">' +
             '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:6px">' +
               '<span style="font-size:13px;font-weight:600;flex:1;min-width:0">' + escHtml(c.source_name) + '</span>' +
-              '<span style="font-size:12px;font-variant-numeric:tabular-nums;white-space:nowrap;color:var(--text-secondary)">' + fmt(c.amount || 0) + '</span>' +
-              (c.amount > 0 ? '<span style="font-size:12px;font-weight:600;white-space:nowrap" class="' + entryRoiCls + '">' + entryRoi + '</span>' : '') +
+              '<span style="font-size:12px;font-variant-numeric:tabular-nums;white-space:nowrap;color:var(--text-secondary)">' + fmt(cAmt) + '</span>' +
+              (cAmt > 0 ? '<span style="font-size:12px;font-weight:600;white-space:nowrap" class="' + entryRoiCls + '">' + entryRoi + '</span>' : '') +
             '</div>' +
             (entry.linkedNames.length > 0 ? clientsHtml : '<div style="margin-top:3px;font-size:11px;color:var(--text-secondary)">Keine Kunden zugeordnet</div>') +
           '</div>';

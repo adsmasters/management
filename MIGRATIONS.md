@@ -298,3 +298,25 @@ Achtung bei `median()`: bewusst ohne Rundung, weil es auch auf Quoten läuft
 
 Testseite: `node test/build-cashflow-test.js` erzeugt `test/cashflow-test.html`
 aus der echten `cashflow.html` – die Testseite kann so nicht mehr veralten.
+
+## 18. Laufende Akquisitionskosten monatsweise erfassen (10.09.2026)
+
+SQL: `supabase/acquisition-cost-months-schema.sql` (im SQL-Editor ausführen).
+
+Einmalige Aktivitäten (Messe, Webinar) bleiben wie sie sind: ein Betrag, ein
+Datum. Laufende Kanäle (SEO, YouTube, Google Ads) bekommen mit
+`acquisition_costs.is_recurring = true` ein Monatsraster: pro Monat eine Zeile in
+`acquisition_cost_months (acquisition_cost_id, ym 'YYYY-MM', amount)`.
+
+`acquisition_costs.amount` wird beim Speichern **aus den Monatswerten neu
+berechnet** und bleibt damit die Wahrheit für alle bestehenden Auswertungen
+(ROI, Typ-Ansicht, Unterkanal-Ansicht, CAC-Analyse). Die Monatszeilen sind die
+Herkunft, nicht eine zweite Quelle.
+
+Was das löst: Bei „YouTube 2026 (Bis Ende August)" stand der Stand nur im Namen –
+ob August schon drin war, ließ sich nicht prüfen. Die Akquisitions-Seite zeigt
+jetzt je Eintrag „Erfasst bis" und warnt oben, wenn bei einem laufenden Kanal
+der letzte abgeschlossene Monat fehlt.
+
+Nebeneffekt: Bei aktivem Zeitraumfilter werden laufende Einträge mit der Summe
+der Monate **im Zeitraum** gerechnet statt mit dem Jahresbetrag.

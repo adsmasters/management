@@ -289,15 +289,38 @@
     acquisitionCosts: {
       list: () =>
         q(s => s.from('acquisition_costs').select('*').order('cost_date', { ascending: false, nullsFirst: false })),
-      create: (sourceName, sourceType, amount, costDate, notes) =>
-        q(s => s.from('acquisition_costs')
-          .insert({ source_name: sourceName, source_type: sourceType || 'sonstige',
-                    amount: amount || 0, cost_date: costDate || null, notes: notes || null })
-          .select().single()),
+      // isRecurring bleibt weg, wenn es nicht übergeben wird – so läuft die
+      // Seite auch, solange die Spalte noch nicht migriert ist.
+      create: (sourceName, sourceType, amount, costDate, notes, isRecurring) => {
+        const row = { source_name: sourceName, source_type: sourceType || 'sonstige',
+                      amount: amount || 0, cost_date: costDate || null, notes: notes || null };
+        if (isRecurring !== undefined) row.is_recurring = !!isRecurring;
+        return q(s => s.from('acquisition_costs').insert(row).select().single());
+      },
       update: (id, fields) =>
         q(s => s.from('acquisition_costs').update(fields).eq('id', id).select().single()),
       delete: (id) =>
         q(s => s.from('acquisition_costs').delete().eq('id', id)),
+    },
+
+    // Monatswerte laufender Kosten (SEO, YouTube, Ads ...). Die Summe dieser
+    // Zeilen wird beim Speichern nach acquisition_costs.amount geschrieben,
+    // damit alle bestehenden Auswertungen unveraendert weiterrechnen.
+    acquisitionCostMonths: {
+      listAll: () =>
+        q(s => s.from('acquisition_cost_months').select('*').order('ym', { ascending: true })),
+      set: (costId, ym, amount) =>
+        q(s => s.from('acquisition_cost_months')
+          .upsert({ acquisition_cost_id: costId, ym: ym, amount: amount,
+                    updated_at: new Date().toISOString() },
+                  { onConflict: 'acquisition_cost_id,ym' })
+          .select().single()),
+      remove: (costId, ym) =>
+        q(s => s.from('acquisition_cost_months')
+          .delete().eq('acquisition_cost_id', costId).eq('ym', ym)),
+      removeAll: (costId) =>
+        q(s => s.from('acquisition_cost_months')
+          .delete().eq('acquisition_cost_id', costId)),
     },
 
     revenueExclusions: {

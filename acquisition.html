@@ -17,6 +17,28 @@
     #unassignedModal table { table-layout: fixed; width: 100%; }
     #unassignedModal th, #unassignedModal td { overflow-wrap: anywhere; }
     .roi-neg { color: #991b1b; font-weight: 600; }
+
+    .months-box {
+      margin-bottom: 16px; border: 1px solid var(--border); border-radius: var(--radius);
+      padding: 12px; background: var(--surface-hover, #f8fafc);
+    }
+    .months-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+    .months-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+    .month-cell { display: flex; flex-direction: column; gap: 3px; }
+    .month-cell label { font-size: 11px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: .03em; margin: 0; }
+    .month-cell input {
+      width: 100%; box-sizing: border-box; padding: 5px 7px; font-size: 13px;
+      border: 1px solid var(--border); border-radius: var(--radius);
+      background: var(--surface); color: var(--text); font-variant-numeric: tabular-nums;
+      text-align: right; font-family: inherit;
+    }
+    .month-cell.is-open input  { border-color: #f59e0b; background: #fffbeb; }
+    .month-cell.is-future      { opacity: .5; }
+    .month-cell.is-future input{ background: transparent; }
+
+    .badge-ok    { font-size: 11px; font-weight: 600; color: #065f46; background: #d1fae5; border: 1px solid #a7f3d0; border-radius: 4px; padding: 1px 6px; white-space: nowrap; }
+    .badge-open  { font-size: 11px; font-weight: 600; color: #92400e; background: #fef3c7; border: 1px solid #fde68a; border-radius: 4px; padding: 1px 6px; white-space: nowrap; }
+    .badge-none  { font-size: 11px; font-weight: 600; color: #991b1b; background: #fee2e2; border: 1px solid #fecaca; border-radius: 4px; padding: 1px 6px; white-space: nowrap; }
   </style>
 </head>
 <body>
@@ -79,6 +101,8 @@
       </div>
     </div>
 
+    <div id="staleBanner" class="hidden" style="margin-bottom:20px"></div>
+
     <div id="unassignedBanner" class="hidden" style="margin-bottom:20px"></div>
 
     <!-- Einzelansicht -->
@@ -90,6 +114,7 @@
               <th style="min-width:180px">Quelle</th>
               <th style="min-width:120px">Typ</th>
               <th class="right" style="min-width:130px;cursor:pointer;user-select:none" id="sortKosten">Kosten <span id="sortKostenIcon">↕</span></th>
+              <th style="min-width:135px">Erfasst bis</th>
               <th class="right" style="min-width:80px">Kunden</th>
               <th class="right" style="min-width:150px;cursor:pointer;user-select:none" id="sortUmsatz"><span id="umsatzColLabel">Umsatz (LTD)</span> <span id="sortUmsatzIcon">↕</span></th>
               <th style="min-width:100px;cursor:pointer;user-select:none" id="sortRoi">ROI <span id="sortRoiIcon">↕</span></th>
@@ -194,7 +219,29 @@
           <input type="number" id="acqAmountInput" min="0" step="0.01" placeholder="z.B. 4500">
         </div>
       </div>
-      <div class="field">
+      <div class="field" style="margin-bottom:12px">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;margin:0">
+          <input type="checkbox" id="acqRecurringCheck" style="width:15px;height:15px;margin:0;flex:0 0 auto">
+          <span style="font-weight:600">Laufende Kosten – monatlich erfassen</span>
+        </label>
+        <div style="font-size:12px;color:var(--text-secondary);margin-top:5px;line-height:1.45">
+          Für Dauerkanäle wie SEO, YouTube oder Google Ads. Der Betrag wird aus den
+          Monatswerten gerechnet – so ist jederzeit sichtbar, bis wann erfasst ist.
+        </div>
+      </div>
+
+      <div id="acqMonthsWrap" class="hidden months-box">
+        <div class="months-head">
+          <label for="acqYearSelect" style="margin:0;font-size:13px;font-weight:600">Jahr</label>
+          <select id="acqYearSelect" style="padding:4px 8px;border:1px solid var(--border);border-radius:var(--radius);font-size:13px;background:var(--surface);color:var(--text)"></select>
+          <span style="flex:1"></span>
+          <span style="font-size:13px;color:var(--text-secondary)">Summe: <strong id="acqMonthsSum" style="color:var(--text);font-variant-numeric:tabular-nums">0,00 €</strong></span>
+        </div>
+        <div id="acqMonthsGrid" class="months-grid"></div>
+        <div id="acqMonthsHint" style="margin-top:10px;font-size:12px;color:var(--text-secondary);line-height:1.45"></div>
+      </div>
+
+      <div class="field" id="acqDateField">
         <label for="acqDateInput">Datum <span style="color:var(--text-muted);font-weight:400">(optional)</span></label>
         <input type="date" id="acqDateInput">
       </div>
@@ -294,10 +341,10 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="js/db.js?v=20260610b"></script>
+<script src="js/db.js?v=20260910a"></script>
 <script src="js/utils.js"></script>
 <script src="js/auth.js"></script>
-<script src="js/acquisition.js?v=20260904c"></script>
+<script src="js/acquisition.js?v=20260910a"></script>
   <script defer src="https://adsmasters.github.io/hub/backlink.js"></script>
   <script src="js/nav.js"></script>
 </body>
