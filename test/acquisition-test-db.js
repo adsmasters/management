@@ -12,12 +12,12 @@
 
   var costs = [
     { id: 'c-omr25',  source_name: 'OMR 2025',        source_type: 'messe',            amount: 23000, cost_date: '2025-05-06', notes: null },
-    { id: 'c-omr26',  source_name: 'OMR 2026',        source_type: 'messe',            amount: 23000, cost_date: '2026-05-05', notes: null },
+    { id: 'c-omr26',  source_name: 'OMR 2026',        source_type: 'messe',            amount: 23000, cost_date: '2026-05-05', notes: null, updated_at: '2026-08-14T13:05:00Z' },
     { id: 'c-seo',    source_name: 'Google Organic Search 2026', source_type: 'online-marketing', amount: 20000, cost_date: '2026-01-01', notes: null, is_recurring: true },
     { id: 'c-empf',   source_name: 'Empfehlungen',    source_type: 'empfehlung',       amount: 0,     cost_date: null,         notes: 'Ohne direkte Kosten' },
     { id: 'c-ki',     source_name: 'KI-Suche 2026',   source_type: 'ki',               amount: 4000,  cost_date: '2026-01-01', notes: 'ChatGPT, Perplexity & Co.', is_recurring: true },
     // Laufende Kanäle – Monatsraster statt Einmalbetrag
-    { id: 'c-yt26',   source_name: 'YouTube 2026',    source_type: 'sonstige',         amount: 8000,  cost_date: '2026-01-01', notes: null, is_recurring: true },
+    { id: 'c-yt26',   source_name: 'YouTube 2026',    source_type: 'sonstige',         amount: 8000,  cost_date: '2026-01-01', notes: null, is_recurring: true, updated_at: '2026-09-05T07:28:00Z' },
     { id: 'c-yt25',   source_name: 'YouTube 2025',    source_type: 'sonstige',         amount: 15000, cost_date: '2025-01-01', notes: null, is_recurring: true },
   ];
 

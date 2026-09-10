@@ -1269,6 +1269,7 @@
   var historyModal      = document.getElementById('historyModal');
   var historyModalTitle = document.getElementById('historyModalTitle');
   var historyModalBody  = document.getElementById('historyModalBody');
+  var historyHead       = document.getElementById('historyModalHead');
   var historyModalClose = document.getElementById('historyModalClose');
   var historyAvailable  = true;   // false, solange die Migration nicht gelaufen ist
 
@@ -1297,7 +1298,8 @@
     if (h.field === 'baseline') {
       return 'Stand beim Einschalten des Verlaufs: <strong>' + fmt(newA || 0) + '</strong>' +
              '<div style="font-size:11px;color:var(--text-secondary);margin-top:2px">' +
-             'Zeitpunkt laut „zuletzt geändert" – frühere Änderungen hat die Datenbank nie gespeichert.</div>';
+             'Zeitstempel = letzte Änderung an der Zeile laut „updated_at", nicht das Datum im Eintrag. ' +
+             'Was davor passiert ist, hat die Datenbank nie gespeichert.</div>';
     }
     if (h.field === 'created') {
       return 'Eintrag angelegt mit <strong>' + fmt(newA || 0) + '</strong>';
@@ -1331,6 +1333,13 @@
 
   function openHistoryModal(cost) {
     historyModalTitle.textContent = 'Änderungsverlauf – ' + cost.source_name;
+    // Ohne diese Zeile wird das Datum im Eintrag mit dem Änderungszeitpunkt
+    // verwechselt – die beiden haben nichts miteinander zu tun.
+    historyHead.innerHTML =
+      'Datum im Eintrag: <strong>' +
+        (cost.cost_date ? cost.cost_date.split('-').reverse().join('.') : '—') + '</strong>' +
+      ' · aktueller Betrag: <strong>' + fmt(cost.amount || 0) + '</strong>' +
+      '<div style="margin-top:3px">Die Zeitstempel unten sagen, <em>wann geändert wurde</em> – nicht, welcher Zeitraum gemeint ist.</div>';
     historyModalBody.innerHTML = '<div style="padding:24px;text-align:center;color:var(--text-secondary)">Wird geladen…</div>';
     historyModal.classList.remove('hidden');
     window.db.acquisitionCostHistory.listForCost(cost.id)
@@ -1345,8 +1354,12 @@
   // Status, bei einmaligen schlicht das Datum. Der Tooltip zeigt, wann der
   // Eintrag zuletzt angefasst wurde.
   function trackingCell(cost) {
+    // Zwei verschiedene Datumsangaben, die leicht verwechselt werden:
+    // cost_date = Datum, das im Eintrag steht; updated_at = wann die Zeile
+    // zuletzt angefasst wurde. Der Tooltip benennt beides.
     var upd   = cost.updated_at ? new Date(cost.updated_at) : null;
-    var title = upd ? 'Zuletzt geändert: ' + upd.toLocaleDateString('de-DE') : '';
+    var title = (cost.is_recurring ? 'Letzter erfasster Monat' : 'Datum des Eintrags') +
+                (upd ? '\nZeile zuletzt geändert: ' + fmtWhen(cost.updated_at) : '');
 
     // Uhr-Symbol öffnet den Änderungsverlauf dieses Eintrags.
     var histBtn = historyAvailable
