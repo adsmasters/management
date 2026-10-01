@@ -13,6 +13,8 @@
   var setupHint  = document.getElementById('setupHint');
   var gUnmapped = [], gUnmappedTotal = 0; // nicht zugeordneter (Sammel-)Umsatz
   var gCategoryTotals = {};               // Kategorie (z.B. Software) → Summe
+  var gInvoicesByContact = {};            // normKontakt → [Einzelrechnungen im Zeitraum]
+  var gInvoicesAvailable = false;         // Tabelle revenue_invoices vorhanden & befüllt?
 
   // ── Populate month/year selects ───────────────────────────────────────
   var MONTHS_LABEL = ['Januar','Februar','März','April','Mai','Juni','Juli','August','September','Oktober','November','Dezember'];
@@ -226,6 +228,7 @@
       Promise.all(months.map(function (m) { return window.db.manualCosts.forMonth(m.year, m.month); })),
       window.db.employeeRates.listAll(),
       window.db.contactOverrides.listAll().catch(function () { return []; }),
+      Promise.all(months.map(function (m) { return window.db.revenueInvoices.forMonth(m.year, m.month).catch(function () { return []; }); })),
     ])
     .then(function (results) {
       var clients          = results[0];
@@ -237,6 +240,18 @@
       var manualCostMonths = results[6];
       var employeeRates    = results[7];
       var contactOverrides = results[8] || [];
+      var invoiceMonths    = results[9] || [];
+
+      gInvoicesByContact = {};
+      gInvoicesAvailable = false;
+      invoiceMonths.forEach(function (rows) {
+        (rows || []).forEach(function (inv) {
+          gInvoicesAvailable = true;
+          var k = norm(inv.contact_name);
+          if (!gInvoicesByContact[k]) gInvoicesByContact[k] = [];
+          gInvoicesByContact[k].push(inv);
+        });
+      });
 
       // Zentral ausgeschlossene Kontakte (zählen NIRGENDS als Umsatz) + Kategorien
       var excludedContacts = {};
@@ -374,6 +389,14 @@
     var hoursByClient = (costData && costData.hoursByClient) || {};
     var breakdown     = (costData && costData.breakdown)     || {};
     profitBody.innerHTML = '';
+
+    // normKontakt-Schlüssel, deren Umsatz diesem Kunden zugerechnet wird (gleiche Logik wie unten)
+    function clientContactKeys(clientId) {
+      var mapped = mappingsByClient[clientId] || [];
+      if (mapped.length) return mapped.map(norm);
+      var c = clients.find(function (x) { return x.id === clientId; }) || {};
+      return [norm(c.lexoffice_name || c.name), norm(c.name)];
+    }
 
     var totalRevenue = 0;
     var totalCost    = 0;
@@ -533,8 +556,21 @@
           '<div class="mc-err" style="color:#dc2626;font-size:11px;margin-top:4px;display:none"></div>' +
           '</div>';
 
+        html += renderInvoiceSection(r.id, clientContactKeys(r.id));
+
         html += '</div></td>';
         detailTr.innerHTML = html;
+
+        // Rechnung aus Umsatz nehmen / wieder zählen
+        Array.prototype.forEach.call(detailTr.querySelectorAll('.inv-toggle'), function (btn) {
+          btn.addEventListener('click', function () {
+            var exclude = btn.getAttribute('data-exclude') === '1';
+            btn.disabled = true; btn.textContent = '…';
+            toggleInvoice(btn.getAttribute('data-voucher'), btn.getAttribute('data-contact'), btn.getAttribute('data-number'), exclude)
+              .then(function () { load(); })
+              .catch(function (e) { showError('Rechnung konnte nicht geändert werden: ' + e.message); btn.disabled = false; });
+          });
+        });
 
         // Löschen
         Array.prototype.forEach.call(detailTr.querySelectorAll('.mc-del'), function (btn) {
@@ -614,6 +650,67 @@
     marginEl.textContent = avgMargin !== null
       ? (avgMargin >= 0 ? '+' : '') + avgMargin.toFixed(1) + '%' : '—';
     marginEl.className = 'kpi-value ' + (avgMargin !== null ? (avgMargin >= 0 ? 'pos' : 'neg') : 'neutral');
+  }
+
+  // ── Einzelrechnungen: Anzeige + Ausschluss vom Umsatz ───────────────
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"]/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; }); }
+
+  function renderInvoiceSection(clientId, contactKeys) {
+    var seen = {}, invs = [];
+    contactKeys.forEach(function (k) {
+      if (seen[k]) return; seen[k] = 1;
+      (gInvoicesByContact[k] || []).forEach(function (inv) { invs.push(inv); });
+    });
+    var html = '<div style="margin-top:8px;padding-top:8px;border-top:1px dashed var(--border)">' +
+      '<div style="font-size:11px;font-weight:600;color:var(--text-secondary);margin-bottom:6px">Rechnungen im Zeitraum (netto)</div>';
+    if (!invs.length) {
+      html += '<div style="font-size:12px;color:var(--text-muted);font-style:italic">' +
+        (gInvoicesAvailable ? 'Keine Rechnungen im Zeitraum.' : 'Rechnungsliste erscheint nach dem nächsten LexOffice-Sync dieses Zeitraums.') +
+        '</div></div>';
+      return html;
+    }
+    invs.sort(function (a, b) { return String(a.voucher_date || '').localeCompare(String(b.voucher_date || '')); });
+    invs.forEach(function (inv) {
+      var d = inv.voucher_date ? inv.voucher_date.split('-').reverse().join('.') : '';
+      var strike = inv.excluded ? 'text-decoration:line-through;color:var(--text-muted)' : '';
+      html += '<div style="display:flex;align-items:center;gap:8px;padding:2px 0;font-size:12px">' +
+        '<span style="width:72px;color:var(--text-secondary)">' + d + '</span>' +
+        '<span style="flex:1;' + strike + '">' + esc(inv.voucher_number || '') + (inv.title ? ' · ' + esc(inv.title) : '') +
+          (inv.excluded ? ' <span style="text-decoration:none;color:#92400e;font-size:10px">(zählt nicht als Umsatz)</span>' : '') + '</span>' +
+        '<span style="font-weight:500;' + (inv.excluded ? strike : 'color:#2563eb') + '">' + fmt(Number(inv.amount) || 0) + '</span>' +
+        '<button class="btn btn-ghost btn-sm inv-toggle" style="font-size:11px;padding:1px 6px" ' +
+          'data-voucher="' + esc(inv.voucher_id) + '" data-contact="' + esc(inv.contact_name) + '" data-number="' + esc(inv.voucher_number || '') + '" ' +
+          'data-exclude="' + (inv.excluded ? '0' : '1') + '">' + (inv.excluded ? '↺ Wieder zählen' : '✕ Nicht als Umsatz') + '</button>' +
+        '</div>';
+    });
+    return html + '</div>';
+  }
+
+  // Schließt eine Rechnung vom Umsatz aus (oder nimmt sie wieder auf).
+  // Wirkt sofort auf die revenue-Aggregate aller betroffenen Monate; der
+  // LexOffice-Sync respektiert den Ausschluss danach selbst (revenue_invoice_exclusions).
+  function toggleInvoice(voucherId, contactName, voucherNumber, exclude) {
+    return window.db.revenueInvoices.forVoucher(voucherId).then(function (rows) {
+      var changeRows = (rows || []).filter(function (r) { return !!r.excluded !== exclude; });
+      var step = exclude
+        ? window.db.revenueInvoiceExclusions.add(voucherId, contactName, voucherNumber)
+        : window.db.revenueInvoiceExclusions.remove(voucherId);
+      return step
+        .then(function () { return window.db.revenueInvoices.setExcluded(voucherId, exclude); })
+        .then(function () {
+          // Sequenziell, damit mehrere Monatsanteile derselben Zeile sauber verrechnet werden
+          return changeRows.reduce(function (p, r) {
+            return p.then(function () {
+              var delta = (exclude ? -1 : 1) * (Number(r.amount) || 0);
+              return window.db.revenue.forMonth(r.year, r.month).then(function (revRows) {
+                var row = (revRows || []).find(function (x) { return norm(x.contact_name) === norm(r.contact_name); });
+                if (row) return window.db.revenue.updateAmount(row.id, Math.round(((Number(row.total_amount) || 0) + delta) * 100) / 100);
+                if (delta > 0) return window.db.revenue.insertAggRow(r.year, r.month, r.contact_name, Math.round(delta * 100) / 100);
+              });
+            });
+          }, Promise.resolve());
+        });
+    });
   }
 
   // ── Revenue Adjustment Modal ─────────────────────────────────────────
