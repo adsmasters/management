@@ -216,6 +216,12 @@
         q(s => s.from('revenue')
           .insert({ year, month, contact_name: contactName, total_amount: amount })
           .select().single()),
+      // Aggregat-Zeile im Sync-Format (voucher_id = agg_…), z.B. nach Rechnungs-Wiedereinschluss
+      insertAggRow: (year, month, contactName, amount) =>
+        q(s => s.from('revenue')
+          .insert({ year, month, contact_name: contactName, total_amount: amount,
+                    voucher_id: 'agg_' + year + '_' + month + '_' + contactName.toLowerCase().replace(/[^a-z0-9]/g, '_').substring(0, 40) })
+          .select().single()),
       clearMonth: (year, month) =>
         q(s => s.from('revenue').delete().eq('year', year).eq('month', month)),
       insertMany: (year, month, rows) =>
@@ -368,6 +374,23 @@
       remove: (clientId, employeeId) =>
         q(s => s.from('client_employee_exclusions')
           .delete().eq('client_id', clientId).eq('employee_id', employeeId)),
+    },
+
+    // Einzelrechnungen (vom LexOffice-Sync) + Ausschluss einzelner Rechnungen vom Umsatz
+    revenueInvoices: {
+      forMonth: (year, month) =>
+        q(s => s.from('revenue_invoices').select('*').eq('year', year).eq('month', month)),
+      forVoucher: (voucherId) =>
+        q(s => s.from('revenue_invoices').select('*').eq('voucher_id', voucherId)),
+      setExcluded: (voucherId, excluded) =>
+        q(s => s.from('revenue_invoices').update({ excluded }).eq('voucher_id', voucherId)),
+    },
+    revenueInvoiceExclusions: {
+      add: (voucherId, contactName, voucherNumber) =>
+        q(s => s.from('revenue_invoice_exclusions')
+          .upsert({ voucher_id: voucherId, contact_name: contactName, voucher_number: voucherNumber || null })),
+      remove: (voucherId) =>
+        q(s => s.from('revenue_invoice_exclusions').delete().eq('voucher_id', voucherId)),
     },
 
     maRevenueExclusions: {
