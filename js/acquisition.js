@@ -178,8 +178,12 @@
     return Object.keys(m).filter(function (k) { return (m[k].amount || 0) !== 0; }).sort();
   }
 
+  // Erfasst ist ein Monat, sobald es eine Zeile gibt – auch mit 0 €
+  // ("kein Spend" ist eine Eingabe, kein vergessener Monat).
+  function recordedYms(costId) { return Object.keys(monthsOf(costId)).sort(); }
+
   function lastRecordedYm(costId) {
-    var l = monthYms(costId);
+    var l = recordedYms(costId);
     return l.length ? l[l.length - 1] : null;
   }
 
@@ -712,6 +716,7 @@
         // Kostenanalyse und wird daneben angezeigt.
         var man = m[k].manual != null ? m[k].manual : m[k].amount;
         if (Number(man)) monthDraft[k] = String(man);
+        else if (!Number(m[k].amount)) monthDraft[k] = '0';   // bewusst 0 € erfasst
       });
       (rulesByCost[entry.id] || []).forEach(function (r) {
         ruleDraft.push({ id: r.id, pattern: r.pattern, label: r.label, match_type: r.match_type });
@@ -795,12 +800,13 @@
       });
       Object.keys(monthDraft).forEach(function (k) {
         var v = parseFloat(monthDraft[k]);
-        if (isNaN(v) || v === 0) return;
+        if (isNaN(v)) return;
         if (!draft[k]) draft[k] = { auto: 0, manual: 0 };
         draft[k].manual = v;
+        if (v === 0) draft[k].zero = true;   // getippte 0 bleibt als Zeile stehen
       });
       Object.keys(draft).forEach(function (k) {
-        if (!draft[k].auto && !draft[k].manual) delete draft[k];
+        if (!draft[k].auto && !draft[k].manual && !draft[k].zero) delete draft[k];
       });
     }
     var ymKeys = Object.keys(draft).sort();
