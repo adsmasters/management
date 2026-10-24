@@ -86,6 +86,14 @@ Deno.serve(async (req) => {
       (ovRows || []).forEach((r: any) => { if (r.contact_name && r.service) svcOverride[String(r.contact_name).toLowerCase().trim()] = r.service; });
     } catch (_e) { /* Tabelle optional */ }
 
+    // Einzeln ausgeschlossene Rechnungen (revenue_invoice_exclusions). Optional:
+    // fehlt die Tabelle, läuft der Sync ohne Rechnungs-Ausschluss weiter.
+    const excludedVouchers = new Set<string>();
+    try {
+      const { data: exRows } = await sb.from('revenue_invoice_exclusions').select('voucher_id');
+      (exRows || []).forEach((r: any) => { if (r.voucher_id) excludedVouchers.add(String(r.voucher_id)); });
+    } catch (_e) { /* Tabelle optional */ }
+
     // Window: ~2 calendar months back -> 15th of following month. Wide enough to
     // catch quarterly invoices dated at/near their quarter start. Runtime safety
     // no longer depends on a tight window: the newest-first ordering + 120s time
@@ -149,6 +157,8 @@ Deno.serve(async (req) => {
     // Additiv: Umsatz pro Kunde × Service (verändert die map/revenue-Logik NICHT)
     const serviceMap: Record<string, Record<string, number>> = {};
     const debugRows: any[] = [];
+    // Additiv: Einzelrechnungen dieses Monats (revenue_invoices)
+    const invoiceRows: any[] = [];
     let syncIncomplete = false; // true if any invoice detail couldn't be fetched
 
     for (let i = 0; i < allVouchers.length; i++) {
@@ -293,7 +303,17 @@ Deno.serve(async (req) => {
           }
           // Split across months if multi-month service period
           const netAmountForMonth = monthDivisor > 1 ? Math.round(netAmount / monthDivisor * 100) / 100 : netAmount;
-          if (netAmountForMonth > 0) {
+          const voucherKey = String(v.id || v.voucherId || '');
+          const voucherExcluded = excludedVouchers.has(voucherKey);
+          if (netAmountForMonth > 0 && voucherKey) {
+            invoiceRows.push({
+              year: targetYear, month: targetMonth, contact_name: contactName,
+              voucher_id: voucherKey, voucher_number: v.voucherNumber || null,
+              voucher_date: (v.voucherDate || '').substring(0, 10) || null,
+              title: invoiceTitle || null, amount: netAmountForMonth, excluded: voucherExcluded,
+            });
+          }
+          if (netAmountForMonth > 0 && !voucherExcluded) {
             map[contactName] = (map[contactName] || 0) + netAmountForMonth;
             // Service-Aufteilung mit identischem Monats-Split akkumulieren
             if (!serviceMap[contactName]) serviceMap[contactName] = {};
@@ -375,7 +395,7 @@ Deno.serve(async (req) => {
     // dryRun: inspect classification without touching the revenue table
     if (dryRun) {
       return new Response(
-        JSON.stringify({ ok: true, dryRun: true, syncIncomplete, wouldWrite: rows, wouldWriteServices: serviceRows, debug: debugRows }),
+        JSON.stringify({ ok: true, dryRun: true, syncIncomplete, wouldWrite: rows, wouldWriteServices: serviceRows, wouldWriteInvoices: invoiceRows, debug: debugRows }),
         { headers: { ...CORS, 'Content-Type': 'application/json' } }
       );
     }
@@ -408,8 +428,18 @@ Deno.serve(async (req) => {
       }
     } catch (_) { /* Service-Aufteilung optional – Haupt-Sync bleibt gültig */ }
 
+    // Additiv: Einzelrechnungen schreiben (für Rechnungs-Ausschluss in der Profitabilität)
+    let invoiceCount = 0;
+    try {
+      await sb.from('revenue_invoices').delete().eq('year', targetYear).eq('month', targetMonth);
+      if (invoiceRows.length > 0) {
+        const { error: invErr } = await sb.from('revenue_invoices').insert(invoiceRows);
+        if (!invErr) invoiceCount = invoiceRows.length;
+      }
+    } catch (_) { /* optional – Haupt-Sync bleibt gültig */ }
+
     return new Response(
-      JSON.stringify({ ok: true, count: rows.length, serviceCount, timeBudgetHit, processed: debugRows.length, totalVouchers: allVouchers.length, debug: debugRows }),
+      JSON.stringify({ ok: true, count: rows.length, serviceCount, invoiceCount, timeBudgetHit, processed: debugRows.length, totalVouchers: allVouchers.length, debug: debugRows }),
       { headers: { ...CORS, 'Content-Type': 'application/json' } }
     );
 
