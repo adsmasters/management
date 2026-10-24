@@ -308,10 +308,11 @@ td.cell-warn {
   inset: 0;
   background: rgba(0,0,0,.45);
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
   z-index: 1000;
   padding: 16px;
+  overflow-y: auto;   /* hohe Dialoge (Monatsraster) bleiben bis zum Speichern-Button erreichbar */
   backdrop-filter: blur(2px);
 }
 .modal {
@@ -320,6 +321,7 @@ td.cell-warn {
   box-shadow: var(--shadow-md), 0 20px 60px rgba(0,0,0,.2);
   width: 100%;
   max-width: 440px;
+  margin: auto 0;     /* zentriert, solange er passt – sonst oben beginnen */
   animation: modal-in .15s ease;
 }
 @keyframes modal-in {

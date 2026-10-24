@@ -28,7 +28,7 @@ if (!src.includes(SCRIPTS_LIVE)) {
 }
 
 const out = src
-  .replace('<link rel="stylesheet" href="css/style.css">', '<link rel="stylesheet" href="../css/style.css">')
+  .replace(/href="css\/style\.css(\?v=[^"]*)?"/, 'href="../css/style.css?v=' + v + '"')
   .replace('<title>Akquisition – Adsmasters Management</title>', '<title>Test: Akquisition mit Fixture-DB</title>')
   .replace(SCRIPTS_LIVE, SCRIPTS_TEST);
 
